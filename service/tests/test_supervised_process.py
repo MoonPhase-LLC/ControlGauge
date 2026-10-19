@@ -1,5 +1,5 @@
 """Real-process integration tests for the S1-04 supervised entry point
-(`supervised.py`): drives an actual `python -m evidencegraph_service
+(`supervised.py`): drives an actual `python -m controlgauge_service
 --supervised` subprocess over real OS pipes, playing the "Tauri parent"
 role end-to-end -- private-channel framing, the D-025 HTTP challenge, and
 the authenticated `/health` round trip. `test_server_process.py` is this
@@ -33,8 +33,8 @@ from typing import IO, Any
 import httpx
 import pytest
 
-from evidencegraph_service import b64url, protocol
-from evidencegraph_service.challenge import DOMAIN_SEPARATOR
+from controlgauge_service import b64url, protocol
+from controlgauge_service.challenge import DOMAIN_SEPARATOR
 
 _READY_TIMEOUT_SECONDS = 15.0
 _SHORT_TIMEOUT_SECONDS = 5.0
@@ -66,10 +66,10 @@ def _read_frame_with_timeout(stream: IO[bytes], *, timeout: float) -> dict[str, 
 def _spawn() -> subprocess.Popen[bytes]:
     env = dict(os.environ)
     for key in list(env):
-        if key.startswith("EVIDENCEGRAPH_"):
+        if key.startswith("CONTROLGAUGE_"):
             del env[key]
     return subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, no untrusted input
-        [sys.executable, "-m", "evidencegraph_service", "--supervised"],
+        [sys.executable, "-m", "controlgauge_service", "--supervised"],
         env=env,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -217,7 +217,7 @@ def test_full_handshake_and_authenticated_health_round_trip(tauri: _FakeTauri) -
     assert authed.status_code == 200
     assert authed.json() == {
         "status": "ok",
-        "service": "evidencegraph-service",
+        "service": "controlgauge-service",
         "version": "0.1.0",
     }
 

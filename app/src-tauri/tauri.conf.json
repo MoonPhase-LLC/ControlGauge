@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "EvidenceGraph",
+  "productName": "Controlgauge",
   "version": "0.1.0",
-  "identifier": "com.evidencegraph.app",
+  "identifier": "com.controlgauge.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "EvidenceGraph",
+        "title": "Controlgauge",
         "width": 900,
         "height": 640
       }

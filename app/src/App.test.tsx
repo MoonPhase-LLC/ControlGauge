@@ -55,13 +55,13 @@ describe("app shell smoke test", () => {
   it("renders identity, navigation, main content, and the service status", async () => {
     await renderReadyApp();
 
-    expect(screen.getByRole("heading", { level: 1, name: "Welcome to EvidenceGraph" })).toBeVisible();
+    expect(screen.getByRole("heading", { level: 1, name: "Welcome to Controlgauge" })).toBeVisible();
     expect(screen.getByRole("navigation", { name: "Main" })).toBeVisible();
     expect(screen.getByRole("main")).toBeVisible();
     expect(screen.getByText("Assessment features are not available yet")).toBeVisible();
     const section = serviceSection();
     expect(within(section).getByText("Service ready")).toBeVisible();
-    expect(within(section).getByText("evidencegraph-service")).toBeVisible();
+    expect(within(section).getByText("controlgauge-service")).toBeVisible();
     expect(within(section).getByText("0.1.0")).toBeVisible();
   });
 
@@ -84,7 +84,7 @@ describe("app shell smoke test", () => {
     expect(within(section).getByText("Service unavailable")).toBeVisible();
     expect(within(section).getByText(/could not start or stopped unexpectedly/)).toBeVisible();
     expect(within(section).getByText("authenticated_connection_lost")).toBeVisible();
-    expect(within(section).queryByText("evidencegraph-service")).toBeNull();
+    expect(within(section).queryByText("controlgauge-service")).toBeNull();
   });
 });
 
@@ -104,7 +104,7 @@ describe("unavailable navigation", () => {
     await user.keyboard("{Enter}{ }");
 
     expect(item).toHaveFocus();
-    expect(screen.getByRole("heading", { level: 1, name: "Welcome to EvidenceGraph" })).toBeVisible();
+    expect(screen.getByRole("heading", { level: 1, name: "Welcome to Controlgauge" })).toBeVisible();
     expect(ipc.unexpected).toEqual([]);
   });
 });
@@ -145,7 +145,7 @@ describe("health live region", () => {
   it("empties while pending and refills for repeated identical outcomes, in the same element", async () => {
     const { ipc, user } = await renderReadyApp();
     const { health } = liveRegions();
-    const passed = "Health check passed: evidencegraph-service 0.1.0 reported ok.";
+    const passed = "Health check passed: controlgauge-service 0.1.0 reported ok.";
     expect(health).toHaveTextContent(passed);
 
     for (const outcome of ["success", "success", "rejection", "rejection", "success"] as const) {
@@ -174,7 +174,7 @@ describe("health live region", () => {
     expect(status).toHaveTextContent("Service ready");
     expect(health).toHaveTextContent("Health check failed.");
     expect(within(serviceSection()).getByText("health_request_failed")).toBeVisible();
-    expect(within(serviceSection()).queryByText("evidencegraph-service")).toBeNull();
+    expect(within(serviceSection()).queryByText("controlgauge-service")).toBeNull();
   });
 
   it("stays empty when a pending check settles after the service left ready", async () => {

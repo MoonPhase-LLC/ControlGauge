@@ -1,4 +1,4 @@
-# EvidenceGraph — Architecture
+# Controlgauge — Architecture
 
 Status: Sprint 0 draft. Critically evaluates the proposed stack rather than accepting it
 uncritically; see `DECISIONS.md` for the ADRs behind each call made here.

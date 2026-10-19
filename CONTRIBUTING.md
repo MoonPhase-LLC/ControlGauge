@@ -1,4 +1,4 @@
-# Contributing to EvidenceGraph
+# Contributing to Controlgauge
 
 This document covers repository conventions and the toolchain versions the Tauri/Rust +
 React/TypeScript desktop shell (`app/`, since S1-02) and the upcoming Python/FastAPI service
@@ -168,11 +168,11 @@ From the `service/` directory (see `service/README.md` for full detail):
 ```sh
 uv sync                    # install dependencies
 
-# EVIDENCEGRAPH_SESSION_TOKEN must be unpadded Base64URL ASCII (A-Z, a-z, 0-9, -, _),
+# CONTROLGAUGE_SESSION_TOKEN must be unpadded Base64URL ASCII (A-Z, a-z, 0-9, -, _),
 # at least 16 characters -- see service/README.md for the full format rationale.
 # Generate a temporary development credential (never commit or print a production secret):
 #   python -c "import secrets; print(secrets.token_urlsafe(32))"
-EVIDENCEGRAPH_SESSION_TOKEN=<generated-token> uv run evidencegraph-service  # run the service
+CONTROLGAUGE_SESSION_TOKEN=<generated-token> uv run controlgauge-service  # run the service
 
 uv run pytest             # backend test suite
 uv run ruff check .       # lint

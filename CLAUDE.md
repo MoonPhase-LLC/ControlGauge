@@ -1,6 +1,6 @@
-# EvidenceGraph Claude Instructions
+# Controlgauge Claude Instructions
 
-EvidenceGraph is a privacy-first cybersecurity compliance evidence analysis application.
+Controlgauge is a privacy-first cybersecurity compliance evidence analysis application.
 
 Before implementing any feature, read:
 
@@ -55,7 +55,7 @@ Do not:
 
 ## Privacy Rules
 
-EvidenceGraph is local-first.
+Controlgauge is local-first.
 
 Customer evidence must not be transmitted to external AI providers unless a future feature explicitly allows it and the user intentionally enables it.
 

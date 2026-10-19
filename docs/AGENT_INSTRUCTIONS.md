@@ -1,4 +1,4 @@
-# EvidenceGraph — Agent Instructions
+# Controlgauge — Agent Instructions
 
 This file governs all coding agents (Claude Code, OpenAI Codex, or any other) working in this
 repository. It is binding for all future implementation work, not just Sprint 0. See also the

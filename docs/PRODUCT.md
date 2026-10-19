@@ -1,4 +1,4 @@
-# EvidenceGraph — Product Definition
+# Controlgauge — Product Definition
 
 Status: Sprint 0 draft. Subject to product-owner approval.
 
@@ -36,7 +36,7 @@ Secondary (not designed for in V0.1, but should not be architecturally precluded
 
 ## 3. Value Proposition
 
-EvidenceGraph lets an analyst upload a pile of unstructured client evidence and a supported
+Controlgauge lets an analyst upload a pile of unstructured client evidence and a supported
 compliance framework, and get back a **reviewable, provenance-backed set of candidate
 relationships** between that evidence and framework controls — without the evidence ever leaving
 the analyst's computer, and without the tool ever pretending to make the compliance

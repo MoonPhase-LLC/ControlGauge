@@ -15,7 +15,7 @@ export type SupervisorState =
   | { state: "failed"; reason: string }
   | { state: "stopped" };
 
-/** Shape of the authenticated `GET /health` body (`service/src/evidencegraph_service/routes/health.py`). */
+/** Shape of the authenticated `GET /health` body (`service/src/controlgauge_service/routes/health.py`). */
 export type HealthResponse = {
   status: string;
   service: string;

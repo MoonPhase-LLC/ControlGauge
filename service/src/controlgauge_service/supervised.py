@@ -1,6 +1,6 @@
 """Supervised-mode process entry point (S1-04).
 
-`python -m evidencegraph_service --supervised` (see `__main__.py`) -- the
+`python -m controlgauge_service --supervised` (see `__main__.py`) -- the
 mode Tauri actually launches, via an explicit, non-PATH-resolved absolute
 path (`app/src-tauri/src/supervisor/process.rs`). Implements the child's
 half of the full D-018/D-025 startup handshake:
@@ -50,7 +50,7 @@ from .config import Settings
 from .credentials import CredentialStore
 from .logging_config import configure_logging
 
-logger = logging.getLogger("evidencegraph_service.supervised")
+logger = logging.getLogger("controlgauge_service.supervised")
 
 _STARTUP_ERROR_EXIT_CODE = 1
 
@@ -208,7 +208,7 @@ def main() -> None:
                 "outcome": outcome,
             },
             daemon=True,
-            name="evidencegraph-private-channel",
+            name="controlgauge-private-channel",
         )
         protocol_thread.start()
 

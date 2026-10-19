@@ -96,14 +96,14 @@ pub(super) fn resolve_dev() -> Result<(PathBuf, Vec<String>), ProcessError> {
         python,
         vec![
             "-m".to_string(),
-            "evidencegraph_service".to_string(),
+            "controlgauge_service".to_string(),
             "--supervised".to_string(),
         ],
     ))
 }
 
 /// **Production.** The bundled sidecar executable S1-09's packaging step
-/// must place at `<resource_dir>/service/evidencegraph-service[.exe]` --
+/// must place at `<resource_dir>/service/controlgauge-service[.exe]` --
 /// via `tauri.conf.json` `bundle.resources` (plain file copying into the
 /// app's resource directory), deliberately *not* Tauri's `externalBin`/
 /// sidecar-plugin mechanism, so no `tauri-plugin-shell` dependency or
@@ -123,9 +123,9 @@ fn resolve_production(app: &tauri::AppHandle) -> Result<(PathBuf, Vec<String>), 
         .resource_dir()
         .map_err(|_| ProcessError::ResourceDirUnavailable)?;
     let exe_name = if cfg!(windows) {
-        "evidencegraph-service.exe"
+        "controlgauge-service.exe"
     } else {
-        "evidencegraph-service"
+        "controlgauge-service"
     };
     let exe_path = resource_dir.join("service").join(exe_name);
 
@@ -189,6 +189,6 @@ mod tests {
         );
         assert!(python.is_absolute());
         assert!(python.is_file());
-        assert_eq!(args, vec!["-m", "evidencegraph_service", "--supervised"]);
+        assert_eq!(args, vec!["-m", "controlgauge_service", "--supervised"]);
     }
 }

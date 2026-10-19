@@ -1,6 +1,6 @@
 """Runtime configuration for the standalone service process.
 
-Every field is resolved from `EVIDENCEGRAPH_*` environment variables (see
+Every field is resolved from `CONTROLGAUGE_*` environment variables (see
 `docs/SPRINT_1_BACKLOG.md` S1-03: "an env-var ... configurable port with a
 documented default is sufficient" for this ticket) or explicit constructor
 kwargs, so tests can instantiate arbitrary configurations without touching
@@ -9,7 +9,7 @@ the real process environment.
 In supervised (Tauri-launched) mode, S1-04 installs the session token after
 this process has already started, over a private inherited pipe/handle
 channel -- never via an environment variable read at startup
-(`docs/DECISIONS.md` D-009/D-025). `EVIDENCEGRAPH_SESSION_TOKEN` here is
+(`docs/DECISIONS.md` D-009/D-025). `CONTROLGAUGE_SESSION_TOKEN` here is
 only the standalone/test entry point.
 """
 
@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     `has_valid_credential_configured`).
     """
 
-    model_config = SettingsConfigDict(env_prefix="EVIDENCEGRAPH_", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="CONTROLGAUGE_", extra="ignore")
 
     host: str = _REQUIRED_HOST
     port: int = Field(default=DEFAULT_PORT, ge=1, le=65535)

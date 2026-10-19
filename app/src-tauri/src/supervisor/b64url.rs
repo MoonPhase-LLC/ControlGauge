@@ -1,5 +1,5 @@
 //! Unpadded Base64URL (RFC 4648 §5) -- mirrors
-//! `service/src/evidencegraph_service/b64url.py` exactly. The one text
+//! `service/src/controlgauge_service/b64url.py` exactly. The one text
 //! encoding the private-channel/challenge wire protocol uses for
 //! secret-bearing byte fields (startup secret, nonce, challenge response,
 //! session token).

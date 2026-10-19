@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 
-from evidencegraph_service.credentials import CredentialStore
+from controlgauge_service.credentials import CredentialStore
 
 VALID_TOKEN = "test-only-session-token-abcdef12"
 OTHER_VALID_TOKEN = "another-valid-token-zyxwvu9876"

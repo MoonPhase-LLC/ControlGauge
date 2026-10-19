@@ -50,7 +50,7 @@ from starlette.types import ASGIApp
 from .challenge import StartupChallengeState
 from .credentials import CredentialStore
 
-logger = logging.getLogger("evidencegraph_service.auth")
+logger = logging.getLogger("controlgauge_service.auth")
 
 #: Canonical scheme name used both for comparison (case-insensitively, per
 #: RFC 9110 SS11.1: auth-scheme is a token and tokens are matched

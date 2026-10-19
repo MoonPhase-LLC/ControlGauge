@@ -1,4 +1,4 @@
-# EvidenceGraph Desktop Shell
+# Controlgauge Desktop Shell
 
 Tauri v2 desktop application shell with a React + TypeScript frontend
 (Tailwind CSS v4 + shadcn/ui configured). See the root
@@ -16,7 +16,7 @@ architecture it implements. In brief:
 - The child is launched by an explicit absolute path only, never PATH or a
   shell. In a dev build (`npm run tauri dev` / `cargo run` with
   `debug_assertions`), that's `../../service/.venv/Scripts/python.exe -m
-  evidencegraph_service --supervised` -- run `uv sync` in `service/` first
+  controlgauge_service --supervised` -- run `uv sync` in `service/` first
   (see `service/README.md`), or the app fails closed with
   `executable_not_found`. In a release build it's a bundled sidecar
   executable S1-09 has not shipped yet, so release builds intentionally

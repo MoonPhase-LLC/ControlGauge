@@ -15,7 +15,7 @@ test("app shell renders with mocked service status and health", async ({ page })
   await page.goto("/e2e/smoke.html");
 
   // Shell structure.
-  await expect(page.getByRole("heading", { level: 1, name: "Welcome to EvidenceGraph" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Welcome to Controlgauge" })).toBeVisible();
   const nav = page.getByRole("navigation", { name: "Main" });
   await expect(nav).toBeVisible();
   for (const label of ["Assessments", "Settings"]) {
@@ -29,7 +29,7 @@ test("app shell renders with mocked service status and health", async ({ page })
   // Mocked service: ready, with an authenticated health result.
   const service = page.getByRole("region", { name: "Local service" });
   await expect(service.getByText("Service ready")).toBeVisible();
-  await expect(service.getByText("evidencegraph-service", { exact: true })).toBeVisible();
+  await expect(service.getByText("controlgauge-service", { exact: true })).toBeVisible();
   await expect(service.getByText("0.1.0", { exact: true })).toBeVisible();
 
   // The supervisor reports a failure: wording changes, health is cleared.
@@ -41,7 +41,7 @@ test("app shell renders with mocked service status and health", async ({ page })
   );
   await expect(service.getByText("Service unavailable")).toBeVisible();
   await expect(service.getByText("authenticated_connection_lost")).toBeVisible();
-  await expect(service.getByText("evidencegraph-service", { exact: true })).toHaveCount(0);
+  await expect(service.getByText("controlgauge-service", { exact: true })).toHaveCount(0);
 
   // Only the two existing commands were used, and the page logged no errors
   // (including CSP violations).
