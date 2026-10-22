@@ -103,17 +103,17 @@ pub(super) fn resolve_dev() -> Result<(PathBuf, Vec<String>), ProcessError> {
 }
 
 /// **Production.** The bundled sidecar executable S1-09's packaging step
-/// must place at `<resource_dir>/service/evidencegraph-service[.exe]` --
-/// via `tauri.conf.json` `bundle.resources` (plain file copying into the
+/// places at `<resource_dir>/service/evidencegraph-service[.exe]` --
+/// via `tauri.package.conf.json` `bundle.resources` (plain file copying into the
 /// app's resource directory), deliberately *not* Tauri's `externalBin`/
 /// sidecar-plugin mechanism, so no `tauri-plugin-shell` dependency or
 /// ACL/capability entry is needed anywhere in this app for the frontend
 /// to be exposed to (it never is -- this spawn happens entirely in
 /// backend `setup()` code, invoked as an ordinary absolute-path child
-/// process). S1-09 owns actually producing that executable; S1-04 (this
-/// function) only implements resolving it and failing closed if it's
-/// missing -- until S1-09 lands, every release build correctly, expectedly
-/// fails closed here.
+/// process). S1-09's `scripts/package-windows.ps1` produces that
+/// executable (`docs/PACKAGING.md`); this function only resolves it and
+/// fails closed if it's missing, e.g. in a release build made without the
+/// packaging config.
 #[cfg(not(debug_assertions))]
 fn resolve_production(app: &tauri::AppHandle) -> Result<(PathBuf, Vec<String>), ProcessError> {
     use tauri::Manager;
