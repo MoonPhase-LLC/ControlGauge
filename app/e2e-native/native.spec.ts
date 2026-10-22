@@ -27,7 +27,7 @@ test.beforeAll(() => {
   if (running.trim() !== "0") {
     // WebView2 instances sharing a user-data folder share one browser
     // process, so a second DevTools port would be ignored.
-    throw new Error("close the running Controlgauge debug app before running the native smoke test");
+    throw new Error("close the running ControlGauge debug app before running the native smoke test");
   }
 });
 

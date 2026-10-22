@@ -1,27 +1,33 @@
-# Controlgauge
+# ControlGauge
 
-**Local-first cybersecurity compliance management.** Controlgauge helps cybersecurity
-compliance analysts understand how their evidence — policies, procedures, technical
-artifacts, configurations, reports, spreadsheets, logs — relates to cybersecurity framework
-controls, with AI-assisted analysis that stays on the analyst's machine. The first supported
-framework is **NIST SP 800-53 Revision 5**; additional frameworks (NIST Cybersecurity
-Framework, CMMC Level 2) are planned as the project matures.
+**Private AI. Measurable Compliance.**
+
+ControlGauge is a local-first cybersecurity compliance application for analysts. It is being
+built to help them understand how their evidence (policies, procedures, technical artifacts,
+configurations, reports, spreadsheets, logs) relates to cybersecurity framework controls, using
+AI-assisted analysis that stays on the analyst's machine. That AI analysis is planned, not built
+yet; see Project Status. The first framework is **NIST SP 800-53 Revision 5**. Other frameworks
+are out of scope for V0.1, but the architecture must not rule them out (`docs/PRODUCT.md` §6).
+
+ControlGauge was previously named EvidenceGraph. See [`docs/PACKAGING.md`](docs/PACKAGING.md) →
+"Migrating from EvidenceGraph" for existing test installs and developer environments.
 
 ## Design Principles
 
-Controlgauge is built around how compliance work actually needs to work:
+These principles govern the design. The evidence-processing and AI features they describe are
+planned, not implemented yet (see Project Status).
 
-- **Local-first.** Customer evidence is processed, embedded, retrieved against, and evaluated
-  by a locally-run LLM — nothing evidence-bearing is sent to a cloud AI provider. There is no
-  automatic cloud fallback if local inference is unavailable: a failure is surfaced, never
+- **Local-first.** Customer evidence is to be processed, embedded, retrieved against, and
+  evaluated by a locally-run LLM. Nothing evidence-bearing is sent to a cloud AI provider. There
+  is no automatic cloud fallback if local inference is unavailable: a failure is surfaced, never
   silently routed around.
 - **Privacy.** Organizational data stays on the analyst's machine. See `docs/SECURITY.md` for
   the full threat model.
-- **Evidence traceability.** Every AI suggestion carries full provenance (artifact, section,
+- **Evidence traceability.** Every AI suggestion is to carry full provenance (artifact, section,
   control, model, confidence, reasoning, review status).
-- **Human oversight.** The AI suggests candidate relationships between evidence and controls
-  with confidence scores and reasoning; it never independently determines compliance. Every
-  suggestion requires human analyst review.
+- **Human oversight.** The AI is to suggest candidate relationships between evidence and
+  controls, with confidence scores and reasoning. It never independently determines compliance.
+  Every suggestion requires human analyst review.
 - **Auditability and extensibility.** A clear audit trail, a modular architecture, and
   framework logic that is not hardcoded around a single standard.
 - **Untrusted input by default.** Uploaded documents, imported models, and LLM output are
@@ -66,7 +72,7 @@ and `docs/OPEN_QUESTIONS.md` for decisions still pending product-owner input.
 | AI-suggested evidence ↔ control mappings with human review workflow | Planned |
 | SQLite persistence for artifacts, controls, findings | Planned |
 | NIST SP 800-53 Rev 5 framework support | First framework; loading/evaluation work planned |
-| Additional frameworks (NIST CSF, CMMC L2) | Planned |
+| Additional frameworks | Out of scope for V0.1; architecture must not preclude them (`docs/PRODUCT.md` §6) |
 | Packaged installer distribution | S1-09 spike, then Sprint 16 |
 
 ## Getting Started
@@ -141,12 +147,12 @@ every PR to `main`; the native smoke test is deliberately run locally only — s
 
 ```sh
 # from app/
-npm run tauri build       # release build + installer
+npm run tauri build       # release build only, without the bundled service
 ```
 
-Release-mode supervision expects a bundled sidecar executable that the S1-09 spike has not
-shipped yet, so packaged builds intentionally fail closed today (they do not silently
-degrade). Dev-mode supervision (above) is the supported way to run the product.
+A release build needs the frozen service bundled next to `app.exe`, and fails closed without it.
+To build the Windows installer with the service included, run `scripts/package-windows.ps1`
+(see [`docs/PACKAGING.md`](docs/PACKAGING.md)).
 
 ## Repository Structure
 

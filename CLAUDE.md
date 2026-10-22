@@ -1,6 +1,6 @@
-# Controlgauge Claude Instructions
+# ControlGauge Claude Instructions
 
-Controlgauge is a privacy-first cybersecurity compliance evidence analysis application.
+ControlGauge is a privacy-first cybersecurity compliance evidence analysis application.
 
 Before implementing any feature, read:
 
@@ -55,7 +55,7 @@ Do not:
 
 ## Privacy Rules
 
-Controlgauge is local-first.
+ControlGauge is local-first.
 
 Customer evidence must not be transmitted to external AI providers unless a future feature explicitly allows it and the user intentionally enables it.
 

@@ -10,7 +10,7 @@ packaging: there is no code signing, auto-update, installer customization or non
 
 | Item | Value |
 |---|---|
-| Package format | NSIS installer (`Controlgauge_<version>_x64-setup.exe`), Tauri's default per-user install mode: no administrator rights, installs to `%LOCALAPPDATA%\Controlgauge` |
+| Package format | NSIS installer (`ControlGauge_<version>_x64-setup.exe`), Tauri's default per-user install mode: no administrator rights, installs to `%LOCALAPPDATA%\ControlGauge` |
 | Installed layout | `app.exe` (Tauri host), `uninstall.exe`, `service\controlgauge-service.exe` + `service\_internal\` (frozen Python service) |
 | Size (S1-09 build) | Installer 13.0 MB; installed 83 files, 32.7 MB (service 28.1 MB) |
 | Signing | Unsigned. Windows SmartScreen may warn on first run |
@@ -63,6 +63,40 @@ isolated environment, then rejects the bundle if any build or dev package is ins
   install directory adds no new exposure. A per-machine install under `Program Files`, which only
   administrators can modify, is a Sprint 16 decision.
 
+## Migrating from EvidenceGraph
+
+ControlGauge was previously named EvidenceGraph.
+
+**Existing S1-09 test installs.** The ControlGauge installer does not upgrade an EvidenceGraph
+install. The Tauri NSIS installer derives the install directory
+(`%LOCALAPPDATA%\<productName>`) and the uninstall registry entry from the product name, and the
+app identifier changed from `com.evidencegraph.app` to `com.controlgauge.app`. The ControlGauge
+build therefore installs alongside the old one, in `%LOCALAPPDATA%\ControlGauge`. Uninstall
+EvidenceGraph from Windows Settings → Apps to avoid two copies. Its WebView2 profile,
+`%LOCALAPPDATA%\com.evidencegraph.app`, may be left behind and can be deleted. It holds no
+evidence, because the app does not handle evidence yet.
+
+**Developer environments.** The service's environment prefix changed from `EVIDENCEGRAPH_` to
+`CONTROLGAUGE_` (`service/src/controlgauge_service/config.py`). Rename these variables in shells
+and scripts:
+
+| Old | New |
+|---|---|
+| `EVIDENCEGRAPH_HOST` | `CONTROLGAUGE_HOST` |
+| `EVIDENCEGRAPH_PORT` | `CONTROLGAUGE_PORT` |
+| `EVIDENCEGRAPH_ENVIRONMENT` | `CONTROLGAUGE_ENVIRONMENT` |
+| `EVIDENCEGRAPH_SESSION_TOKEN` | `CONTROLGAUGE_SESSION_TOKEN` |
+
+The old names are no longer read. A leftover `EVIDENCEGRAPH_SESSION_TOKEN` therefore leaves the
+standalone service with no token, and it rejects every request (fail closed). The Python package
+(`controlgauge_service`) and console script (`controlgauge-service`) were renamed too, so run
+`uv sync` in `service/` once after updating.
+
+**Kept on purpose.** The startup-challenge HMAC domain separator stays
+`EvidenceGraph-S1-04-startup-challenge-v1` (`challenge.py`, `challenge.rs`). It is a versioned
+security-protocol constant that users never see, not branding. Changing it changes every
+challenge response, so it belongs in a deliberate protocol version change, not a rename.
+
 ## Build
 
 On Windows, with the development prerequisites from `CONTRIBUTING.md` (Rust via rustup, Node,
@@ -79,7 +113,7 @@ The script:
 4. runs `npm ci`, then `npm run tauri build -- --config src-tauri/tauri.package.conf.json`;
 5. prints the installer path, size and SHA-256.
 
-Output: `app/src-tauri/target/release/bundle/nsis/Controlgauge_0.1.0_x64-setup.exe`. All build
+Output: `app/src-tauri/target/release/bundle/nsis/ControlGauge_0.1.0_x64-setup.exe`. All build
 output is under git-ignored `build/`, `dist/` and `target/` directories, so no binaries are
 committed.
 
@@ -146,10 +180,16 @@ looked like. Those need a screenshot.
 
 ## S1-09 results
 
+These results predate the rename to ControlGauge. The tested build used the EvidenceGraph
+identity: installer `EvidenceGraph_0.1.0_x64-setup.exe`, install directory
+`%LOCALAPPDATA%\EvidenceGraph`, app identifier `com.evidencegraph.app`, service executable
+`service\evidencegraph-service.exe`. The names and hashes below are as originally recorded for
+that build.
+
 Build under test: commit `3ab1b4a`, installer SHA-256
 `748B9E658F273D954CCF331ADEFD6AF98575963B26AFE43310380ED493155AF2` (12,996,163 bytes).
 Installed `app.exe` SHA-256 `923BD1B949ADFD6424B66B70FB0597576706910D4A2714B450D957613FD928E8`;
-`service\controlgauge-service.exe` SHA-256
+`service\evidencegraph-service.exe` SHA-256
 `C1C5F9F444E52355E1AD13777717DFEAFFCB8DCBD9EA879EA4A7516B2D8A2ED8`.
 
 **Development machine (not clean-machine evidence).** This was Windows 11 Home 10.0.26200,
