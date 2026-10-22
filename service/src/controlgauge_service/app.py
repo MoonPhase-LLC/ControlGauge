@@ -36,7 +36,7 @@ from .routes.challenge import CHALLENGE_PATH
 from .routes.challenge import router as challenge_router
 from .routes.health import router as health_router
 
-logger = logging.getLogger("evidencegraph_service")
+logger = logging.getLogger("controlgauge_service")
 
 
 def create_app(
@@ -60,7 +60,7 @@ def create_app(
     )
 
     app = FastAPI(
-        title="EvidenceGraph Local Service",
+        title="Controlgauge Local Service",
         version="0.1.0",
         debug=False,
         docs_url="/docs" if docs_enabled else None,
@@ -122,7 +122,7 @@ def create_app(
             extra={
                 "hint": (
                     "every request will be rejected until "
-                    "EVIDENCEGRAPH_SESSION_TOKEN is set (standalone mode) or a "
+                    "CONTROLGAUGE_SESSION_TOKEN is set (standalone mode) or a "
                     "supervising process installs one (S1-04)"
                 )
             },

@@ -2,7 +2,7 @@
 
 Unlike the rest of this suite, these tests exercise a *real* Uvicorn server
 listening on a real loopback socket, started via `python -m
-evidencegraph_service` (exactly the advertised module entry point) as a
+controlgauge_service` (exactly the advertised module entry point) as a
 subprocess -- not `fastapi.testclient.TestClient`, which talks to the ASGI
 app in-process and never goes through real HTTP/1.1 request-line parsing or
 a real socket at all. The bug this guards against only reproduces over a
@@ -133,18 +133,18 @@ def _spawn_service(*, session_token: str | None) -> tuple[int, subprocess.Popen[
     port = _free_loopback_port()
     env = dict(os.environ)
     for key in list(env):
-        if key.startswith("EVIDENCEGRAPH_"):
+        if key.startswith("CONTROLGAUGE_"):
             del env[key]
-    env["EVIDENCEGRAPH_HOST"] = "127.0.0.1"
-    env["EVIDENCEGRAPH_PORT"] = str(port)
+    env["CONTROLGAUGE_HOST"] = "127.0.0.1"
+    env["CONTROLGAUGE_PORT"] = str(port)
     if session_token is not None:
-        env["EVIDENCEGRAPH_SESSION_TOKEN"] = session_token
+        env["CONTROLGAUGE_SESSION_TOKEN"] = session_token
 
-    # The advertised `python -m evidencegraph_service` entry point (S1-03
+    # The advertised `python -m controlgauge_service` entry point (S1-03
     # review finding #5) -- exercised here for its own sake as well as to
     # get a real Uvicorn process.
     process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, no untrusted input
-        [sys.executable, "-m", "evidencegraph_service"],
+        [sys.executable, "-m", "controlgauge_service"],
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -247,7 +247,7 @@ def test_malformed_host_does_not_block_a_correctly_authenticated_request(
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
-        "service": "evidencegraph-service",
+        "service": "controlgauge-service",
         "version": "0.1.0",
     }
 
@@ -262,7 +262,7 @@ def test_ordinary_valid_authenticated_request_still_works(
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
-        "service": "evidencegraph-service",
+        "service": "controlgauge-service",
         "version": "0.1.0",
     }
 

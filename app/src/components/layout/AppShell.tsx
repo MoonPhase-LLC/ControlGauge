@@ -27,7 +27,7 @@ export function AppShell({
       <aside className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-3 border-b border-sidebar-border bg-sidebar px-4 py-3 text-sidebar-foreground md:w-60 md:flex-col md:flex-nowrap md:items-stretch md:gap-6 md:border-r md:border-b-0 md:px-3 md:py-5">
         <div className="flex items-center gap-2 px-2 text-base font-semibold tracking-tight">
           <Waypoints aria-hidden="true" className="size-5 text-sidebar-primary" />
-          <span>EvidenceGraph</span>
+          <span>Controlgauge</span>
         </div>
         {navigation}
         {sidebarFooter && (

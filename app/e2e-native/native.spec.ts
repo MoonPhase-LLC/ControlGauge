@@ -27,7 +27,7 @@ test.beforeAll(() => {
   if (running.trim() !== "0") {
     // WebView2 instances sharing a user-data folder share one browser
     // process, so a second DevTools port would be ignored.
-    throw new Error("close the running EvidenceGraph debug app before running the native smoke test");
+    throw new Error("close the running Controlgauge debug app before running the native smoke test");
   }
 });
 
@@ -46,12 +46,12 @@ async function freeLoopbackPort(): Promise<number> {
   });
 }
 
-/** PIDs of every evidencegraph_service process descended from `rootPid`. */
+/** PIDs of every controlgauge_service process descended from `rootPid`. */
 function servicePids(rootPid: number): number[] {
   const out = powershell(
     `$all = Get-CimInstance Win32_Process; $ids = @(${rootPid}); $found = @();
      do { $next = @($all | Where-Object { $ids -contains $_.ParentProcessId }); $ids = @($next | ForEach-Object ProcessId);
-          $found += @($next | Where-Object { $_.CommandLine -like '*evidencegraph_service*' } | ForEach-Object ProcessId) } while ($next.Count -gt 0);
+          $found += @($next | Where-Object { $_.CommandLine -like '*controlgauge_service*' } | ForEach-Object ProcessId) } while ($next.Count -gt 0);
      $found -join ','`,
   ).trim();
   return out ? out.split(",").map(Number) : [];
@@ -142,7 +142,7 @@ test("real app: supervised service reaches ready with authenticated health, and 
   try {
     const service = launched.page.getByRole("region", { name: "Local service" });
     await expect(service.getByText("Service ready")).toBeVisible({ timeout: 30_000 });
-    await expect(service.getByText("evidencegraph-service", { exact: true })).toBeVisible();
+    await expect(service.getByText("controlgauge-service", { exact: true })).toBeVisible();
 
     const children = servicePids(launched.app.pid!);
     expect(children.length).toBeGreaterThan(0);
@@ -167,7 +167,7 @@ test("real app: service crash revokes readiness and clears health", async () => 
     execFileSync("taskkill.exe", ["/F", "/PID", String(children[children.length - 1])], { stdio: "ignore" });
 
     await expect(service.getByText("Service unavailable")).toBeVisible({ timeout: 10_000 });
-    await expect(service.getByText("evidencegraph-service", { exact: true })).toHaveCount(0);
+    await expect(service.getByText("controlgauge-service", { exact: true })).toHaveCount(0);
 
     expect(await closeGracefully(launched)).toBe(0);
     expect(alive(children)).toEqual([]);

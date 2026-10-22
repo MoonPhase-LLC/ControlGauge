@@ -1,6 +1,6 @@
 //! D-025 domain-separated HMAC-SHA-256 startup identity challenge (S1-04)
 //! -- Tauri's (parent) half. Mirrors
-//! `service/src/evidencegraph_service/challenge.py` byte-for-byte; that
+//! `service/src/controlgauge_service/challenge.py` byte-for-byte; that
 //! module's docstring is the canonical description of the exact byte
 //! construction:
 //!
@@ -21,17 +21,17 @@ use sha2::Sha256;
 type HmacSha256 = Hmac<Sha256>;
 
 /// Fixed ASCII domain separator. Must match
-/// `evidencegraph_service.challenge.DOMAIN_SEPARATOR` exactly.
-pub const DOMAIN_SEPARATOR: &[u8] = b"EvidenceGraph-S1-04-startup-challenge-v1";
+/// `controlgauge_service.challenge.DOMAIN_SEPARATOR` exactly.
+pub const DOMAIN_SEPARATOR: &[u8] = b"Controlgauge-S1-04-startup-challenge-v1";
 const FIELD_SEPARATOR: u8 = 0x00;
 
 /// Exact required decoded length of a challenge response -- the SHA-256
-/// digest size, matching `evidencegraph_service.challenge.RESPONSE_LENGTH`
+/// digest size, matching `controlgauge_service.challenge.RESPONSE_LENGTH`
 /// (S1-04 review finding 5: "require a 32-byte decoded HMAC response").
 pub const RESPONSE_LENGTH: usize = 32;
 
 /// The exact string both sides must byte-for-byte agree on for a given
-/// bound endpoint. Matches `evidencegraph_service.challenge.
+/// bound endpoint. Matches `controlgauge_service.challenge.
 /// canonical_endpoint`.
 pub fn canonical_endpoint(host: &str, port: u16) -> String {
     format!("{host}:{port}")

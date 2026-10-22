@@ -1,4 +1,4 @@
-# EvidenceGraph — AI Pipeline
+# Controlgauge — AI Pipeline
 
 Status: Sprint 0 draft. Defines the pipeline architecture and the structured output schema.
 Implementation tickets should follow this document; deviations must be explained first per

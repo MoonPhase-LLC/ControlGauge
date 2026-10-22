@@ -1,4 +1,4 @@
-# EvidenceGraph — Compliance Model
+# Controlgauge — Compliance Model
 
 Status: Sprint 0 draft. This defines the conceptual data/relationship model for compliance
 reasoning. It is framework-agnostic; NIST 800-53-specific content lives under `/frameworks`.

@@ -14,7 +14,7 @@ def test_health_with_valid_credential_returns_200_and_expected_shape(
     body = response.json()
     assert body == {
         "status": "ok",
-        "service": "evidencegraph-service",
+        "service": "controlgauge-service",
         "version": "0.1.0",
     }
 

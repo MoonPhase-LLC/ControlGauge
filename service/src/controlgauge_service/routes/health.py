@@ -12,7 +12,7 @@ from fastapi import APIRouter
 
 router = APIRouter()
 
-SERVICE_NAME = "evidencegraph-service"
+SERVICE_NAME = "controlgauge-service"
 SERVICE_VERSION = "0.1.0"
 
 

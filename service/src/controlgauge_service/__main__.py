@@ -1,10 +1,10 @@
-"""`python -m evidencegraph_service` entry point.
+"""`python -m controlgauge_service` entry point.
 
 Two modes, dispatched purely on the presence of a `--supervised` CLI flag
 (never a secret -- "environment variables and CLI arguments must not
 contain the startup secret or session token", S1-04):
 
-- No flag: delegates to the exact same `main()` the `evidencegraph-service`
+- No flag: delegates to the exact same `main()` the `controlgauge-service`
   console script uses (see `pyproject.toml` `[project.scripts]`), so the
   standalone entry points can never diverge in startup/configuration
   behavior -- there is only one implementation of standalone `main()`.

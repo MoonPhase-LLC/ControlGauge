@@ -1,4 +1,4 @@
-# S1-09: collect diagnostics from an INSTALLED EvidenceGraph package.
+# S1-09: collect diagnostics from an INSTALLED Controlgauge package.
 #
 # Use this when validate-installed-windows.ps1 fails, or to record what an
 # installed app does. Needs only Windows PowerShell 5.1 (stock Windows): no
@@ -22,11 +22,11 @@
 #
 # Privacy: no environment variable values, no protocol traffic, no
 # credentials. UI text and command lines pass through a filter that hides
-# long token-like strings. Only the names of EVIDENCEGRAPH_*/WEBVIEW2_*
+# long token-like strings. Only the names of CONTROLGAUGE_*/WEBVIEW2_*
 # variables are recorded, because they can change behavior.
 
 param(
-    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'EvidenceGraph'),
+    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Controlgauge'),
     [int]$ObserveSeconds = 45,
     [string]$ReportPath = (Join-Path $PSScriptRoot ("s1-09-diagnostics-{0}.txt" -f (Get-Date -Format 'yyyyMMdd-HHmmss')))
 )
@@ -59,13 +59,13 @@ try {
 
 # --- Environment -----------------------------------------------------------
 $os = Get-CimInstance Win32_OperatingSystem
-Log "EvidenceGraph S1-09 diagnostics, started $(Get-Date -Format o)"
+Log "Controlgauge S1-09 diagnostics, started $(Get-Date -Format o)"
 Log "OS: $($os.Caption) $($os.Version) build $($os.BuildNumber), $([Environment]::Is64BitOperatingSystem -as [string]) 64-bit"
 Log "Elevated: $(([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))"
 $wv = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue
 if ($null -eq $wv) { $wv = Get-ItemProperty 'HKCU:\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue }
 Log "WebView2 runtime: $(if ($wv) { $wv.pv } else { 'NOT FOUND (the app cannot render without it)' })"
-$relevantVars = @(Get-ChildItem Env: | Where-Object { $_.Name -like 'EVIDENCEGRAPH_*' -or $_.Name -like 'WEBVIEW2_*' } | ForEach-Object { $_.Name })
+$relevantVars = @(Get-ChildItem Env: | Where-Object { $_.Name -like 'CONTROLGAUGE_*' -or $_.Name -like 'WEBVIEW2_*' } | ForEach-Object { $_.Name })
 Log "Behavior-relevant environment variable NAMES (values not recorded): $(if ($relevantVars) { $relevantVars -join ', ' } else { 'none' })"
 $up = @(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' } | ForEach-Object { $_.Name })
 Log "Network adapters Up: $(if ($up) { $up -join ', ' } else { 'none' })"
@@ -73,7 +73,7 @@ Log "UI Automation available: $uiaAvailable"
 
 # --- Installation ----------------------------------------------------------
 Log "Install directory: $InstallDir (exists: $(Test-Path $InstallDir))"
-$serviceExe = Join-Path $InstallDir 'service\evidencegraph-service.exe'
+$serviceExe = Join-Path $InstallDir 'service\controlgauge-service.exe'
 $appCandidates = @(Get-ChildItem $InstallDir -Filter '*.exe' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike 'uninstall*' })
 foreach ($f in @($appCandidates) + @(Get-Item $serviceExe -ErrorAction SilentlyContinue)) {
     Log ("  {0}  {1} bytes  SHA-256 {2}" -f $f.FullName, $f.Length, (Get-FileHash $f.FullName -Algorithm SHA256).Hash)
@@ -88,7 +88,7 @@ if (Test-Path $internal) {
 } else {
     Log "  service\_internal MISSING"
 }
-$dataDir = Join-Path $env:LOCALAPPDATA 'com.evidencegraph.app'
+$dataDir = Join-Path $env:LOCALAPPDATA 'com.controlgauge.app'
 Log "App data directory (WebView2 profile only, not logs): $dataDir (exists: $(Test-Path $dataDir))"
 Log "Persistent app/service logs: none. The release build writes no log files (see the script header)."
 
@@ -99,7 +99,7 @@ if ($appCandidates.Count -ne 1) {
 $appExe = $appCandidates[0].FullName
 $already = @(Get-Process | Where-Object { $_.Path -eq $appExe })
 if ($already.Count -gt 0) {
-    Log "An EvidenceGraph app is already running (PID $($already.Id -join ', ')). Close it and run again. Stopping."
+    Log "An Controlgauge app is already running (PID $($already.Id -join ', ')). Close it and run again. Stopping."
     Save; Write-Host "Report: $ReportPath"; exit 1
 }
 
@@ -238,14 +238,14 @@ function Get-PeSubsystem([string]$path) {
     switch ($sub) { 2 { 'GUI (no console streams)' } 3 { 'console' } default { "other ($sub)" } }
 }
 Log "app.exe PE subsystem: $(Get-PeSubsystem $appExe)"
-if (Test-Path $serviceExe) { Log "evidencegraph-service.exe PE subsystem: $(Get-PeSubsystem $serviceExe)" }
+if (Test-Path $serviceExe) { Log "controlgauge-service.exe PE subsystem: $(Get-PeSubsystem $serviceExe)" }
 Log 'stdout/stderr: not available. app.exe is a GUI program with no console streams, and in release builds it'
 Log 'discards the service stderr it reads. The service''s stdin/stdout carry the private startup protocol'
 Log 'and are not intercepted. A console host (conhost.exe) under the service is normal for a console program.'
 
 # --- Windows events ----------------------------------------------------------
 Log ''
-$names = 'app.exe|evidencegraph-service.exe|msedgewebview2.exe|EvidenceGraph'
+$names = 'app.exe|controlgauge-service.exe|msedgewebview2.exe|Controlgauge'
 try {
     $events = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = $launchTime.AddSeconds(-5) } -ErrorAction Stop |
         Where-Object { $_.ProviderName -in @('Application Error', 'Windows Error Reporting', 'Application Hang', '.NET Runtime', 'SideBySide') -and $_.Message -match $names })
@@ -261,14 +261,14 @@ try {
 try {
     $defender = @(Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1116, 1117, 1118, 1119; StartTime = $t0.AddHours(-24) } -ErrorAction Stop |
         Where-Object { $_.Message -match $names })
-    Log "Microsoft Defender detections mentioning EvidenceGraph files (last 24 h): $($defender.Count)"
+    Log "Microsoft Defender detections mentioning Controlgauge files (last 24 h): $($defender.Count)"
     foreach ($e in $defender) { Log ("  {0:o} id {1}: {2}" -f $e.TimeCreated, $e.Id, (($e.Message -split "`r?`n") | Select-Object -First 6) -join ' / ') }
 } catch {
-    if ($_.Exception.Message -match 'No events were found') { Log 'Microsoft Defender detections mentioning EvidenceGraph files (last 24 h): 0' }
+    if ($_.Exception.Message -match 'No events were found') { Log 'Microsoft Defender detections mentioning Controlgauge files (last 24 h): 0' }
     else { Log "Could not read the Defender log (may need administrator rights): $($_.Exception.Message)" }
 }
 $werDirs = @("$env:LOCALAPPDATA\Microsoft\Windows\WER\ReportArchive", "$env:LOCALAPPDATA\Microsoft\Windows\WER\ReportQueue")
-$wer = @(Get-ChildItem $werDirs -Directory -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $launchTime.AddSeconds(-5) -and $_.Name -match 'app\.exe|evidencegraph|msedgewebview2' })
+$wer = @(Get-ChildItem $werDirs -Directory -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $launchTime.AddSeconds(-5) -and $_.Name -match 'app\.exe|controlgauge|msedgewebview2' })
 Log "Windows Error Reporting folders created since launch: $(if ($wer) { ($wer | ForEach-Object { $_.FullName }) -join ', ' } else { 'none' })"
 
 Log ''

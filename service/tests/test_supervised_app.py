@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from evidencegraph_service import b64url
-from evidencegraph_service.app import create_app
-from evidencegraph_service.challenge import StartupChallengeState
-from evidencegraph_service.config import Settings
-from evidencegraph_service.credentials import CredentialStore
-from evidencegraph_service.routes.challenge import CHALLENGE_PATH
+from controlgauge_service import b64url
+from controlgauge_service.app import create_app
+from controlgauge_service.challenge import StartupChallengeState
+from controlgauge_service.config import Settings
+from controlgauge_service.credentials import CredentialStore
+from controlgauge_service.routes.challenge import CHALLENGE_PATH
 
 SECRET = bytes(range(32))
 HOST = "127.0.0.1"

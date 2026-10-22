@@ -11,9 +11,9 @@ export function HomeScreen({ service }: { service: LocalService }) {
   return (
     <div className="flex flex-col gap-10">
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Welcome to EvidenceGraph</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Welcome to Controlgauge</h1>
         <p className="max-w-prose text-muted-foreground">
-          EvidenceGraph is a local-first tool for analyzing cybersecurity compliance evidence
+          Controlgauge is a local-first tool for analyzing cybersecurity compliance evidence
           against framework controls.
         </p>
       </header>

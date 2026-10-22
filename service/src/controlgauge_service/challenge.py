@@ -1,6 +1,6 @@
 """D-025 domain-separated HMAC-SHA-256 startup identity challenge (S1-04)
 -- Tauri's (parent) half. Mirrors
-`service/src/evidencegraph_service/challenge.py` byte-for-byte; that
+`service/src/controlgauge_service/challenge.py` byte-for-byte; that
 module's docstring is the canonical description of the exact byte
 construction:
 
@@ -68,7 +68,7 @@ from . import b64url
 
 #: Fixed ASCII domain separator -- see module docstring for the exact byte
 #: construction this participates in.
-DOMAIN_SEPARATOR = b"EvidenceGraph-S1-04-startup-challenge-v1"
+DOMAIN_SEPARATOR = b"Controlgauge-S1-04-startup-challenge-v1"
 _FIELD_SEPARATOR = b"\x00"
 
 #: Exact required decoded lengths -- part of S1-04's strict wire schema.

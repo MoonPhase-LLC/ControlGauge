@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from evidencegraph_service import b64url
+from controlgauge_service import b64url
 
 
 def test_round_trip() -> None:

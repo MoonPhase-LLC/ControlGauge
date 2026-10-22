@@ -5,7 +5,7 @@ import secrets
 import pytest
 from pydantic import ValidationError
 
-from evidencegraph_service.config import DEFAULT_PORT, MIN_SESSION_TOKEN_LENGTH, Settings
+from controlgauge_service.config import DEFAULT_PORT, MIN_SESSION_TOKEN_LENGTH, Settings
 
 
 def test_default_host_is_loopback() -> None:
@@ -178,10 +178,10 @@ def test_malformed_credential_repr_never_exposes_the_raw_value() -> None:
 def test_settings_reads_from_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     """The documented standalone-mode configuration path (S1-03): env vars,
     not CLI/Tauri-delivered secrets."""
-    monkeypatch.setenv("EVIDENCEGRAPH_HOST", "127.0.0.1")
-    monkeypatch.setenv("EVIDENCEGRAPH_PORT", "9000")
-    monkeypatch.setenv("EVIDENCEGRAPH_ENVIRONMENT", "development")
-    monkeypatch.setenv("EVIDENCEGRAPH_SESSION_TOKEN", "env-supplied-token-1234567890")
+    monkeypatch.setenv("CONTROLGAUGE_HOST", "127.0.0.1")
+    monkeypatch.setenv("CONTROLGAUGE_PORT", "9000")
+    monkeypatch.setenv("CONTROLGAUGE_ENVIRONMENT", "development")
+    monkeypatch.setenv("CONTROLGAUGE_SESSION_TOKEN", "env-supplied-token-1234567890")
 
     settings = Settings()
 

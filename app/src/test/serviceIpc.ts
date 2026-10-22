@@ -25,7 +25,7 @@ export function deferred<T>(): Deferred<T> {
 
 export const HEALTHY: HealthResponse = {
   status: "ok",
-  service: "evidencegraph-service",
+  service: "controlgauge-service",
   version: "0.1.0",
 };
 

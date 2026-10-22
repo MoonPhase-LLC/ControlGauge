@@ -5,7 +5,7 @@ import struct
 
 import pytest
 
-from evidencegraph_service import b64url, protocol
+from controlgauge_service import b64url, protocol
 
 VALID_SECRET = b64url.encode(bytes(range(32)))
 VALID_TOKEN = "test-only-session-token-abcdef12"

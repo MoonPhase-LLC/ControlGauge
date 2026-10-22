@@ -1,7 +1,7 @@
 [project]
-name = "evidencegraph-service"
+name = "controlgauge-service"
 version = "0.1.0"
-description = "EvidenceGraph local analysis service (Python/FastAPI, loopback-only, session-token authenticated)."
+description = "Controlgauge local analysis service (Python/FastAPI, loopback-only, session-token authenticated)."
 authors = [
     { name = "Mahin Moon", email = "124702885+Xirro9@users.noreply.github.com" }
 ]
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-evidencegraph-service = "evidencegraph_service:main"
+controlgauge-service = "controlgauge_service:main"
 
 [build-system]
 requires = ["uv_build>=0.12.7,<0.13.0"]
