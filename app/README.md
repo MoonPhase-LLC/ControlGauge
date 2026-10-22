@@ -1,4 +1,4 @@
-# Controlgauge Desktop Shell
+# ControlGauge Desktop Shell
 
 Tauri v2 desktop application shell with a React + TypeScript frontend
 (Tailwind CSS v4 + shadcn/ui configured). See the root

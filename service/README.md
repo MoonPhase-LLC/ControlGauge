@@ -1,4 +1,4 @@
-# Controlgauge Local Service
+# ControlGauge Local Service
 
 Standalone Python/FastAPI local analysis service skeleton. Bound to exactly `127.0.0.1` -- the
 documented S1-03 bind contract (`docs/SPRINT_1_BACKLOG.md` S1-03, `docs/ARCHITECTURE.md` §4,

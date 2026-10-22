@@ -1,4 +1,4 @@
-# Controlgauge — Architecture Decision Log
+# ControlGauge — Architecture Decision Log
 
 Lightweight ADR-style entries. Each decision: context, decision, consequences, status. Add new
 entries at the bottom; do not renumber or delete past entries even if later superseded — mark them

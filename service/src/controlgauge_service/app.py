@@ -60,7 +60,7 @@ def create_app(
     )
 
     app = FastAPI(
-        title="Controlgauge Local Service",
+        title="ControlGauge Local Service",
         version="0.1.0",
         debug=False,
         docs_url="/docs" if docs_enabled else None,

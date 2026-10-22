@@ -15,7 +15,7 @@ test("app shell renders with mocked service status and health", async ({ page })
   await page.goto("/e2e/smoke.html");
 
   // Shell structure.
-  await expect(page.getByRole("heading", { level: 1, name: "Welcome to Controlgauge" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Welcome to ControlGauge" })).toBeVisible();
   const nav = page.getByRole("navigation", { name: "Main" });
   await expect(nav).toBeVisible();
   for (const label of ["Assessments", "Settings"]) {

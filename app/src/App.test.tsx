@@ -55,7 +55,7 @@ describe("app shell smoke test", () => {
   it("renders identity, navigation, main content, and the service status", async () => {
     await renderReadyApp();
 
-    expect(screen.getByRole("heading", { level: 1, name: "Welcome to Controlgauge" })).toBeVisible();
+    expect(screen.getByRole("heading", { level: 1, name: "Welcome to ControlGauge" })).toBeVisible();
     expect(screen.getByRole("navigation", { name: "Main" })).toBeVisible();
     expect(screen.getByRole("main")).toBeVisible();
     expect(screen.getByText("Assessment features are not available yet")).toBeVisible();
@@ -104,7 +104,7 @@ describe("unavailable navigation", () => {
     await user.keyboard("{Enter}{ }");
 
     expect(item).toHaveFocus();
-    expect(screen.getByRole("heading", { level: 1, name: "Welcome to Controlgauge" })).toBeVisible();
+    expect(screen.getByRole("heading", { level: 1, name: "Welcome to ControlGauge" })).toBeVisible();
     expect(ipc.unexpected).toEqual([]);
   });
 });

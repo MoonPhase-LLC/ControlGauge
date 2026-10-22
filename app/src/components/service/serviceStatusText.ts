@@ -41,7 +41,7 @@ export function describeServiceStatus(status: SupervisorState): ServiceStatusTex
         tone: "unavailable",
         label: "Service unavailable",
         description:
-          "The local analysis service is not running. It either could not start or stopped unexpectedly. Restart Controlgauge to try again.",
+          "The local analysis service is not running. It either could not start or stopped unexpectedly. Restart ControlGauge to try again.",
         technicalReason: status.reason,
       };
     case "stopped":

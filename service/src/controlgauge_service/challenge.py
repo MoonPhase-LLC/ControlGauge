@@ -67,8 +67,9 @@ from hashlib import sha256
 from . import b64url
 
 #: Fixed ASCII domain separator -- see module docstring for the exact byte
-#: construction this participates in.
-DOMAIN_SEPARATOR = b"Controlgauge-S1-04-startup-challenge-v1"
+#: construction this participates in. It keeps the product's former name on
+#: purpose: it is a versioned protocol constant, not branding (`docs/PACKAGING.md`).
+DOMAIN_SEPARATOR = b"EvidenceGraph-S1-04-startup-challenge-v1"
 _FIELD_SEPARATOR = b"\x00"
 
 #: Exact required decoded lengths -- part of S1-04's strict wire schema.

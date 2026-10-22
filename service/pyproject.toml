@@ -1,7 +1,7 @@
 [project]
 name = "controlgauge-service"
 version = "0.1.0"
-description = "Controlgauge local analysis service (Python/FastAPI, loopback-only, session-token authenticated)."
+description = "ControlGauge local analysis service (Python/FastAPI, loopback-only, session-token authenticated)."
 authors = [
     { name = "Mahin Moon", email = "124702885+Xirro9@users.noreply.github.com" }
 ]

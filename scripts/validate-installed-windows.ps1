@@ -1,4 +1,4 @@
-# S1-09: validate an INSTALLED Controlgauge package (see docs/PACKAGING.md).
+# S1-09: validate an INSTALLED ControlGauge package (see docs/PACKAGING.md).
 #
 # Meant for the clean-machine check: needs only Windows PowerShell 5.1, which
 # ships with Windows. No Python, Node, Rust or repository is required. Run it
@@ -14,7 +14,7 @@
 # script (or to -ReportPath).
 
 param(
-    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Controlgauge'),
+    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'ControlGauge'),
     [string]$ReportPath = (Join-Path $PSScriptRoot ("s1-09-validation-{0}.txt" -f (Get-Date -Format 'yyyyMMdd-HHmmss')))
 )
 
@@ -97,7 +97,7 @@ function Wait-Ready([System.Diagnostics.Process]$proc) {
 }
 
 # ===========================================================================
-Log "Controlgauge S1-09 installed-package validation, $(Get-Date -Format o)"
+Log "ControlGauge S1-09 installed-package validation, $(Get-Date -Format o)"
 Log "Computer: $env:COMPUTERNAME  OS: $((Get-CimInstance Win32_OperatingSystem).Caption) $((Get-CimInstance Win32_OperatingSystem).Version)"
 Log "User: $env:USERNAME  Elevated: $(([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))"
 $wv = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue
