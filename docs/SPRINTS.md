@@ -1,4 +1,4 @@
-# ControlGauge — Sprint Plan (V0.1)
+# Controlgauge — Sprint Plan (V0.1)
 
 Status: Sprint 0 draft. Sequencing and sprint-level scope for reaching a usable V0.1. Only
 Sprint 1 has a detailed ticket backlog (`docs/SPRINT_1_BACKLOG.md`); later sprints are

@@ -1,4 +1,4 @@
-# ControlGauge — Local Model Runtime
+# Controlgauge — Local Model Runtime
 
 Status: Sprint 0 draft.
 

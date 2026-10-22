@@ -1,4 +1,4 @@
-# Contributing to ControlGauge
+# Contributing to Controlgauge
 
 This document covers repository conventions and the toolchain versions the Tauri/Rust +
 React/TypeScript desktop shell (`app/`, since S1-02) and the upcoming Python/FastAPI service

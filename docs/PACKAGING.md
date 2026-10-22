@@ -10,7 +10,7 @@ packaging: there is no code signing, auto-update, installer customization or non
 
 | Item | Value |
 |---|---|
-| Package format | NSIS installer (`ControlGauge_<version>_x64-setup.exe`), Tauri's default per-user install mode: no administrator rights, installs to `%LOCALAPPDATA%\ControlGauge` |
+| Package format | NSIS installer (`Controlgauge_<version>_x64-setup.exe`), Tauri's default per-user install mode: no administrator rights, installs to `%LOCALAPPDATA%\Controlgauge` |
 | Installed layout | `app.exe` (Tauri host), `uninstall.exe`, `service\controlgauge-service.exe` + `service\_internal\` (frozen Python service) |
 | Size (S1-09 build) | Installer 13.0 MB; installed 83 files, 32.7 MB (service 28.1 MB) |
 | Signing | Unsigned. Windows SmartScreen may warn on first run |
@@ -63,15 +63,6 @@ isolated environment, then rejects the bundle if any build or dev package is ins
   install directory adds no new exposure. A per-machine install under `Program Files`, which only
   administrators can modify, is a Sprint 16 decision.
 
-## Upgrading from the S1-09 EvidenceGraph test build
-
-The app identifier changed from `com.evidencegraph.app` to `com.controlgauge.app` and the install
-directory from `%LOCALAPPDATA%\EvidenceGraph` to `%LOCALAPPDATA%\ControlGauge`. The ControlGauge
-installer does not upgrade or remove an EvidenceGraph test install, so both can exist side by
-side. Uninstall EvidenceGraph from Windows Settings → Apps. Its WebView2 profile,
-`%LOCALAPPDATA%\com.evidencegraph.app`, may be left behind and can be deleted. It holds no
-evidence, because the app does not handle evidence yet.
-
 ## Build
 
 On Windows, with the development prerequisites from `CONTRIBUTING.md` (Rust via rustup, Node,
@@ -88,7 +79,7 @@ The script:
 4. runs `npm ci`, then `npm run tauri build -- --config src-tauri/tauri.package.conf.json`;
 5. prints the installer path, size and SHA-256.
 
-Output: `app/src-tauri/target/release/bundle/nsis/ControlGauge_0.1.0_x64-setup.exe`. All build
+Output: `app/src-tauri/target/release/bundle/nsis/Controlgauge_0.1.0_x64-setup.exe`. All build
 output is under git-ignored `build/`, `dist/` and `target/` directories, so no binaries are
 committed.
 
@@ -155,15 +146,10 @@ looked like. Those need a screenshot.
 
 ## S1-09 results
 
-These results predate the rename to ControlGauge (`DECISIONS.md` D-027). The S1-09 build was
-named EvidenceGraph: `EvidenceGraph_0.1.0_x64-setup.exe`, installed to
-`%LOCALAPPDATA%\EvidenceGraph`, with `service\evidencegraph-service.exe` and app identifier
-`com.evidencegraph.app`. The names and hashes below are kept as recorded.
-
 Build under test: commit `3ab1b4a`, installer SHA-256
 `748B9E658F273D954CCF331ADEFD6AF98575963B26AFE43310380ED493155AF2` (12,996,163 bytes).
 Installed `app.exe` SHA-256 `923BD1B949ADFD6424B66B70FB0597576706910D4A2714B450D957613FD928E8`;
-`service\evidencegraph-service.exe` SHA-256
+`service\controlgauge-service.exe` SHA-256
 `C1C5F9F444E52355E1AD13777717DFEAFFCB8DCBD9EA879EA4A7516B2D8A2ED8`.
 
 **Development machine (not clean-machine evidence).** This was Windows 11 Home 10.0.26200,

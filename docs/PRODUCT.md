@@ -1,12 +1,6 @@
-# ControlGauge — Product Definition
+# Controlgauge — Product Definition
 
 Status: Sprint 0 draft. Subject to product-owner approval.
-
-**Name and tagline:** ControlGauge, "Private AI. Measurable Compliance." The product was previously
-named EvidenceGraph (`DECISIONS.md` D-027). The tagline states the product direction: local AI
-assistance for evidence analysis, with reviewable, provenance-backed results. As of Sprint 1 no
-AI analysis is implemented, and the analyst, not the product, makes every compliance
-determination (principle 4 below).
 
 ## 1. Problem
 
@@ -42,7 +36,7 @@ Secondary (not designed for in V0.1, but should not be architecturally precluded
 
 ## 3. Value Proposition
 
-ControlGauge lets an analyst upload a pile of unstructured client evidence and a supported
+Controlgauge lets an analyst upload a pile of unstructured client evidence and a supported
 compliance framework, and get back a **reviewable, provenance-backed set of candidate
 relationships** between that evidence and framework controls — without the evidence ever leaving
 the analyst's computer, and without the tool ever pretending to make the compliance

@@ -1324,7 +1324,7 @@ mod tests {
 
     impl HeldPeer {
         async fn start() -> Self {
-            const HEALTH: &str = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 66\r\n\r\n{\"status\":\"ok\",\"service\":\"controlgauge-service\",\"version\":\"0.1.0\"}";
+            const HEALTH: &str = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 67\r\n\r\n{\"status\":\"ok\",\"service\":\"controlgauge-service\",\"version\":\"0.1.0\"}";
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let port = listener.local_addr().unwrap().port();
             let (received_tx, first_request_received) = tokio::sync::oneshot::channel();

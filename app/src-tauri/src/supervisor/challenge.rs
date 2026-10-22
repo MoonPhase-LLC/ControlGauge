@@ -21,10 +21,8 @@ use sha2::Sha256;
 type HmacSha256 = Hmac<Sha256>;
 
 /// Fixed ASCII domain separator. Must match
-/// `controlgauge_service.challenge.DOMAIN_SEPARATOR` exactly. It keeps the
-/// product's former name on purpose: it is a versioned protocol constant
-/// (`docs/DECISIONS.md` D-027).
-pub const DOMAIN_SEPARATOR: &[u8] = b"EvidenceGraph-S1-04-startup-challenge-v1";
+/// `controlgauge_service.challenge.DOMAIN_SEPARATOR` exactly.
+pub const DOMAIN_SEPARATOR: &[u8] = b"Controlgauge-S1-04-startup-challenge-v1";
 const FIELD_SEPARATOR: u8 = 0x00;
 
 /// Exact required decoded length of a challenge response -- the SHA-256

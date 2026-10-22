@@ -1,4 +1,4 @@
-# S1-09: collect diagnostics from an INSTALLED ControlGauge package.
+# S1-09: collect diagnostics from an INSTALLED Controlgauge package.
 #
 # Use this when validate-installed-windows.ps1 fails, or to record what an
 # installed app does. Needs only Windows PowerShell 5.1 (stock Windows): no
@@ -26,7 +26,7 @@
 # variables are recorded, because they can change behavior.
 
 param(
-    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'ControlGauge'),
+    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Controlgauge'),
     [int]$ObserveSeconds = 45,
     [string]$ReportPath = (Join-Path $PSScriptRoot ("s1-09-diagnostics-{0}.txt" -f (Get-Date -Format 'yyyyMMdd-HHmmss')))
 )
@@ -59,7 +59,7 @@ try {
 
 # --- Environment -----------------------------------------------------------
 $os = Get-CimInstance Win32_OperatingSystem
-Log "ControlGauge S1-09 diagnostics, started $(Get-Date -Format o)"
+Log "Controlgauge S1-09 diagnostics, started $(Get-Date -Format o)"
 Log "OS: $($os.Caption) $($os.Version) build $($os.BuildNumber), $([Environment]::Is64BitOperatingSystem -as [string]) 64-bit"
 Log "Elevated: $(([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))"
 $wv = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue
@@ -99,7 +99,7 @@ if ($appCandidates.Count -ne 1) {
 $appExe = $appCandidates[0].FullName
 $already = @(Get-Process | Where-Object { $_.Path -eq $appExe })
 if ($already.Count -gt 0) {
-    Log "A ControlGauge app is already running (PID $($already.Id -join ', ')). Close it and run again. Stopping."
+    Log "An Controlgauge app is already running (PID $($already.Id -join ', ')). Close it and run again. Stopping."
     Save; Write-Host "Report: $ReportPath"; exit 1
 }
 
@@ -245,7 +245,7 @@ Log 'and are not intercepted. A console host (conhost.exe) under the service is 
 
 # --- Windows events ----------------------------------------------------------
 Log ''
-$names = 'app.exe|controlgauge-service.exe|msedgewebview2.exe|ControlGauge'
+$names = 'app.exe|controlgauge-service.exe|msedgewebview2.exe|Controlgauge'
 try {
     $events = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = $launchTime.AddSeconds(-5) } -ErrorAction Stop |
         Where-Object { $_.ProviderName -in @('Application Error', 'Windows Error Reporting', 'Application Hang', '.NET Runtime', 'SideBySide') -and $_.Message -match $names })
@@ -261,10 +261,10 @@ try {
 try {
     $defender = @(Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1116, 1117, 1118, 1119; StartTime = $t0.AddHours(-24) } -ErrorAction Stop |
         Where-Object { $_.Message -match $names })
-    Log "Microsoft Defender detections mentioning ControlGauge files (last 24 h): $($defender.Count)"
+    Log "Microsoft Defender detections mentioning Controlgauge files (last 24 h): $($defender.Count)"
     foreach ($e in $defender) { Log ("  {0:o} id {1}: {2}" -f $e.TimeCreated, $e.Id, (($e.Message -split "`r?`n") | Select-Object -First 6) -join ' / ') }
 } catch {
-    if ($_.Exception.Message -match 'No events were found') { Log 'Microsoft Defender detections mentioning ControlGauge files (last 24 h): 0' }
+    if ($_.Exception.Message -match 'No events were found') { Log 'Microsoft Defender detections mentioning Controlgauge files (last 24 h): 0' }
     else { Log "Could not read the Defender log (may need administrator rights): $($_.Exception.Message)" }
 }
 $werDirs = @("$env:LOCALAPPDATA\Microsoft\Windows\WER\ReportArchive", "$env:LOCALAPPDATA\Microsoft\Windows\WER\ReportQueue")
