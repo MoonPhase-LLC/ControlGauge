@@ -37,23 +37,23 @@ architecture, security, and planning documentation. Completed on `main` so far:
 - **S1-02:** a Tauri v2 desktop shell under [`app/`](app/), with a React + TypeScript
   frontend (Tailwind CSS v4, shadcn/ui).
 - **S1-03:** a session-token-authenticated Python/FastAPI local service under
-  [`service/`](service/), bound to `127.0.0.1`, with a `GET /health` endpoint.
-- **S1-04:** the desktop app launches and supervises that service: it verifies the service's
-  identity via a domain-separated HMAC-SHA-256 challenge and performs the authenticated
-  health check in Rust. The frontend never sees the credential.
-- **S1-05:** a basic desktop layout with service status display; navigation placeholders are
-  not usable yet.
-- **S1-06:** test runners — Vitest (frontend), pytest (service), Playwright browser smoke,
-  and an opt-in Windows native smoke test (see `app/README.md`).
-- **S1-07:** CI (`.github/workflows/ci.yml`) — frontend lint/typecheck/build/Vitest,
-  Playwright browser smoke, service lint/typecheck/tests on Python 3.11 and 3.12, and Rust
-  fmt/Clippy/tests for the supervisor.
+  [`service/`](service/), with one `GET /health` endpoint.
+- **S1-04:** the desktop app launches and supervises that service. It verifies the service's
+  identity and makes the authenticated health check in Rust; the frontend never sees the
+  credential.
+- **S1-05:** the frontend has a basic desktop layout. It has navigation placeholders that are not
+  usable yet, and it shows the local service's status and health result.
+- **S1-06:** test runners. Vitest for the frontend, the existing pytest suite for the service, a
+  Playwright browser smoke test, and an opt-in Windows native smoke test (see `app/README.md`).
+- **S1-07:** GitHub Actions CI for the frontend, service and Rust supervisor checks.
+- **S1-09:** a Windows installer that bundles the service, built by
+  `scripts/package-windows.ps1`. It passed a manual test on a clean Windows machine (see
+  [`docs/PACKAGING.md`](docs/PACKAGING.md)).
 
-**Not implemented yet:** evidence handling, the database, the local model runtime, and any
-working assessment feature. Remaining Sprint 1 work: Sprint 1 exit validation (S1-08) and the
-packaged-build spike (S1-09). See `docs/SPRINT_1_BACKLOG.md` for ticket details,
-`docs/SPRINTS.md` for the full sprint plan, and `docs/OPEN_QUESTIONS.md` for decisions still
-pending product-owner input.
+There is still no evidence handling, database, model runtime, or working assessment feature.
+Remaining Sprint 1 work: Sprint 1 exit validation (S1-08).
+See `docs/SPRINT_1_BACKLOG.md` for ticket details, `docs/SPRINTS.md` for the full sprint plan,
+and `docs/OPEN_QUESTIONS.md` for decisions still pending product-owner input.
 
 ### Roadmap (planned, not implemented)
 

@@ -22,6 +22,17 @@ things built, before deeper feature work).
 complexity versus an all-JS or all-Rust app, but is justified by the maturity of Python's document
 parsing / ML tooling ecosystem for this domain. See `ARCHITECTURE.md` §13.
 
+**Packaging risk outcome (S1-09, PR #11): validated early.** The Tauri bundler produced a per-user
+NSIS installer that ships the service as a PyInstaller `--onedir` executable, resolved only from
+the install directory (`PACKAGING.md`). The project owner's manual test on a clean Windows machine
+passed: the installer completed very quickly, created a Start Menu shortcut, and the app worked
+well. The exact Windows edition/build, install duration and installer hash for that run were not
+recorded. Automated coverage is separate: CI freezes the service on `windows-latest` and runs the
+supervised end-to-end suite (handshake, authenticated health, shutdown) against the frozen
+executable. No blocking issue was found. Non-blocking follow-ups for Sprint 16 release packaging
+are listed in `PACKAGING.md` → Findings: WebView2 runtime network traffic, build paths in
+`app.exe`, an unsigned installer, and pinning the bundled interpreter.
+
 ---
 
 ## D-002: No dedicated graph database in V0.1

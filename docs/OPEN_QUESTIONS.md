@@ -71,9 +71,10 @@ resolution inline and mark Resolved) or as new ones surface during implementatio
   user-configurable? (`USER_FLOWS.md` §3, §12)
 - A-3: What is the packaging strategy for bundling the Python runtime inside the Tauri app for
   distribution (Sprint 16), and does the chosen approach affect earlier sprints' assumptions?
-  Flagged as the top technical risk in `DECISIONS.md` D-001; a narrow validation spike is now
-  scheduled in Sprint 1 (`SPRINT_1_BACKLOG.md` S1-09) rather than waiting until Sprint 16, but the
-  final production packaging approach is still an open Sprint 16 decision.
+  Flagged as the top technical risk in `DECISIONS.md` D-001. The Sprint 1 spike
+  (`SPRINT_1_BACKLOG.md` S1-09, `PACKAGING.md`) validated a PyInstaller `--onedir` service in an
+  NSIS installer on a clean Windows machine, but the final production packaging approach is still
+  an open Sprint 16 decision.
 - A-4: Should the local frontend↔service IPC transport eventually move from TCP-over-loopback to
   an OS-native local transport (named pipe on Windows, Unix domain socket elsewhere) for stronger
   isolation than a shared-secret token over HTTP, or is TCP-over-loopback plus the shared-secret

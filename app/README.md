@@ -18,9 +18,10 @@ architecture it implements. In brief:
   `debug_assertions`), that's `../../service/.venv/Scripts/python.exe -m
   controlgauge_service --supervised` -- run `uv sync` in `service/` first
   (see `service/README.md`), or the app fails closed with
-  `executable_not_found`. In a release build it's a bundled sidecar
-  executable S1-09 has not shipped yet, so release builds intentionally
-  fail closed today.
+  `executable_not_found`. In a release build it's the frozen service
+  executable that `scripts/package-windows.ps1` bundles at
+  `<install dir>\service\controlgauge-service.exe` (S1-09,
+  `docs/PACKAGING.md`); a release build without it fails closed.
 - A per-launch startup secret and session token are generated fresh every
   run and exchanged over private inherited stdio pipes, never an
   environment variable, CLI argument, or HTTP request.
@@ -120,7 +121,7 @@ Each command exits non-zero when a test fails.
 - Prerequisites: run `uv sync` in `service/`, build the debug app with `npm run tauri build -- --debug --no-bundle`, and close any running instance of that debug app.
 - It launches `src-tauri/target/debug/app.exe` and attaches Playwright to its WebView2 through a DevTools port on `127.0.0.1`. That port is enabled only for the test process, through `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`; the app itself is unchanged.
 - It checks real authenticated health, a service crash revoking readiness, and that a graceful close (WM_CLOSE) exits cleanly with the service processes gone.
-- It is skipped (with a reason) on non-Windows platforms. It covers the debug build only, not an installed package (that is S1-09).
+- It is skipped (with a reason) on non-Windows platforms. It covers the debug build only, not an installed package (see `docs/PACKAGING.md` for the installed-package checks).
 
 The Rust supervisor tests run with `cargo test` in `src-tauri/`, and the
 Python service tests with `uv run pytest` in `../service/`.
