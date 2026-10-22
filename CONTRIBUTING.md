@@ -97,8 +97,8 @@ Sourced from the [official Tauri v2 Windows prerequisites](https://v2.tauri.app/
 and the [official Rust Windows install guidance](https://www.rust-lang.org/tools/install),
 checked 2026-09-15. The developer-machine items below were actually exercised while building
 `app/` in S1-02 (a real Tauri window was launched and closed on Windows — see that PR for
-details); the end-user items are documentation only, since no packaged installer exists yet
-(that's S1-09).
+details). The end-user items apply to S1-09's packaged app (`docs/PACKAGING.md`), which passed a
+manual clean Windows test.
 
 ### Developer machine requirements (building/running the app from source)
 
@@ -114,7 +114,10 @@ details); the end-user items are documentation only, since no packaged installer
 - **WebView2 Runtime**: needed to build/run the app locally if it isn't already present. See
   end-user note below — most current Windows installs already have it.
 
-### End-user requirements (once the app is packaged and distributed — not relevant yet)
+### End-user requirements (packaged app)
+
+A Windows installer can be built since S1-09; see `docs/PACKAGING.md` for the build command,
+package format and validation.
 
 - **WebView2 Runtime**: Tauri renders the UI using Microsoft's WebView2. It ships
   preinstalled on Windows 10 (from version 1803 onward) and Windows 11. Only end users on
@@ -135,9 +138,10 @@ fresh per-launch session credential, and only then lets the frontend poll status
 authenticated `/health` round trip (via a narrowly-scoped Tauri command — the frontend itself never
 receives the token). See [`app/README.md`](app/README.md) and
 `app/src-tauri/src/supervisor/mod.rs` for the full contract. Dev-mode supervision requires `uv
-sync` to have been run in `service/` first (see below); a release build's bundled sidecar
-executable doesn't exist until S1-09 ships it, so packaged builds fail closed today, not
-silently. There is still no database, no model runtime, and no real business-logic endpoint.
+sync` to have been run in `service/` first (see below). A release build runs the frozen service
+that S1-09's packaging script bundles next to `app.exe`; a release build made without that
+bundle fails closed, not silently (`docs/PACKAGING.md`). There is still no database, no model
+runtime, and no real business-logic endpoint.
 
 From the `app/` directory:
 
@@ -146,7 +150,7 @@ npm install       # install frontend dependencies (also required before any carg
 npm run dev       # Vite dev server only (frontend in a browser, no Tauri window)
 npm run build     # tsc type check (noEmit, per tsconfig) + production Vite build to app/dist
 npm run tauri dev # launch the actual Tauri desktop window in dev mode (requires Rust prerequisites above)
-npm run tauri build # produce a release build/installer (not yet exercised end-to-end — see S1-09)
+npm run tauri build # release build only; the installer with the bundled service comes from scripts/package-windows.ps1 (docs/PACKAGING.md)
 ```
 
 `cargo check`/`cargo build` also work directly from `app/src-tauri` once Node dependencies have
@@ -206,6 +210,7 @@ The native smoke test needs `uv sync` in `service/` and `npm run tauri build -- 
 | Browser smoke | ubuntu | `npx playwright install --with-deps chromium`, `npm run test:e2e` (traces uploaded on failure, kept 7 days) |
 | Service | ubuntu 3.11 and 3.12, windows 3.12 | `uv lock --check`, `uv sync --frozen`, Ruff lint and format check, mypy, pytest |
 | Rust supervisor | windows | builds the frontend, `uv sync --frozen` in `service/`, then `cargo fmt --check`, Clippy with `-D warnings`, `cargo test` |
+| Packaged service | windows | `scripts/package-windows.ps1 -ServiceOnly` (PyInstaller freeze + bundle-contents check), then the supervised end-to-end tests against the frozen executable (`docs/PACKAGING.md`) |
 
 The **native smoke test is not run in CI**. On GitHub-hosted Windows runners WebView2 ignores both
 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` and the per-app registry override, so the test cannot
