@@ -6,8 +6,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from evidencegraph_service.app import create_app
-from evidencegraph_service.config import Settings
+from controlgauge_service.app import create_app
+from controlgauge_service.config import Settings
 
 #: 32 chars -- comfortably above MIN_SESSION_TOKEN_LENGTH. Not a secret:
 #: this value is fixed only so tests are deterministic and never resembles
@@ -23,21 +23,21 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help=(
             "Run the supervised-process tests against this packaged service executable "
-            "(S1-09; see docs/PACKAGING.md) instead of `python -m evidencegraph_service`."
+            "(S1-09; see docs/PACKAGING.md) instead of `python -m controlgauge_service`."
         ),
     )
 
 
 @pytest.fixture(autouse=True)
 def _isolated_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Strips any ambient `EVIDENCEGRAPH_*` variables from the real shell so
+    """Strips any ambient `CONTROLGAUGE_*` variables from the real shell so
     the suite's behavior never depends on what happens to be set on the
     machine running it -- every test builds `Settings` from explicit kwargs
     or its own `monkeypatch.setenv` calls instead."""
     import os
 
     for key in list(os.environ):
-        if key.startswith("EVIDENCEGRAPH_"):
+        if key.startswith("CONTROLGAUGE_"):
             monkeypatch.delenv(key, raising=False)
 
 
@@ -47,7 +47,7 @@ def make_settings() -> SettingsFactory:
 
     Deliberately does not fall back to the real process environment for
     any field under test, so tests are isolated from whatever
-    `EVIDENCEGRAPH_*` variables happen to be set on the machine running
+    `CONTROLGAUGE_*` variables happen to be set on the machine running
     them.
     """
 

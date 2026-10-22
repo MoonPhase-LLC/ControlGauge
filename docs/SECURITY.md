@@ -1,4 +1,4 @@
-# EvidenceGraph — Security & Threat Model
+# ControlGauge — Security & Threat Model
 
 Status: Sprint 0 initial threat model. This is a starting point, not a completed security review.
 Do not treat any threat below as "solved" unless a concrete mitigation is listed — items with no

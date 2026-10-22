@@ -1,4 +1,4 @@
-# EvidenceGraph — Open Questions
+# ControlGauge — Open Questions
 
 Status: Sprint 0. These require human product-owner judgment and were deliberately **not**
 answered by invented behavior during Sprint 0. Agents should not silently resolve these — surface

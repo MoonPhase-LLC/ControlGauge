@@ -259,7 +259,7 @@ jobs:
 
       - name: Supervised end-to-end tests against the frozen executable
         working-directory: service
-        run: uv run --frozen pytest tests/test_supervised_process.py --service-exe dist/pyinstaller/evidencegraph-service/evidencegraph-service.exe
+        run: uv run --frozen pytest tests/test_supervised_process.py --service-exe dist/pyinstaller/controlgauge-service/controlgauge-service.exe
 
       - name: Upload PyInstaller diagnostics
         if: failure()

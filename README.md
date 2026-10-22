@@ -1,8 +1,15 @@
-# EvidenceGraph
+# ControlGauge
 
-A privacy-first cybersecurity compliance evidence analysis application.
+**Private AI. Measurable Compliance.**
 
-EvidenceGraph helps cybersecurity compliance analysts analyze large collections of client
+A privacy-first, local-first cybersecurity compliance evidence analysis application, designed to
+use AI that runs on the analyst's own machine. The AI analysis is planned, not built yet; see
+Project Status below.
+
+ControlGauge was previously named EvidenceGraph. Some older records still use that name, and
+`docs/DECISIONS.md` D-027 lists the identifiers that keep it on purpose.
+
+ControlGauge helps cybersecurity compliance analysts analyze large collections of client
 evidence — policies, procedures, technical artifacts, configurations, reports, spreadsheets, logs
 — and understand how that evidence relates to cybersecurity framework controls. The first
 supported framework is **NIST SP 800-53 Revision 5**.
@@ -33,7 +40,7 @@ and `docs/OPEN_QUESTIONS.md` for decisions still pending product-owner input.
 
 ## Privacy Philosophy
 
-EvidenceGraph is **local-first** and **privacy-first**:
+ControlGauge is **local-first** and **privacy-first**:
 
 - Customer evidence is processed, embedded, retrieved against, and evaluated by a locally-run LLM
   — nothing evidence-bearing is sent to a cloud AI provider.

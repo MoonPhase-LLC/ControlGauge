@@ -1,4 +1,4 @@
-# EvidenceGraph — Architecture Decision Log
+# ControlGauge — Architecture Decision Log
 
 Lightweight ADR-style entries. Each decision: context, decision, consequences, status. Add new
 entries at the bottom; do not renumber or delete past entries even if later superseded — mark them
@@ -954,6 +954,46 @@ previously enabled only through `reqwest`). `HttpClientBuildFailed` removed from
 `AuthenticatedConnectionLost` added. Tests: see `supervisor/pinned_http.rs` and
 `supervisor/mod.rs` (`child_death_*`, `lost_authenticated_connection_*`,
 `pinned_connection_survives_idling_*`).
+
+---
+
+## D-027: Rename the product from EvidenceGraph to ControlGauge
+
+**Status:** Accepted (product owner, 2026-10-22).
+
+**Context:** The product owner chose a new name, **ControlGauge**, with the tagline **"Private AI.
+Measurable Compliance."** The direction is unchanged: a privacy-focused, local-first,
+AI-assisted cybersecurity compliance platform in which a human analyst makes every compliance
+determination. Nothing had been released under the old name. The only installed copies were
+S1-09 test installs.
+
+**Decision:** Use ControlGauge for the current product identity everywhere it is part of current
+functionality or documentation:
+- Shipped labels: Tauri `productName` and window title (which also name the installer
+  `ControlGauge_<version>_x64-setup.exe`, the install directory `%LOCALAPPDATA%\ControlGauge` and
+  the Start Menu shortcut), app identifier `com.controlgauge.app`, and the UI text.
+- Service: Python distribution `controlgauge-service`, import package `controlgauge_service`,
+  frozen executable `controlgauge-service.exe`, the `service` field of the `/health` response, and
+  the environment variable prefix `CONTROLGAUGE_`.
+- Documentation, scripts, tests and CI.
+
+The repository is renamed to `MoonPhase-LLC/ControlGauge` after this change merges.
+
+Kept on purpose:
+- **The HMAC domain separator** `EvidenceGraph-S1-04-startup-challenge-v1` (`challenge.py`,
+  `challenge.rs`). It is a versioned protocol constant, never shown to users. Changing it changes
+  every challenge response and would be a protocol version change. It should not be bundled
+  into a rename.
+- **Historical records:** the S1-09 results in `PACKAGING.md` (file names and hashes of the
+  EvidenceGraph build), git history, merged pull requests and existing branch names.
+
+**Consequences:**
+- The ControlGauge installer does not upgrade an EvidenceGraph test install, because the
+  identifier changed. Remove the old install by hand (`PACKAGING.md`).
+- Development shells that set `EVIDENCEGRAPH_*` variables must use `CONTROLGAUGE_*`. Old names
+  are ignored: the service then binds to its defaults (`127.0.0.1`), and without a session token
+  it rejects every request (fail closed).
+- Code reviewers will see the old name in the domain separator. This entry is the reason.
 
 ---
 

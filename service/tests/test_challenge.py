@@ -7,7 +7,7 @@ from hashlib import sha256
 
 import pytest
 
-from evidencegraph_service import b64url, challenge
+from controlgauge_service import b64url, challenge
 
 SECRET = bytes(range(32))
 HOST = "127.0.0.1"

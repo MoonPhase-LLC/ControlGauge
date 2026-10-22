@@ -30,7 +30,7 @@ $app = Join-Path $repo 'app'
 $buildVenv = Join-Path $service 'build\package-venv'
 $workPath = Join-Path $service 'build\pyinstaller'
 $distPath = Join-Path $service 'dist\pyinstaller'
-$bundle = Join-Path $distPath 'evidencegraph-service'
+$bundle = Join-Path $distPath 'controlgauge-service'
 
 # 1. Freeze the service. A dedicated environment (not service/.venv) so the
 #    bundle cannot pick up dev tools such as mypy or pytest.
@@ -56,7 +56,7 @@ Invoke-Native 'Show the bundled Python version' { & $python --version }
 $excludes = @('mypy', 'pydantic.mypy', 'setuptools', 'pkg_resources', '_distutils_hack', 'pip')
 $pyiArgs = @(
     '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir', '--console', '--noupx',
-    '--name', 'evidencegraph-service',
+    '--name', 'controlgauge-service',
     '--distpath', $distPath, '--workpath', $workPath, '--specpath', $workPath
 )
 foreach ($m in $excludes) { $pyiArgs += @('--exclude-module', $m) }
@@ -64,7 +64,7 @@ $pyiArgs += (Join-Path $service 'packaging\pyinstaller_entry.py')
 Invoke-Native 'Freeze the service (PyInstaller --onedir)' { & $python @pyiArgs }
 
 # 2. Inspect the bundle.
-$exe = Join-Path $bundle 'evidencegraph-service.exe'
+$exe = Join-Path $bundle 'controlgauge-service.exe'
 if (-not (Test-Path $exe -PathType Leaf)) { throw "frozen service not found at $exe" }
 $forbidden = @('mypy', 'setuptools', 'pip', 'pytest', '_pytest', 'httpx', 'ruff', 'PyInstaller', 'tests')
 $found = Get-ChildItem (Join-Path $bundle '_internal') -Directory |
@@ -76,8 +76,8 @@ if ($LASTEXITCODE -ne 0) { throw "could not list the frozen archive (exit code $
 $pattern = '^\s*(' + (($forbidden | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')(\.|$)'
 $bad = @($archive | Where-Object { $_ -match $pattern })
 if ($bad.Count -gt 0) { throw "frozen archive contains build/dev-only modules: $(($bad | Select-Object -First 10) -join ', ')" }
-if (-not ($archive | Where-Object { $_ -match '^\s*evidencegraph_service\.supervised$' })) {
-    throw 'frozen archive is missing evidencegraph_service.supervised'
+if (-not ($archive | Where-Object { $_ -match '^\s*controlgauge_service\.supervised$' })) {
+    throw 'frozen archive is missing controlgauge_service.supervised'
 }
 Write-Host "Frozen service OK: $exe"
 if ($ServiceOnly) { return }

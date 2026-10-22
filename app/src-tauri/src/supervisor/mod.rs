@@ -3,7 +3,7 @@
 //! session credential over the private channel, and only then allows the
 //! frontend to reach it. See `docs/DECISIONS.md` D-001/D-009/D-018/D-025
 //! and `docs/SPRINT_1_BACKLOG.md` S1-04 for the full contract this
-//! implements, and `service/src/evidencegraph_service/supervised.py` for
+//! implements, and `service/src/controlgauge_service/supervised.py` for
 //! the child's half of the same handshake.
 //!
 //! State machine ([`SupervisorState`]):
@@ -127,7 +127,7 @@ fn debug_log(context: &str, detail: &impl std::fmt::Display) {
 fn debug_log(_context: &str, _detail: &impl std::fmt::Display) {}
 
 /// Typed, closed `GET /health` response schema (matches `service/src/
-/// evidencegraph_service/routes/health.py`). `deny_unknown_fields`
+/// controlgauge_service/routes/health.py`). `deny_unknown_fields`
 /// rejects an unexpected extra field rather than silently ignoring it --
 /// S1-04 review finding 3's "validate exact expected response schemas."
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -771,7 +771,7 @@ fn drain_stderr<R: AsyncRead + Unpin + Send + 'static>(stderr: Option<R>) {
         let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(_line)) = lines.next_line().await {
             #[cfg(debug_assertions)]
-            eprintln!("[evidencegraph-service] {_line}");
+            eprintln!("[controlgauge-service] {_line}");
         }
     });
 }
@@ -782,7 +782,7 @@ mod tests {
     //!
     //! - Real-process integration tests (`full_handshake_...`,
     //!   `wrong_secret_...`) spawn the *actual* `service/.venv` Python
-    //!   interpreter running `evidencegraph_service --supervised` (via
+    //!   interpreter running `controlgauge_service --supervised` (via
     //!   `process::resolve_dev`, the same dev-only resolver `start` uses)
     //!   and drive the real private channel + real D-025 HTTP challenge
     //!   end-to-end. These are this crate's side of the same proof
@@ -869,7 +869,7 @@ mod tests {
             .await
             .expect("health check should succeed");
         assert_eq!(health.status, "ok");
-        assert_eq!(health.service, "evidencegraph-service");
+        assert_eq!(health.service, "controlgauge-service");
 
         // A second call reuses the *same* pinned connection (no new
         // `TcpStream::connect` happens anywhere in this path) and still
@@ -1098,7 +1098,7 @@ mod tests {
     #[tokio::test]
     async fn nonexistent_executable_fails_closed() {
         let handle = SupervisorHandle::new();
-        let bogus = std::path::PathBuf::from("Z:\\this\\path\\does\\not\\exist\\evidencegraph.exe");
+        let bogus = std::path::PathBuf::from("Z:\\this\\path\\does\\not\\exist\\controlgauge.exe");
 
         let result = run_startup_with_executable(&handle, &bogus, &[]).await;
 
@@ -1324,7 +1324,7 @@ mod tests {
 
     impl HeldPeer {
         async fn start() -> Self {
-            const HEALTH: &str = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 67\r\n\r\n{\"status\":\"ok\",\"service\":\"evidencegraph-service\",\"version\":\"0.1.0\"}";
+            const HEALTH: &str = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 66\r\n\r\n{\"status\":\"ok\",\"service\":\"controlgauge-service\",\"version\":\"0.1.0\"}";
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let port = listener.local_addr().unwrap().port();
             let (received_tx, first_request_received) = tokio::sync::oneshot::channel();
@@ -1649,7 +1649,7 @@ mod tests {
                         if let Ok(n) = socket.read(&mut buf).await {
                             r.lock().unwrap().extend_from_slice(&buf[..n]);
                         }
-                        let body = "{\"status\":\"ok\",\"service\":\"evidencegraph-service\",\"version\":\"0.1.0\"}";
+                        let body = "{\"status\":\"ok\",\"service\":\"controlgauge-service\",\"version\":\"0.1.0\"}";
                         let response = format!(
                             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                             body.len()

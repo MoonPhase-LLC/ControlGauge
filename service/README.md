@@ -1,4 +1,4 @@
-# EvidenceGraph Local Service
+# ControlGauge Local Service
 
 Standalone Python/FastAPI local analysis service skeleton. Bound to exactly `127.0.0.1` -- the
 documented S1-03 bind contract (`docs/SPRINT_1_BACKLOG.md` S1-03, `docs/ARCHITECTURE.md` §4,
@@ -42,19 +42,19 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
 ```sh
-EVIDENCEGRAPH_SESSION_TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(32))") uv run evidencegraph-service
+CONTROLGAUGE_SESSION_TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(32))") uv run controlgauge-service
 ```
 
 The service prints a structured JSON startup log line to stderr and then listens on
 `127.0.0.1:51823` by default. Configuration is entirely environment-variable driven (all
-`EVIDENCEGRAPH_*`, see `src/evidencegraph_service/config.py`):
+`CONTROLGAUGE_*`, see `src/controlgauge_service/config.py`):
 
 | Variable | Default | Notes |
 |---|---|---|
-| `EVIDENCEGRAPH_HOST` | `127.0.0.1` | Must be exactly `127.0.0.1` — the documented S1-03 bind contract; any other value (`::1`, another `127.x.x.x` address, `localhost`, `0.0.0.0`, a LAN/public address, ...) refuses to start, before any listener opens. |
-| `EVIDENCEGRAPH_PORT` | `51823` | 1-65535. |
-| `EVIDENCEGRAPH_ENVIRONMENT` | `production` | `development` additionally exposes `/docs`, `/redoc`, `/openapi.json` (still authenticated). |
-| `EVIDENCEGRAPH_SESSION_TOKEN` | *(unset)* | Standalone/test credential only, in the format documented above. In supervised (Tauri-launched) mode, S1-04 installs this over a private channel instead — never via this variable. Missing, too short, or wrong-format means every request is rejected (fail closed), not that auth is skipped. |
+| `CONTROLGAUGE_HOST` | `127.0.0.1` | Must be exactly `127.0.0.1` — the documented S1-03 bind contract; any other value (`::1`, another `127.x.x.x` address, `localhost`, `0.0.0.0`, a LAN/public address, ...) refuses to start, before any listener opens. |
+| `CONTROLGAUGE_PORT` | `51823` | 1-65535. |
+| `CONTROLGAUGE_ENVIRONMENT` | `production` | `development` additionally exposes `/docs`, `/redoc`, `/openapi.json` (still authenticated). |
+| `CONTROLGAUGE_SESSION_TOKEN` | *(unset)* | Standalone/test credential only, in the format documented above. In supervised (Tauri-launched) mode, S1-04 installs this over a private channel instead — never via this variable. Missing, too short, or wrong-format means every request is rejected (fail closed), not that auth is skipped. |
 
 Exercise it once running (`Bearer` is matched case-insensitively, per RFC 9110 §11.1, and every
 `401` response includes a `WWW-Authenticate: Bearer` header):
@@ -70,8 +70,8 @@ Both of the following start the identical service with identical configuration b
 module entry point is a thin shim over the same `main()` the console script uses:
 
 ```sh
-uv run evidencegraph-service
-uv run python -m evidencegraph_service
+uv run controlgauge-service
+uv run python -m controlgauge_service
 ```
 
 ## Tests, lint, and types

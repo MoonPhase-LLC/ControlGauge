@@ -1,4 +1,4 @@
-# S1-09: validate an INSTALLED EvidenceGraph package (see docs/PACKAGING.md).
+# S1-09: validate an INSTALLED ControlGauge package (see docs/PACKAGING.md).
 #
 # Meant for the clean-machine check: needs only Windows PowerShell 5.1, which
 # ships with Windows. No Python, Node, Rust or repository is required. Run it
@@ -14,7 +14,7 @@
 # script (or to -ReportPath).
 
 param(
-    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'EvidenceGraph'),
+    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'ControlGauge'),
     [string]$ReportPath = (Join-Path $PSScriptRoot ("s1-09-validation-{0}.txt" -f (Get-Date -Format 'yyyyMMdd-HHmmss')))
 )
 
@@ -50,7 +50,7 @@ function Get-Descendants([int]$rootPid) {
     return $found
 }
 function Get-ServiceProcesses([int]$appPid) {
-    @(Get-Descendants $appPid | Where-Object { $_.Name -eq 'evidencegraph-service.exe' })
+    @(Get-Descendants $appPid | Where-Object { $_.Name -eq 'controlgauge-service.exe' })
 }
 function Get-Alive([int[]]$pids) {
     if ($pids.Count -eq 0) { return @() }
@@ -82,7 +82,7 @@ function Test-UiText([int]$appPid, [string]$pattern) {
 
 # --- Launch / close --------------------------------------------------------
 $appExe = $null
-$serviceExe = Join-Path $InstallDir 'service\evidencegraph-service.exe'
+$serviceExe = Join-Path $InstallDir 'service\controlgauge-service.exe'
 function Start-App {
     # Launch from a directory unrelated to the installation (requirement:
     # resolution must not depend on the current working directory).
@@ -92,12 +92,12 @@ function Start-App {
 }
 function Wait-Ready([System.Diagnostics.Process]$proc) {
     $ready = WaitUntil { Test-UiText $proc.Id 'Service ready' } 60
-    $health = $ready -and (WaitUntil { Test-UiText $proc.Id 'Health check passed: evidencegraph-service*' } 30)
+    $health = $ready -and (WaitUntil { Test-UiText $proc.Id 'Health check passed: controlgauge-service*' } 30)
     return @{ Ready = $ready; Health = $health }
 }
 
 # ===========================================================================
-Log "EvidenceGraph S1-09 installed-package validation, $(Get-Date -Format o)"
+Log "ControlGauge S1-09 installed-package validation, $(Get-Date -Format o)"
 Log "Computer: $env:COMPUTERNAME  OS: $((Get-CimInstance Win32_OperatingSystem).Caption) $((Get-CimInstance Win32_OperatingSystem).Version)"
 Log "User: $env:USERNAME  Elevated: $(([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))"
 $wv = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue
@@ -117,7 +117,7 @@ Check 'network disconnected (no adapter Up)' ($upAdapters.Count -eq 0) (($upAdap
 # Installation contents.
 $appCandidates = @(Get-ChildItem $InstallDir -Filter '*.exe' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike 'uninstall*' })
 Check "app executable installed in $InstallDir" ($appCandidates.Count -eq 1) (($appCandidates | ForEach-Object { $_.Name }) -join ', ')
-Check 'bundled service installed at <install>\service\evidencegraph-service.exe' (Test-Path $serviceExe -PathType Leaf)
+Check 'bundled service installed at <install>\service\controlgauge-service.exe' (Test-Path $serviceExe -PathType Leaf)
 if ($appCandidates.Count -ne 1 -or -not (Test-Path $serviceExe)) {
     Log 'Cannot continue without the installed files.'
     $script:lines | Set-Content -Encoding UTF8 $ReportPath
@@ -142,7 +142,7 @@ Log '1. Launch from an unrelated directory; service ready; authenticated health 
 $p = Start-App
 $r = Wait-Ready $p
 Check "UI shows 'Service ready' (handshake + identity verification complete)" $r.Ready
-Check "UI shows authenticated health result from evidencegraph-service" $r.Health
+Check "UI shows authenticated health result from controlgauge-service" $r.Health
 $svc = @(Get-ServiceProcesses $p.Id)
 Check 'exactly one bundled service process (no extra bootloader process)' ($svc.Count -eq 1) "$($svc.Count) found"
 $svcPids = @($svc | ForEach-Object { [int]$_.ProcessId })

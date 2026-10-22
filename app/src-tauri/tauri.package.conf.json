@@ -3,7 +3,7 @@
   "bundle": {
     "targets": ["nsis"],
     "resources": {
-      "../../service/dist/pyinstaller/evidencegraph-service/": "service/"
+      "../../service/dist/pyinstaller/controlgauge-service/": "service/"
     }
   }
 }

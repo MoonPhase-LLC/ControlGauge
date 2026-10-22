@@ -10,8 +10,8 @@ packaging: there is no code signing, auto-update, installer customization or non
 
 | Item | Value |
 |---|---|
-| Package format | NSIS installer (`EvidenceGraph_<version>_x64-setup.exe`), Tauri's default per-user install mode: no administrator rights, installs to `%LOCALAPPDATA%\EvidenceGraph` |
-| Installed layout | `app.exe` (Tauri host), `uninstall.exe`, `service\evidencegraph-service.exe` + `service\_internal\` (frozen Python service) |
+| Package format | NSIS installer (`ControlGauge_<version>_x64-setup.exe`), Tauri's default per-user install mode: no administrator rights, installs to `%LOCALAPPDATA%\ControlGauge` |
+| Installed layout | `app.exe` (Tauri host), `uninstall.exe`, `service\controlgauge-service.exe` + `service\_internal\` (frozen Python service) |
 | Size (S1-09 build) | Installer 13.0 MB; installed 83 files, 32.7 MB (service 28.1 MB) |
 | Signing | Unsigned. Windows SmartScreen may warn on first run |
 | Prerequisite | Microsoft Edge WebView2 Runtime. Preinstalled on Windows 11 and current Windows 10. The installer uses Tauri's default `downloadBootstrapper` mode, so it would try to download WebView2 only if it is missing. No other runtime is needed |
@@ -39,7 +39,7 @@ isolated environment, then rejects the bundle if any build or dev package is ins
 
 ## How the installed app finds and runs the service
 
-- Release builds resolve the service only at `<resource dir>\service\evidencegraph-service.exe`
+- Release builds resolve the service only at `<resource dir>\service\controlgauge-service.exe`
   (`supervisor/process.rs`, `resolve_production`). On Windows, Tauri's resource directory is the
   directory holding the installed `app.exe`. It is never PATH, the repository, a virtual
   environment, or the current working directory. The development resolver (`service/.venv`) is
@@ -47,11 +47,11 @@ isolated environment, then rejects the bundle if any build or dev package is ins
 - The frozen bundle reaches that location through `app/src-tauri/tauri.package.conf.json`, which
   only the packaging build merges (`tauri build --config ...`). Debug, CI and `cargo test` builds
   don't reference it.
-- The command line is `evidencegraph-service.exe --supervised`. The startup secret and session
+- The command line is `controlgauge-service.exe --supervised`. The startup secret and session
   token travel only over the private stdio channel (D-025). Startup, the HMAC endpoint challenge,
   the retained authenticated connection (D-026), transport revocation and Job Object cleanup are
   the same code as in development. `packaging/pyinstaller_entry.py` calls the same dispatcher as
-  `python -m evidencegraph_service`.
+  `python -m controlgauge_service`.
 - Process model: one service process per app run. That is one fewer than development, where the
   venv's `python.exe` launcher starts the real interpreter as a second process. The service is in
   the app's kill-on-close Job Object. Windows also attaches a console host (`conhost.exe`) to the
@@ -59,9 +59,18 @@ isolated environment, then rejects the bundle if any build or dev package is ins
   `CREATE_NO_WINDOW`, and it happens in development too. `conhost.exe` is a child of the service,
   so it is inside the same Job Object. It was observed to exit with the service on normal close.
 - Trust: the per-user install directory is writable by the user. Anything that can replace
-  `service\evidencegraph-service.exe` there can equally replace `app.exe`, so resolving from the
+  `service\controlgauge-service.exe` there can equally replace `app.exe`, so resolving from the
   install directory adds no new exposure. A per-machine install under `Program Files`, which only
   administrators can modify, is a Sprint 16 decision.
+
+## Upgrading from the S1-09 EvidenceGraph test build
+
+The app identifier changed from `com.evidencegraph.app` to `com.controlgauge.app` and the install
+directory from `%LOCALAPPDATA%\EvidenceGraph` to `%LOCALAPPDATA%\ControlGauge`. The ControlGauge
+installer does not upgrade or remove an EvidenceGraph test install, so both can exist side by
+side. Uninstall EvidenceGraph from Windows Settings → Apps. Its WebView2 profile,
+`%LOCALAPPDATA%\com.evidencegraph.app`, may be left behind and can be deleted. It holds no
+evidence, because the app does not handle evidence yet.
 
 ## Build
 
@@ -74,12 +83,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1
 
 The script:
 1. creates `service/build/package-venv` with `uv sync --frozen --no-dev --group package --no-editable`;
-2. freezes the service with PyInstaller `--onedir` into `service/dist/pyinstaller/evidencegraph-service/`, excluding `mypy`, `pydantic.mypy`, `setuptools`, `pkg_resources`, `_distutils_hack` and `pip`;
-3. rejects the bundle if `_internal` or the embedded module archive contains `mypy`, `setuptools`, `pip`, `pytest`, `httpx`, `ruff`, `PyInstaller` or `tests`, or lacks `evidencegraph_service.supervised`;
+2. freezes the service with PyInstaller `--onedir` into `service/dist/pyinstaller/controlgauge-service/`, excluding `mypy`, `pydantic.mypy`, `setuptools`, `pkg_resources`, `_distutils_hack` and `pip`;
+3. rejects the bundle if `_internal` or the embedded module archive contains `mypy`, `setuptools`, `pip`, `pytest`, `httpx`, `ruff`, `PyInstaller` or `tests`, or lacks `controlgauge_service.supervised`;
 4. runs `npm ci`, then `npm run tauri build -- --config src-tauri/tauri.package.conf.json`;
 5. prints the installer path, size and SHA-256.
 
-Output: `app/src-tauri/target/release/bundle/nsis/EvidenceGraph_0.1.0_x64-setup.exe`. All build
+Output: `app/src-tauri/target/release/bundle/nsis/ControlGauge_0.1.0_x64-setup.exe`. All build
 output is under git-ignored `build/`, `dist/` and `target/` directories, so no binaries are
 committed.
 
@@ -88,7 +97,7 @@ job and then runs the supervised end-to-end suite against the frozen executable:
 
 ```powershell
 cd service
-uv run --frozen pytest tests/test_supervised_process.py --service-exe dist/pyinstaller/evidencegraph-service/evidencegraph-service.exe
+uv run --frozen pytest tests/test_supervised_process.py --service-exe dist/pyinstaller/controlgauge-service/controlgauge-service.exe
 ```
 
 ## Clean-machine validation
@@ -121,7 +130,7 @@ The release build writes **no persistent logs**:
   release builds.
 - The service writes JSON log lines to stderr. `app.exe` reads them and, in release builds,
   discards them.
-- The only on-disk app data is WebView2's profile, `%LOCALAPPDATA%\com.evidencegraph.app\EBWebView`.
+- The only on-disk app data is WebView2's profile, `%LOCALAPPDATA%\com.controlgauge.app\EBWebView`.
 - The only failure detail exposed is the fixed failure-reason code that the UI shows as
   "Technical detail: …".
 
@@ -130,7 +139,7 @@ changing the app. It needs only Windows PowerShell 5.1 and makes no network use.
 timestamped and saved as `s1-09-diagnostics-<time>.txt` next to the script, or to `-ReportPath`.
 It records:
 - the environment: OS, WebView2 version, elevation, network adapters, and the *names* of any
-  `EVIDENCEGRAPH_*`/`WEBVIEW2_*` variables;
+  `CONTROLGAUGE_*`/`WEBVIEW2_*` variables;
 - installed file sizes and hashes, and whether the service files are missing (for example
   quarantined);
 - a timeline of the app's process tree, with paths and command lines for non-WebView2 processes;
@@ -145,6 +154,11 @@ that happened before it started, such as installation or SmartScreen prompts, or
 looked like. Those need a screenshot.
 
 ## S1-09 results
+
+These results predate the rename to ControlGauge (`DECISIONS.md` D-027). The S1-09 build was
+named EvidenceGraph: `EvidenceGraph_0.1.0_x64-setup.exe`, installed to
+`%LOCALAPPDATA%\EvidenceGraph`, with `service\evidencegraph-service.exe` and app identifier
+`com.evidencegraph.app`. The names and hashes below are kept as recorded.
 
 Build under test: commit `3ab1b4a`, installer SHA-256
 `748B9E658F273D954CCF331ADEFD6AF98575963B26AFE43310380ED493155AF2` (12,996,163 bytes).

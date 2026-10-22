@@ -12,7 +12,7 @@ type Control = {
   setStatus(next: Status): void;
 };
 
-const HEALTHY = { status: "ok", service: "evidencegraph-service", version: "0.1.0" };
+const HEALTHY = { status: "ok", service: "controlgauge-service", version: "0.1.0" };
 
 const control: Control = {
   status: { state: "ready" },

@@ -1,5 +1,5 @@
 //! Private-channel wire protocol (S1-04). Mirrors
-//! `service/src/evidencegraph_service/protocol.py` byte-for-byte -- see
+//! `service/src/controlgauge_service/protocol.py` byte-for-byte -- see
 //! that module's docstring for the full framing/ordering contract this
 //! implements. Only framing and the specific message shapes live here;
 //! message *ordering* is enforced by the caller (`supervisor/mod.rs`),

@@ -1,4 +1,4 @@
-# EvidenceGraph — Proposed Data Model
+# ControlGauge — Proposed Data Model
 
 Status: Sprint 0 draft. Proposes an initial schema shape for discussion; **no migrations are
 created in Sprint 0**. Implementation (Sprint 2) should treat this as a strong starting point,

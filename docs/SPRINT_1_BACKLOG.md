@@ -1,4 +1,4 @@
-# EvidenceGraph — Sprint 1 Backlog: Desktop Foundation
+# ControlGauge — Sprint 1 Backlog: Desktop Foundation
 
 Status: Sprint 0 draft. Tickets are scoped to be independently completable and reviewable. Do not
 implement these during Sprint 0 — this is planning output only.

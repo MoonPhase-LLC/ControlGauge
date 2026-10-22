@@ -1,6 +1,6 @@
 """Standalone process entry point.
 
-`python -m evidencegraph_service` or the `evidencegraph-service` console
+`python -m controlgauge_service` or the `controlgauge-service` console
 script. Reads `Settings` from the environment (see `config.py`), fails
 closed at startup if the host/port configuration is structurally invalid,
 and otherwise starts serving -- including with no session token configured
@@ -20,7 +20,7 @@ from .app import create_app
 from .config import Settings
 from .logging_config import configure_logging
 
-logger = logging.getLogger("evidencegraph_service")
+logger = logging.getLogger("controlgauge_service")
 
 
 def main() -> None:
@@ -33,7 +33,7 @@ def main() -> None:
         # HTTP response. Configuration values (host/port/environment) are
         # not secrets; the session token is a `SecretStr` and pydantic
         # never renders its value in this output.
-        print(f"evidencegraph-service: invalid configuration:\n{exc}", file=sys.stderr)
+        print(f"controlgauge-service: invalid configuration:\n{exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
     app = create_app(settings)

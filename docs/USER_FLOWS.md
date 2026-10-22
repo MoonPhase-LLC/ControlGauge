@@ -1,4 +1,4 @@
-# EvidenceGraph — User Flows
+# ControlGauge — User Flows
 
 Status: Sprint 0 draft. Describes intended flows for V0.1 and flags unresolved UX questions —
 see `docs/OPEN_QUESTIONS.md` for the authoritative open-question list. Do not implement UI
