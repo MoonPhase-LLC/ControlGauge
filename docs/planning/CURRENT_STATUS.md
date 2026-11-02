@@ -5,82 +5,59 @@ documents describe plans or decisions; none of them track progress. Navigation:
 [MASTER_PLAN](MASTER_PLAN.md) · [BATCH_JOBS](BATCH_JOBS.md) · [EXECUTION_RULES](EXECUTION_RULES.md) ·
 [DECISION_LOG](DECISION_LOG.md)
 
-Last updated: 2026-11-02 (Sprint 2 prep; PRs #14 and #15 merged).
+Last updated: 2026-11-02 (Sprint 2 implemented on branch; PR opened for owner review).
 
 ## Position
 
 | Item | Value |
 |---|---|
-| Current sprint | Sprint 2 — Assessment and Database Layer (in progress on `claude/sprint-2-assessment-db`); Sprint 1 exit sign-off (R-01) still pending |
-| Active batch | S2-02 (S2-01 implemented/verified, committed on branch) |
-| Next action | Continue S2-02 → S2-05 on the same branch, then open the single Sprint 2 PR. Owner: R-01 sign-off still outstanding |
-| Baseline | `origin/main` @ `3ed2d67` (merge of PR #15) |
-| Merged this session | PR #14 (Continuum planning, `a63f31f`), PR #15 (Graphify guidance, `3ed2d67`) |
-| Open PRs | None |
+| Current sprint | Sprint 2 — Assessment and Database Layer: **implemented/verified, in review** |
+| Active batch | None in progress. S2-01..S2-05 implemented/verified on `claude/sprint-2-assessment-db` |
+| Next action | **Owner:** review and merge the Sprint 2 PR (incl. `DATABASE.md` §7 deviations, PD-008); give S1-08 sign-off (R-01). **Agent, after merge:** mark S2-* and R-03 Done with the merge SHA, then start Sprint 3 prep (C-3 first) |
+| Baseline | `origin/main` @ `4699152` (merge of PR #16) |
+| Branch | `claude/sprint-2-assessment-db`: S2-01 `3cfc00a`, S2-02 `ed3b5a8`, S2-03 `b6e93be`, S2-04 `ddd0989`, S2-05 (this commit) |
+| Open PRs | Sprint 2 PR (see BATCH_JOBS S2-05 / PR list) |
 
-## Verified facts (checked against repo/GitHub on 2026-11-02)
+## Verified facts (2026-11-02, this session)
 
-- PRs #1–#13 are all merged (`gh pr list`): Sprint 0 (#2, #3), S1-01 (#4), S1-02 (#5),
-  S1-03 (#6), S1-04 (#7), S1-05 (#8), S1-06 (#9), S1-07 (#10), S1-09 (#11), rebrand (#12, #13).
-- CI on `main` for `146cea9`: run 39857763377 completed **success** (2026-10-22). This is the only
-  test evidence verified this session. No tests were run locally during Continuum setup.
-- Code present: `app/` (Tauri v2 + React/TS shell, supervisor in `app/src-tauri/`, Vitest and
-  Playwright tests), `service/` (FastAPI, `/health` and challenge routes, 15 pytest modules),
-  `scripts/` (Windows packaging and diagnostics), `.github/workflows/ci.yml`.
-- Absent from the repo (so Sprints 2–16 are unimplemented): database/SQLAlchemy/Alembic,
-  evidence upload/parsers, framework data in `frameworks/` (placeholder only), model runtime,
-  AI pipeline, assessment, review, graph, gap, report features.
-- 2026-10-22: project rebranded EvidenceGraph → ControlGauge (PRs #12, #13); migration notes in
-  `docs/PACKAGING.md`.
-- 2026-10-07: S1-09 packaged-build spike merged (PR #11). Per the product owner's manual test on a
-  clean Windows machine (recorded in `docs/DECISIONS.md` D-001 and `docs/PACKAGING.md`), it
-  passed. Windows edition, install time and installer hash were not recorded.
-
-## Historical claims (recorded in docs, not re-verified here)
-
-- The S1-09 clean-machine pass is the owner's manual result; it is not reproducible from CI.
-- Per-ticket S1-01..S1-06 acceptance was reviewed in their PRs; not re-audited in Continuum setup.
+- Owner approved Sprint 2 defaults and directed execution with S1-08 still pending (PD-006, PD-007).
+- Sprint 2 exit criteria demonstrated locally on Windows 11, including the native test that
+  creates an assessment in the real app, restarts the app, and finds it (BATCH_JOBS S2-05).
+- The frozen PyInstaller service loads the new dependencies, migrations and framework metadata
+  (`--service-exe` supervised suite → 13 passed).
+- PRs #1–#16 merged; no other open PRs at session start.
 
 ## Sprint progress
 
 | Sprint | State |
 |---|---|
-| 0 Architecture/product docs | Complete (docs merged, PRs #2, #3). Its open questions remain open by design |
-| 1 Desktop foundation | S1-01..S1-07 and S1-09 merged. **S1-08 (exit validation / owner sign-off) not done** |
-| 2–16 | Not started. No repository evidence of implementation |
+| 0 Architecture/product docs | Complete (PRs #2, #3) |
+| 1 Desktop foundation | S1-01..S1-07, S1-09 merged. **S1-08 owner sign-off still pending (R-01)** |
+| 2 Assessment and database layer | Implemented/verified on branch; PR in review; Done on merge |
+| 3–16 | Not started |
 
 ## Blockers and pending decisions
 
-- **S1-08 sign-off** (owner): confirm Sprint 1 exit criteria, including the dev-mode loop on real
-  Windows and the S1-09 result. Blocks Sprint 2 per `docs/SPRINT_1_BACKLOG.md`.
-- Open product/security questions are unchanged: see `docs/OPEN_QUESTIONS.md`. Those gating Sprint 2
-  or 3: **A-2** (DB/model storage location), **C-3** (authoritative NIST source/licensing),
-  **P-1/P-2** (baseline selection, assessment cloning). Do not invent answers.
-- Untracked `AGENTS.md` in the working tree is a stale, EvidenceGraph-branded Codex instruction file.
-  Not part of this work; owner to decide whether to commit, rename or discard.
+- **R-01 / S1-08 sign-off** (owner) — unchanged; Sprint 2 proceeded by owner instruction (PD-007).
+- **Sprint 2 PR review** (owner): approve the constraint-only schema deviations in
+  `docs/DATABASE.md` §7 and the dev/test-only `CONTROLGAUGE_DATA_DIR` override (PD-008).
+- **Sprint 3 gate:** C-3 (authoritative NIST source and licensing) must be answered before any
+  control catalog is loaded. Still open: A-2 configurable path / model location, P-1, P-2, C-2.
+- Untracked `AGENTS.md` (stale EvidenceGraph Codex file) and remote branch
+  `claude/s1-05-frontend-foundation` — owner to decide; agents do not delete them.
 
-## Last verified test results
+## Last verified test results (local, Windows 11, branch head, 2026-11-02)
 
-- CI on `main` @ `a63f31f`: CI workflow **success**. Graphify PR #15 CI (`fadd9d8`): all 8 checks
-  success, including Windows Rust, Windows packaged service and Python 3.12 Windows.
-- Local, 2026-11-02, on `claude/sprint-2-prep` from `main` @ `3ed2d67`:
-  - `service`: `uv run pytest` → 255 passed; `ruff check` ok; `ruff format --check` ok;
-    `mypy` → no issues in 31 files.
-  - `app`: `npm test` → 27 passed; `npm run lint`, `npm run build`, `npm run typecheck:test` → exit 0.
-- Not run: Rust `cargo` checks locally, Playwright locally, Windows native smoke (local-only by design).
-
-## Repository hygiene (checked 2026-11-02)
-
-- Remote branches with commits not in `main`: `claude/s1-05-frontend-foundation` (`f5216db`
-  "updated agents", adds EvidenceGraph-branded `AGENTS.md`). This is not a PR. Owner to decide
-  whether to keep or delete it. Agents do not delete branches.
-- Local untracked `AGENTS.md` in the working tree is the same file. Owner to decide.
-- `claude/s1-01`, `s1-02`, `s1-03`, `sprint-0-bootstrap`, `sprint-0-review-fixes` have no remote
-  branch (`gone`). Their PRs were merged. Local cleanup only; no action needed.
+- `service`: `uv lock --check` ok; `ruff check`, `ruff format --check`, `mypy` (50 files) clean;
+  `pytest` → 344 passed; frozen exe supervised suite → 13 passed.
+- `app/src-tauri`: `cargo fmt --check`, `cargo clippy -D warnings` clean; `cargo test` → 103 passed.
+- `app`: `npm run lint`, `build`, `typecheck:test` exit 0; Vitest → 42 passed; Playwright
+  browser → 2 passed; native Windows smoke (`test:e2e:native`) → 3 passed.
+- CI on the PR: see the PR checks (not yet recorded here at time of writing).
 
 ## Update log (newest first; keep to one line each)
 
-- 2026-11-02 — Sprint 2 prep: merged PR #14 and #15; verified local tests/lint/build; reconciled
-  status (R-00 done).
+- 2026-11-02 — Sprint 2 S2-01..S2-05 implemented/verified on one branch; PR opened for review.
+- 2026-11-02 — Sprint 2 prep: merged PR #14 and #15; verified local tests/lint/build (R-00 done).
 - 2026-11-02 — Graphify code-graph guidance (PR #15), `--code-only` local use.
 - 2026-11-02 — Continuum planning docs created (PR #14).

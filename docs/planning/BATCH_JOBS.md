@@ -41,7 +41,8 @@ Evidence line format when closing a batch: `Evidence: <commands run → result>;
 - **Validation:** grep for stale statuses; docs-only diff.
 
 ### R-03 — Resolve Sprint 2 gating questions with owner
-- **Status:** Ready (conversation, not code). Depends: none.
+- **Status:** Answered by owner 2026-11-02 (Sprint 2 approved defaults), recorded as PD-006 and in
+  `OPEN_QUESTIONS.md` A-2/P-1/P-2; closes when the Sprint 2 PR merges.
 - **Scope:** Ask owner for A-2 (DB/model storage location and configurability), and whether
   P-1/P-2 (baseline selection, assessment cloning) are in Sprint 2. Record answers in
   `DECISION_LOG.md` (or ADR in `docs/DECISIONS.md` if architectural) and update `OPEN_QUESTIONS.md`.
@@ -147,7 +148,29 @@ directed Sprint 2 to proceed while R-01 (S1-08 sign-off) stays pending. One bran
 - **Tests:** Vitest component tests; Playwright smoke path.
 
 ### S2-05 — Sprint 2 exit validation
-- **Depends:** S2-04. **Status:** Blocked.
+- **Depends:** S2-04. **Status:** Implemented/verified; **owner acceptance pending** (PR review).
+- **Exit criteria (`SPRINTS.md` Sprint 2), agent-verified locally on Windows 11, 2026-11-02:**
+  - *Create/list/view:* native test `real app: an assessment created in the UI persists across an
+    app restart` drives the real debug app (Tauri + Rust supervisor + Python service) through
+    create → detail → list; plus Vitest (42) and Playwright browser flow (2).
+  - *Persists across app restarts:* same native test closes the app gracefully, relaunches it,
+    and finds and opens the assessment; also `cargo test`
+    `assessment_survives_a_supervised_child_restart` and pytest
+    `test_assessment_persists_across_a_real_service_restart` (dev and frozen exe).
+  - *Migration reproducible on a clean DB:* `test_fresh_directory_is_created_and_migrated_to_head`,
+    `test_migration_is_idempotent_and_reproducible`, concurrent first start, `alembic check`
+    (no drift), downgrade/upgrade round trip.
+  - *Packaged service includes new dependencies:* `scripts/package-windows.ps1 -ServiceOnly` +
+    `pytest tests/test_supervised_process.py --service-exe ...` → 13 passed (migrations, models,
+    framework metadata all load in the frozen exe). Full NSIS installer and clean-machine install
+    not rebuilt/re-run this sprint (not requested); CI's packaged-service job covers the frozen exe.
+- **Final local evidence (all on `claude/sprint-2-assessment-db`):** service `uv lock --check`,
+  `ruff check`, `ruff format --check`, `mypy` (50 files) clean, `pytest` → 344 passed; Rust
+  `cargo fmt --check`, `clippy -D warnings` clean, `cargo test` → 103 passed; app `lint`, `build`,
+  `typecheck:test` exit 0, Vitest → 42 passed, Playwright → 2 passed, native → 3 passed.
+  No test run touched the real `%LOCALAPPDATA%\ControlGauge` (verified absent afterwards).
+- **Still required:** owner review/acceptance of the PR, including the `DATABASE.md` §7 schema
+  deviations and PD-008; CI green on the PR.
 - **Acceptance:** `SPRINTS.md` Sprint 2 exit criteria demonstrated: create/list/view, persistence
   across app restart (including packaged build via `scripts/package-windows.ps1` if owner
   requests), migration reproducible on clean DB. Owner acceptance recorded; packaged-build
