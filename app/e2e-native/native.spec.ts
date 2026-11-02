@@ -1,6 +1,7 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 
@@ -83,10 +84,21 @@ function alive(pids: number[]): number[] {
 
 type Launched = { app: ChildProcess; browser: Browser; page: Page; exited: Promise<number | null> };
 
+// Sprint 2: the service stores assessments in a per-user database. Point it
+// (via the dev/test-only CONTROLGAUGE_DATA_DIR override, inherited by the
+// supervised child) at a directory owned by this test run, never the real
+// one. Shared by every launch in this file so restarts see the same data.
+const DATA_DIR = mkdtempSync(path.join(tmpdir(), "controlgauge-native-"));
+test.afterAll(() => rmSync(DATA_DIR, { recursive: true, force: true }));
+
 async function launch(): Promise<Launched> {
   const port = await freeLoopbackPort();
   const app = spawn(APP_EXE, [], {
-    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` },
+    env: {
+      ...process.env,
+      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
+      CONTROLGAUGE_DATA_DIR: DATA_DIR,
+    },
     stdio: ["ignore", "ignore", "pipe"],
   });
   // Keep only the tail of the app's stderr, for diagnosing launch failures.
@@ -151,6 +163,43 @@ test("real app: supervised service reaches ready with authenticated health, and 
     await expect.poll(() => alive(children), { timeout: 10_000 }).toEqual([]);
   } finally {
     if (launched.app.exitCode === null) launched.app.kill();
+  }
+});
+
+test("real app: an assessment created in the UI persists across an app restart", async () => {
+  const name = `Native restart check ${Date.now()}`;
+
+  const first = await launch();
+  try {
+    const { page } = first;
+    await expect(page.getByRole("region", { name: "Local service" }).getByText("Service ready")).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Assessments", exact: true }).click();
+    await page.getByRole("button", { name: "New assessment" }).click();
+    await page.getByRole("textbox", { name: "Name", exact: true }).fill(name);
+    await page.getByRole("textbox", { name: "Description" }).fill("Created through the real Rust and Python path");
+    await page.getByRole("button", { name: "Create assessment" }).click();
+    await expect(page.getByRole("heading", { level: 1, name })).toBeVisible({ timeout: 10_000 });
+    expect(await closeGracefully(first)).toBe(0);
+  } finally {
+    if (first.app.exitCode === null) first.app.kill();
+  }
+
+  const second = await launch();
+  try {
+    const { page } = second;
+    await expect(page.getByRole("region", { name: "Local service" }).getByText("Service ready")).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Assessments", exact: true }).click();
+    const item = page.getByRole("list", { name: "Assessment list" }).getByRole("button", { name: new RegExp(name) });
+    await expect(item).toBeVisible({ timeout: 10_000 });
+    await item.click();
+    await expect(page.getByText("Created through the real Rust and Python path")).toBeVisible();
+    expect(await closeGracefully(second)).toBe(0);
+  } finally {
+    if (second.app.exitCode === null) second.app.kill();
   }
 });
 

@@ -22,6 +22,7 @@ mod supervisor;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use supervisor::service_api::{self, ServiceCallError};
 use supervisor::{HealthCheckError, HealthResponse, SupervisorHandle, SupervisorState};
 use tauri::Manager;
 
@@ -60,6 +61,55 @@ async fn check_service_health(
         .map_err(|e| e.as_str().to_string())
 }
 
+// --- Sprint 2 (S2-04): assessment commands -------------------------------
+//
+// Same capability shape as `check_service_health`: each command does one
+// fixed request in Rust over the pinned, identity-verified connection
+// (`supervisor::service_api`) and returns a typed result or a
+// `ServiceCallError` (a `kind`-tagged object). The WebView never receives
+// the token, endpoint, or a raw HTTP body.
+
+async fn ready(
+    state: &tauri::State<'_, SupervisorHandle>,
+) -> Result<supervisor::ReadyConnection, ServiceCallError> {
+    state
+        .ready_connection()
+        .await
+        .ok_or(ServiceCallError::ServiceNotReady)
+}
+
+#[tauri::command]
+async fn list_frameworks(
+    state: tauri::State<'_, SupervisorHandle>,
+) -> Result<service_api::FrameworkList, ServiceCallError> {
+    service_api::list_frameworks(&ready(&state).await?).await
+}
+
+#[tauri::command]
+async fn list_assessments(
+    state: tauri::State<'_, SupervisorHandle>,
+    limit: u32,
+    offset: u64,
+) -> Result<service_api::AssessmentList, ServiceCallError> {
+    service_api::list_assessments(&ready(&state).await?, limit, offset).await
+}
+
+#[tauri::command]
+async fn get_assessment(
+    state: tauri::State<'_, SupervisorHandle>,
+    id: String,
+) -> Result<service_api::Assessment, ServiceCallError> {
+    service_api::get_assessment(&ready(&state).await?, &id).await
+}
+
+#[tauri::command]
+async fn create_assessment(
+    state: tauri::State<'_, SupervisorHandle>,
+    input: service_api::NewAssessment,
+) -> Result<service_api::Assessment, ServiceCallError> {
+    service_api::create_assessment(&ready(&state).await?, &input).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let supervisor_handle = SupervisorHandle::new();
@@ -77,7 +127,11 @@ pub fn run() {
         .manage(supervisor_handle.clone())
         .invoke_handler(tauri::generate_handler![
             get_service_status,
-            check_service_health
+            check_service_health,
+            list_frameworks,
+            list_assessments,
+            get_assessment,
+            create_assessment
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();

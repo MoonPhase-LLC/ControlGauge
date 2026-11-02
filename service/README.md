@@ -64,6 +64,72 @@ curl -i http://127.0.0.1:51823/health   # -> 401, no token supplied
 curl -H "Authorization: Bearer <your-generated-token>" http://127.0.0.1:51823/health
 ```
 
+## Local database (Sprint 2)
+
+The service stores assessments in a local SQLite file, `controlgauge.db`, in the OS per-user,
+machine-local app-data directory (owner decision PD-006 / `docs/OPEN_QUESTIONS.md` A-2):
+
+| OS | Directory |
+|---|---|
+| Windows | `%LOCALAPPDATA%\ControlGauge` (Local, never Roaming) |
+| macOS | `~/Library/Application Support/ControlGauge` |
+| Linux | `$XDG_DATA_HOME/controlgauge` (default `~/.local/share/controlgauge`) |
+
+A user-configurable location is deferred. `CONTROLGAUGE_DATA_DIR` (absolute path) overrides the
+directory for **development and tests only** (PD-008/PD-011); the test suites set it so they never
+touch the real database. It must be a local path: UNC/device paths (`\\server\share`, `\\?\...`,
+`//server/share`) and Windows mapped network drives are refused with
+`data_dir_override_remote`, and startup fails closed (SQLite on network storage risks corruption).
+Network detection for other POSIX mounts is not implemented. **Production behavior:** the
+packaged service also honors the variable if it is set in the user's environment (CI's frozen-exe
+tests rely on this); it is not exposed in the UI or documented to end users. Uninstalling the app
+does not delete the data directory.
+
+At startup, before any socket is opened, the service creates the directory if needed, opens the
+database (`PRAGMA foreign_keys = ON` on every connection) and applies all pending Alembic
+migrations. If any of that fails, the process exits non-zero with a fixed reason
+(`data_dir_create_failed`, `database_migration_failed`, ...) and never serves; a database from a
+newer app version (unknown revision) also fails closed. The path is never logged; the log records
+only `database_ready` with the schema revision.
+
+Migrations live in `src/controlgauge_service/migrations/` (packaged as data by
+`scripts/package-windows.ps1`). To author a new one against a scratch database:
+
+```sh
+uv run alembic revision --autogenerate -m "describe the change"   # uses alembic.ini
+```
+
+## Endpoints
+
+Every endpoint requires `Authorization: Bearer <session token>`; missing or wrong credentials get
+`401 {"detail": "Unauthorized"}` before routing (no exemptions besides the D-025 startup
+challenge in supervised mode).
+
+| Method | Path | Success | Notes |
+|---|---|---|---|
+| `GET` | `/health` | 200 | S1-03 |
+| `GET` | `/frameworks` | 200 `{"frameworks": [{id, name, version, source_reference, control_count}]}` | Metadata only; `control_count` is 0 until Sprint 3 loads a catalog |
+| `GET` | `/assessments?limit=&offset=` | 200 `{"assessments": [...], total, limit, offset}` | Newest first; `limit` 1–100 (default 50) |
+| `POST` | `/assessments` | 201 assessment | Body `{"name", "framework_id", "description"?}`; unknown fields rejected |
+| `GET` | `/assessments/{id}` | 200 assessment | Unknown or non-canonical UUID → 404 `assessment_not_found` |
+
+An assessment is `{id, name, description, framework: {id, name, version}, created_at}`
+(`created_at` is ISO 8601 UTC). Validation: `name` trimmed, 1–200 characters, no control
+characters or line breaks; `description` optional, trimmed (blank → `null`), ≤ 2000 characters,
+line breaks and tabs allowed; `framework_id` must name a registered framework.
+
+Errors on these routes share one shape and never echo submitted values:
+
+```json
+{"error": {"code": "validation_failed", "message": "The request is not valid.",
+           "fields": [{"field": "name", "code": "too_long", "message": "This value is too long."}]}}
+```
+
+Top-level codes: `validation_failed` (422), `malformed_body` (400), `assessment_not_found` (404),
+`database_unavailable` (503). Field codes: `required`, `blank`, `too_long`, `invalid_characters`,
+`invalid_type`, `unknown_field` (reported against `body`), `framework_not_found`, `invalid`.
+Unexpected failures return the existing generic `500 {"detail": "Internal Server Error"}`.
+
 ## Entry points
 
 Both of the following start the identical service with identical configuration behavior — the

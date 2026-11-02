@@ -60,6 +60,7 @@ mod job_object;
 mod pinned_http;
 mod process;
 mod protocol;
+pub mod service_api;
 mod state;
 
 pub use errors::{FailureReason, HealthCheckError};
@@ -820,10 +821,27 @@ mod tests {
     use tokio::net::TcpListener;
 
     fn real_dev_target() -> (std::path::PathBuf, Vec<String>) {
+        isolate_service_data_dir();
         process::resolve_dev().expect(
             "service/.venv python not found -- run `uv sync` in service/ first \
              (see service/README.md)",
         )
+    }
+
+    /// Sprint 2: the real child opens its SQLite database at startup. Point
+    /// it (via the inherited `CONTROLGAUGE_DATA_DIR` dev/test override) at a
+    /// per-test-run temp directory so tests never touch the real per-user
+    /// database. Set once, before any child is spawned.
+    fn isolate_service_data_dir() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            let dir = std::env::temp_dir().join(format!(
+                "controlgauge-supervisor-tests-{}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).expect("create test data dir");
+            std::env::set_var("CONTROLGAUGE_DATA_DIR", &dir);
+        });
     }
 
     #[tokio::test]
@@ -916,6 +934,265 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    /// Starts a real child through the full handshake and returns its
+    /// published connection plus what is needed to shut it down.
+    async fn start_real_ready_child() -> (
+        SupervisorHandle,
+        ReadyConnection,
+        CancellationToken,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let (executable, args) = real_dev_target();
+        let handle = SupervisorHandle::new();
+        let handshake = timeout(
+            Duration::from_secs(20),
+            run_startup_with_executable(&handle, &executable, &args),
+        )
+        .await
+        .expect("startup timed out")
+        .expect("startup should succeed");
+        let token = CancellationToken::new();
+        let watcher = tokio::spawn(watch_ready_process(
+            handle.clone(),
+            handshake,
+            token.clone(),
+        ));
+        assert!(
+            poll_state(
+                &handle,
+                |s| *s == SupervisorState::Ready,
+                Duration::from_secs(5)
+            )
+            .await
+        );
+        let connection = handle.ready_connection().await.expect("Ready connection");
+        (handle, connection, token, watcher)
+    }
+
+    #[tokio::test]
+    async fn service_api_round_trip_against_real_python_child() {
+        use service_api::{NewAssessment, ServiceCallError};
+
+        let (handle, connection, token, watcher) = start_real_ready_child().await;
+
+        let frameworks = service_api::list_frameworks(&connection).await.unwrap();
+        let framework = frameworks
+            .frameworks
+            .first()
+            .expect("framework metadata is registered at startup")
+            .clone();
+        assert_eq!(framework.control_count, 0);
+
+        let created = service_api::create_assessment(
+            &connection,
+            &NewAssessment {
+                name: "  Rust round trip  ".into(),
+                description: Some("Created by the supervisor test".into()),
+                framework_id: framework.id.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(created.name, "Rust round trip");
+        assert_eq!(created.framework.id, framework.id);
+
+        let fetched = service_api::get_assessment(&connection, &created.id)
+            .await
+            .unwrap();
+        assert_eq!(fetched, created);
+
+        let listed = service_api::list_assessments(&connection, 100, 0)
+            .await
+            .unwrap();
+        assert!(listed.assessments.iter().any(|a| a.id == created.id));
+
+        // The service's validation error is relayed in its documented shape.
+        let invalid = service_api::create_assessment(
+            &connection,
+            &NewAssessment {
+                name: "   ".into(),
+                description: None,
+                framework_id: framework.id.clone(),
+            },
+        )
+        .await
+        .unwrap_err();
+        match invalid {
+            ServiceCallError::ApiError {
+                status,
+                code,
+                fields,
+                ..
+            } => {
+                assert_eq!(status, 422);
+                assert_eq!(code, "validation_failed");
+                assert_eq!(fields[0].field, "name");
+                assert_eq!(fields[0].code, "blank");
+            }
+            other => panic!("expected ApiError, got {other:?}"),
+        }
+
+        let missing =
+            service_api::get_assessment(&connection, "00000000-0000-4000-8000-000000000000")
+                .await
+                .unwrap_err();
+        assert!(matches!(
+            missing,
+            ServiceCallError::ApiError { status: 404, .. }
+        ));
+
+        // Rejected in Rust: never becomes a request path.
+        assert_eq!(
+            service_api::get_assessment(&connection, "../health").await,
+            Err(ServiceCallError::InvalidArgument)
+        );
+        assert_eq!(
+            service_api::list_assessments(&connection, 0, 0).await,
+            Err(ServiceCallError::InvalidArgument)
+        );
+
+        // Errors above were ordinary HTTP responses: the session is intact.
+        assert!(connection.is_alive());
+        assert_eq!(handle.snapshot().await, SupervisorState::Ready);
+
+        token.cancel();
+        watcher.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn assessment_survives_a_supervised_child_restart() {
+        let (_h1, first, token1, watcher1) = start_real_ready_child().await;
+        let framework_id = service_api::list_frameworks(&first)
+            .await
+            .unwrap()
+            .frameworks[0]
+            .id
+            .clone();
+        let created = service_api::create_assessment(
+            &first,
+            &service_api::NewAssessment {
+                name: "Survives restart".into(),
+                description: None,
+                framework_id,
+            },
+        )
+        .await
+        .unwrap();
+        token1.cancel();
+        watcher1.await.unwrap();
+
+        let (_h2, second, token2, watcher2) = start_real_ready_child().await;
+        let fetched = service_api::get_assessment(&second, &created.id)
+            .await
+            .unwrap();
+        assert_eq!(fetched, created);
+        token2.cancel();
+        watcher2.await.unwrap();
+    }
+
+    /// One-shot fake responder that records the raw request it received.
+    async fn capturing_endpoint(
+        status_line: &'static str,
+        body: String,
+    ) -> (std::net::SocketAddr, tokio::sync::oneshot::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 64 * 1024];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                let _ = tx.send(String::from_utf8_lossy(&buf[..n]).into_owned());
+                let response = format!(
+                    "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+                // Keep the socket open briefly so the client reads the body.
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        });
+        (addr, rx)
+    }
+
+    async fn fake_ready_connection(addr: std::net::SocketAddr) -> ReadyConnection {
+        let pinned = PinnedConnection::connect("127.0.0.1", addr.port(), HTTP_CONNECT_TIMEOUT)
+            .await
+            .unwrap();
+        let (_tx, rx) = watch::channel(true);
+        // Leak the sender so the liveness signal stays `true` for the test.
+        std::mem::forget(_tx);
+        ReadyConnection::new(
+            "127.0.0.1".into(),
+            addr.port(),
+            "fake-session-token".into(),
+            pinned,
+            rx,
+        )
+    }
+
+    #[tokio::test]
+    async fn service_api_request_is_authenticated_and_uses_a_fixed_path() {
+        let id = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        let body = format!(
+            r#"{{"id":"{id}","name":"n","description":null,"framework":{{"id":"f","name":"F","version":"1"}},"created_at":"2026-11-02T00:00:00Z"}}"#
+        );
+        let (addr, request) = capturing_endpoint("200 OK", body).await;
+        let connection = fake_ready_connection(addr).await;
+
+        let fetched = service_api::get_assessment(&connection, id).await.unwrap();
+        assert_eq!(fetched.id, id);
+        let raw = request.await.unwrap();
+        assert!(raw.starts_with(&format!("GET /assessments/{id} HTTP/1.1\r\n")));
+        assert!(raw.contains("authorization: Bearer fake-session-token\r\n"));
+    }
+
+    #[tokio::test]
+    async fn service_api_rejects_unexpected_response_fields() {
+        let (addr, _request) =
+            capturing_endpoint("200 OK", r#"{"frameworks":[],"extra":true}"#.into()).await;
+        let connection = fake_ready_connection(addr).await;
+        assert_eq!(
+            service_api::list_frameworks(&connection).await,
+            Err(service_api::ServiceCallError::ResponseMalformed)
+        );
+    }
+
+    #[tokio::test]
+    async fn service_api_rejects_an_oversized_response_and_revokes_the_connection() {
+        let huge = format!(
+            r#"{{"frameworks":[],"pad":"{}"}}"#,
+            "x".repeat(service_api::MAX_API_RESPONSE_BYTES)
+        );
+        let (addr, _request) = capturing_endpoint("200 OK", huge).await;
+        let connection = fake_ready_connection(addr).await;
+        assert_eq!(
+            service_api::list_frameworks(&connection).await,
+            Err(service_api::ServiceCallError::ResponseTooLarge)
+        );
+        assert!(
+            !connection.is_alive(),
+            "fail closed after a broken exchange"
+        );
+    }
+
+    #[tokio::test]
+    async fn service_api_refuses_an_oversized_request_without_sending() {
+        let (addr, _request) = capturing_endpoint("201 Created", "{}".into()).await;
+        let connection = fake_ready_connection(addr).await;
+        let result = service_api::create_assessment(
+            &connection,
+            &service_api::NewAssessment {
+                name: "x".repeat(service_api::MAX_API_REQUEST_BYTES),
+                description: None,
+                framework_id: "f".into(),
+            },
+        )
+        .await;
+        assert_eq!(result, Err(service_api::ServiceCallError::InvalidArgument));
+        assert!(connection.is_alive());
     }
 
     #[tokio::test]

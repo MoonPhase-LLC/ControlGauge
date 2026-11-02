@@ -24,6 +24,7 @@ import sys
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 
@@ -129,7 +130,9 @@ def _parse_response(raw: bytes) -> _RawResponse:
     return _RawResponse(status_code=status_code, headers=headers, body=body)
 
 
-def _spawn_service(*, session_token: str | None) -> tuple[int, subprocess.Popen[str]]:
+def _spawn_service(
+    *, session_token: str | None, data_dir: Path
+) -> tuple[int, subprocess.Popen[str]]:
     port = _free_loopback_port()
     env = dict(os.environ)
     for key in list(env):
@@ -137,6 +140,8 @@ def _spawn_service(*, session_token: str | None) -> tuple[int, subprocess.Popen[
             del env[key]
     env["CONTROLGAUGE_HOST"] = "127.0.0.1"
     env["CONTROLGAUGE_PORT"] = str(port)
+    # Sprint 2: never touch the real per-user database from a test run.
+    env["CONTROLGAUGE_DATA_DIR"] = str(data_dir)
     if session_token is not None:
         env["CONTROLGAUGE_SESSION_TOKEN"] = session_token
 
@@ -160,9 +165,9 @@ def _spawn_service(*, session_token: str | None) -> tuple[int, subprocess.Popen[
 
 
 @pytest.fixture
-def running_service() -> Iterator[_RunningService]:
+def running_service(tmp_path: Path) -> Iterator[_RunningService]:
     """A real subprocess with a valid session credential configured."""
-    port, process = _spawn_service(session_token=VALID_TOKEN)
+    port, process = _spawn_service(session_token=VALID_TOKEN, data_dir=tmp_path)
     service = _RunningService(port=port, process=process)
     try:
         yield service
@@ -171,9 +176,9 @@ def running_service() -> Iterator[_RunningService]:
 
 
 @pytest.fixture
-def running_service_without_credential() -> Iterator[_RunningService]:
+def running_service_without_credential(tmp_path: Path) -> Iterator[_RunningService]:
     """A real subprocess with no session credential configured at all."""
-    port, process = _spawn_service(session_token=None)
+    port, process = _spawn_service(session_token=None, data_dir=tmp_path)
     service = _RunningService(port=port, process=process)
     try:
         yield service

@@ -32,6 +32,18 @@ Evidence line format when closing a batch: `Evidence: <commands run → result>;
 - **Validation:** `uv run pytest` (service), `npm test` (app), `cargo test` (src-tauri) or the
   green CI run on the sign-off commit.
 
+- **Result (2026-11-02):** Owner accepted S1-08 on the documented evidence (PD-009), recorded in
+  `SPRINT_1_BACKLOG.md` S1-08. Fail-closed occupied-port/impersonation coverage: pytest
+  `test_port_is_os_assigned_and_unaffected_by_an_unrelated_listener`, cargo
+  `fake_http_endpoint_with_wrong_response_is_rejected`,
+  `child_death_between_liveness_check_and_send_never_leaks_credential_to_replacement_listener`.
+  Done with the Sprint 2 PR merge.
+
+### R-04 — Clean-machine retest of the rebranded installer (release task)
+- **Status:** Ready (owner, manual). Rebuild with `scripts/package-windows.ps1`, install on a clean
+  Windows machine, record edition, install time and installer SHA-256 in `docs/PACKAGING.md`.
+  Separate from S1-08 (PD-009). Not claimed done.
+
 ### R-02 — Status/doc reconciliation
 - **Status:** Blocked on R-01 (can run in parallel in a docs-only PR if owner prefers).
 - **Scope:** Update stale "Sprint 0 draft" status lines in `docs/*.md` that are still accurate as
@@ -41,7 +53,8 @@ Evidence line format when closing a batch: `Evidence: <commands run → result>;
 - **Validation:** grep for stale statuses; docs-only diff.
 
 ### R-03 — Resolve Sprint 2 gating questions with owner
-- **Status:** Ready (conversation, not code). Depends: none.
+- **Status:** Answered by owner 2026-11-02 (Sprint 2 approved defaults), recorded as PD-006 and in
+  `OPEN_QUESTIONS.md` A-2/P-1/P-2; closes when the Sprint 2 PR merges.
 - **Scope:** Ask owner for A-2 (DB/model storage location and configurability), and whether
   P-1/P-2 (baseline selection, assessment cloning) are in Sprint 2. Record answers in
   `DECISION_LOG.md` (or ADR in `docs/DECISIONS.md` if architectural) and update `OPEN_QUESTIONS.md`.
@@ -50,12 +63,33 @@ Evidence line format when closing a batch: `Evidence: <commands run → result>;
 ## Sprint 2 — Assessment and Database Layer
 
 Spec: `docs/SPRINTS.md` Sprint 2; schema reference `docs/DATABASE.md`; ADRs D-002, D-005, D-006,
-D-016. All batches depend on R-01 and R-03. Any deviation from `DATABASE.md` needs owner
-approval. New dependencies (SQLAlchemy, Alembic) require the justification note required by
-`CLAUDE.md`; they are already named in the approved stack (D-001) but confirm before adding.
+D-016. Any deviation from `DATABASE.md` needs owner approval. New dependencies (SQLAlchemy,
+Alembic) require the justification note required by `CLAUDE.md`; they are already named in the
+approved stack (D-001).
+
+**Unblocked by owner instruction (2026-11-02, PD-006/PD-007):** R-03's gating answers were given
+as approved defaults (A-2 database location; P-1/P-2 deferred; NIST metadata only), and the owner
+directed Sprint 2 to proceed while R-01 (S1-08 sign-off) stays pending. One branch,
+`claude/sprint-2-assessment-db`, one PR; batches are "Implemented/verified" until it merges.
 
 ### S2-01 — SQLAlchemy + Alembic foundation
-- **Depends:** R-01, R-03. **Status:** Blocked.
+- **Depends:** R-03 (answered via PD-006). **Status:** Implemented/verified (on branch, PR pending).
+- **Dependency note (`CLAUDE.md`):** `sqlalchemy>=2.0.36,<2.1` (locked 2.0.55) and
+  `alembic>=1.14,<2` (locked 1.20.1, pulls Mako/MarkupSafe/greenlet) — the ORM and migration tool
+  already named in D-001; no lighter option gives versioned, reproducible SQLite migrations.
+- **Result:** `storage.py` (per-user data dir, `CONTROLGAUGE_DATA_DIR` dev/test override, PD-008),
+  `db/engine.py` (FK pragma + busy timeout on every connection, real transactions, `BEGIN
+  IMMEDIATE` for migrations/writes), `db/migrate.py` + `migrations/` (baseline `0001_baseline`),
+  `db/bootstrap.py` (fail-closed init, path never logged). Both entry points migrate before
+  opening a socket. PyInstaller script ships migrations as data and rebuilds the project wheel.
+- **Issues found and fixed:** (1) frozen build missed `db.models`/`db.base` (only imported by
+  data-file `env.py`) → imported from `migrate.py`; (2) parallel children migrating one fresh DB
+  raced (`SQLITE_BUSY`) → `BEGIN IMMEDIATE`; (3) local packaging reused a stale cached wheel →
+  `--reinstall-package`.
+- **Evidence (local, Windows, 2026-11-02):** `uv run pytest` → 276 passed; `ruff check`, `ruff
+  format --check`, `mypy` (42 files) clean; frozen exe: `pytest tests/test_supervised_process.py
+  --service-exe ...` → 11 passed; `cargo fmt --check`, `cargo clippy -D warnings` clean, `cargo
+  test` → 91 passed.
 - **Deliverables:** SQLite engine/session setup in `service/` at the A-2-approved location;
   Alembic config; empty baseline migration; migration runs on a clean database.
 - **Acceptance:** service starts with the DB initialized; migration reproducible on a fresh path;
@@ -64,7 +98,17 @@ approval. New dependencies (SQLAlchemy, Alembic) require the justification note 
 - **Docs:** `service/README.md`, `docs/DATABASE.md` (only if deviating, with owner approval).
 
 ### S2-02 — Framework/control schema migration
-- **Depends:** S2-01. **Status:** Blocked.
+- **Depends:** S2-01. **Status:** Implemented/verified (on branch, PR pending).
+- **Result:** `db/models.py` + migration `0002_framework_assessment` (5 tables; deviations listed
+  in `docs/DATABASE.md` §7 for owner approval — constraints only, incl. the composite
+  family/framework FK §2 names as the stricter option). `framework_catalog.py` syncs identity
+  metadata from `frameworks/*/framework.json` (untrusted: size-limited, strict schema, invalid
+  files skipped); `frameworks/nist-800-53-rev5/framework.json` holds name/version/DOI only. No
+  control rows inserted. `assessment_control_scope` not created (P-1 deferred).
+- **Evidence (local, 2026-11-02):** `alembic upgrade head` + `alembic check` → "No new upgrade
+  operations detected" (migration matches models); downgrade/re-upgrade clean; `uv run pytest` →
+  296 passed (new `test_schema.py`: FKs, composite FK, uniqueness, checks, UTC round-trip, no
+  control content, AST check that no code string literal names NIST); ruff/mypy clean.
 - **Deliverables:** models and migration for `framework`, `control_family` (optional per D-016),
   `control`, `control_enhancement`, `assessment` per `DATABASE.md`.
 - **Acceptance:** schema matches `DATABASE.md` (deviations listed); no NIST-specific columns or
@@ -72,7 +116,19 @@ approval. New dependencies (SQLAlchemy, Alembic) require the justification note 
 - **Tests:** pytest for constraints, FK integrity, upgrade from empty DB.
 
 ### S2-03 — Assessment CRUD API
-- **Depends:** S2-02. **Status:** Blocked.
+- **Depends:** S2-02. **Status:** Implemented/verified (on branch, PR pending).
+- **Result:** `GET /frameworks`, `GET/POST /assessments`, `GET /assessments/{id}` behind the
+  unchanged D-009 middleware; strict input validation; sanitized error contract
+  (`routes/errors.py`) replacing FastAPI's input-echoing 422; documented in `service/README.md`.
+  Assessments require an existing framework (P-1/P-2 deferred per PD-006). DB init failure
+  reasons added to the private-channel error allowlist.
+- **Issues found and fixed:** unknown-field errors echoed the client's key name → reported
+  against `body`.
+- **Evidence (local, 2026-11-02):** `uv run pytest` → 342 passed (new `test_assessments_api.py`:
+  401 on all routes × 3 bad credentials, validation matrix, no input echo, paging, 404s,
+  restart persistence, 503 without DB, sanitized 500 + rollback); ruff/mypy clean. Real process:
+  `test_assessment_persists_across_a_real_service_restart` and fail-closed data-dir test pass in
+  dev and against the frozen exe (`--service-exe` → 13 passed).
 - **Deliverables:** authenticated create/list/get endpoints (D-009 token; D-018 identity
   handshake unchanged); input validation; minimal error contract.
 - **Acceptance:** endpoints reject missing/invalid credentials; data persists across service
@@ -81,7 +137,22 @@ approval. New dependencies (SQLAlchemy, Alembic) require the justification note 
 - **Docs:** `service/README.md` endpoint table.
 
 ### S2-04 — Assessment UI (create/list/view)
-- **Depends:** S2-03. **Status:** Blocked.
+- **Depends:** S2-03. **Status:** Implemented/verified (on branch, PR pending).
+- **Result:** Rust `supervisor/service_api.rs` + 4 Tauri commands over the pinned connection
+  (UUID/paging validation in Rust, 32 KiB request / 2 MiB response bounds, closed schemas, only the
+  documented bounded error shape relayed). React: Home/Assessments nav (Settings stays a
+  placeholder), list (newest first, "Show more" paging, empty/loading/error+retry, service
+  not-ready/failed states), create form (local + service field errors on the field,
+  `aria-invalid`/`aria-describedby`, focus to first invalid field, duplicate-submit guard,
+  framework preselected with an honest "catalog not loaded" note), detail (404 handled; evidence
+  marked not available yet). shadcn `input`/`textarea`/`label`/`native-select` added via
+  `npx shadcn add` (no new npm dependency).
+- **Evidence (local, 2026-11-02):** `cargo fmt --check`, `cargo clippy -D warnings` clean,
+  `cargo test` → 103 passed (real-child round trip incl. validation relay and restart
+  persistence; fake-endpoint auth header/fixed path, closed schema, oversized response fails
+  closed, oversized request never sent); `npm run lint`, `npm run build`, `npm run typecheck:test`
+  exit 0; `npm test` → 42 passed (14 new); `npx playwright test` → 2 passed (new create/view/list
+  flow in Chromium). Screens reviewed visually from Chromium screenshots.
 - **Deliverables:** screens replacing the navigation placeholder; service access through the
   existing Rust-mediated channel (frontend never holds the credential).
 - **Acceptance:** user can create/list/view an assessment; accessible (focus, labels) consistent
@@ -89,7 +160,29 @@ approval. New dependencies (SQLAlchemy, Alembic) require the justification note 
 - **Tests:** Vitest component tests; Playwright smoke path.
 
 ### S2-05 — Sprint 2 exit validation
-- **Depends:** S2-04. **Status:** Blocked.
+- **Depends:** S2-04. **Status:** Implemented/verified; **owner acceptance pending** (PR review).
+- **Exit criteria (`SPRINTS.md` Sprint 2), agent-verified locally on Windows 11, 2026-11-02:**
+  - *Create/list/view:* native test `real app: an assessment created in the UI persists across an
+    app restart` drives the real debug app (Tauri + Rust supervisor + Python service) through
+    create → detail → list; plus Vitest (42) and Playwright browser flow (2).
+  - *Persists across app restarts:* same native test closes the app gracefully, relaunches it,
+    and finds and opens the assessment; also `cargo test`
+    `assessment_survives_a_supervised_child_restart` and pytest
+    `test_assessment_persists_across_a_real_service_restart` (dev and frozen exe).
+  - *Migration reproducible on a clean DB:* `test_fresh_directory_is_created_and_migrated_to_head`,
+    `test_migration_is_idempotent_and_reproducible`, concurrent first start, `alembic check`
+    (no drift), downgrade/upgrade round trip.
+  - *Packaged service includes new dependencies:* `scripts/package-windows.ps1 -ServiceOnly` +
+    `pytest tests/test_supervised_process.py --service-exe ...` → 13 passed (migrations, models,
+    framework metadata all load in the frozen exe). Full NSIS installer and clean-machine install
+    not rebuilt/re-run this sprint (not requested); CI's packaged-service job covers the frozen exe.
+- **Final local evidence (all on `claude/sprint-2-assessment-db`):** service `uv lock --check`,
+  `ruff check`, `ruff format --check`, `mypy` (50 files) clean, `pytest` → 344 passed; Rust
+  `cargo fmt --check`, `clippy -D warnings` clean, `cargo test` → 103 passed; app `lint`, `build`,
+  `typecheck:test` exit 0, Vitest → 42 passed, Playwright → 2 passed, native → 3 passed.
+  No test run touched the real `%LOCALAPPDATA%\ControlGauge` (verified absent afterwards).
+- **Still required:** owner review/acceptance of the PR, including the `DATABASE.md` §7 schema
+  deviations and PD-008. CI on PR #17 (`d2fc79d`, run 41527916889): all 8 checks pass.
 - **Acceptance:** `SPRINTS.md` Sprint 2 exit criteria demonstrated: create/list/view, persistence
   across app restart (including packaged build via `scripts/package-windows.ps1` if owner
   requests), migration reproducible on clean DB. Owner acceptance recorded; packaged-build
@@ -102,7 +195,7 @@ Detailed batches are created at the start of each sprint (PD-002). Do not pre-pl
 
 | Sprint | Milestone | First step when reached |
 |---|---|---|
-| 3 | NIST Rev. 5 catalog loaded, browsable, no hardcoded NIST logic | Resolve C-3 with owner; owner supplies/approves source data |
+| 3 | NIST Rev. 5 catalog loaded, browsable, no hardcoded NIST logic | C-3 resolved (PD-012: oscal-content v1.5.0). Create batches per PD-013: framework-agnostic OSCAL importer with length/identifier validation, verbatim text, full hierarchy/params/references/withdrawn/provenance, framework-version preservation for existing assessments |
 | 4 | Upload + parsers + verified parser containment (D-022) | Resolve S-1, S-2 |
 | 5 | Local GGUF model import, health check, structured output, offline | Owner approves dev model |
 | 6 | Hardware detection, catalog, verified download | Resolve P-3, S-4 |

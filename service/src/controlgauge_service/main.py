@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from .app import create_app
 from .config import Settings
+from .db import DatabaseInitError, initialize_database
 from .logging_config import configure_logging
 
 logger = logging.getLogger("controlgauge_service")
@@ -36,7 +37,14 @@ def main() -> None:
         print(f"controlgauge-service: invalid configuration:\n{exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
-    app = create_app(settings)
+    try:
+        database = initialize_database()
+    except DatabaseInitError as exc:
+        # Fixed category only -- never the path (it contains the OS user name).
+        print(f"controlgauge-service: database unavailable: {exc.reason}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+    app = create_app(settings, database=database)
 
     logger.info(
         "starting",
@@ -48,7 +56,10 @@ def main() -> None:
         },
     )
 
-    uvicorn.run(app, host=settings.host, port=settings.port, log_level="warning")
+    try:
+        uvicorn.run(app, host=settings.host, port=settings.port, log_level="warning")
+    finally:
+        database.dispose()
 
 
 if __name__ == "__main__":

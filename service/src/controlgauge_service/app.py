@@ -32,8 +32,12 @@ from .auth import SessionTokenAuthMiddleware
 from .challenge import StartupChallengeState
 from .config import Settings
 from .credentials import CredentialStore
+from .db import Database
+from .routes.assessments import router as assessments_router
 from .routes.challenge import CHALLENGE_PATH
 from .routes.challenge import router as challenge_router
+from .routes.errors import install_error_handlers
+from .routes.frameworks import router as frameworks_router
 from .routes.health import router as health_router
 
 logger = logging.getLogger("controlgauge_service")
@@ -45,7 +49,12 @@ def create_app(
     credential_store: CredentialStore | None = None,
     startup_challenge: StartupChallengeState | None = None,
     supervised: bool = False,
+    database: Database | None = None,
 ) -> FastAPI:
+    """`database` is the migrated local database (Sprint 2). Both process
+    entry points always pass one; it is optional here only so tests of
+    routes that never touch storage need no database. Data routes answer
+    503 `database_unavailable` without one."""
     resolved_settings = settings if settings is not None else Settings()
     docs_enabled = resolved_settings.environment == "development"
 
@@ -74,6 +83,7 @@ def create_app(
     # the same thing there (route unavailable), so this keeps them the same
     # code path.
     app.state.startup_challenge = startup_challenge
+    app.state.database = database
 
     # Outermost of our own middleware: every request, including ones to
     # undefined paths, is checked before routing ever occurs. The
@@ -88,6 +98,11 @@ def create_app(
     )
 
     app.include_router(health_router)
+    # Sprint 2 data routes. Authenticated by the middleware above like every
+    # other route; errors use the sanitized contract in `routes/errors.py`.
+    install_error_handlers(app)
+    app.include_router(frameworks_router)
+    app.include_router(assessments_router)
     if startup_challenge is not None:
         app.include_router(challenge_router)
 

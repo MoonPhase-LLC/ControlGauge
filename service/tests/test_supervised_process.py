@@ -78,11 +78,13 @@ def service_argv(request: pytest.FixtureRequest) -> list[str]:
     return [str(path), "--supervised"]
 
 
-def _spawn(argv: list[str]) -> subprocess.Popen[bytes]:
+def _spawn(argv: list[str], data_dir: Path) -> subprocess.Popen[bytes]:
     env = dict(os.environ)
     for key in list(env):
         if key.startswith("CONTROLGAUGE_"):
             del env[key]
+    # Sprint 2: never touch the real per-user database from a test run.
+    env["CONTROLGAUGE_DATA_DIR"] = str(data_dir)
     return subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, no untrusted input
         argv,
         env=env,
@@ -199,8 +201,8 @@ class _FakeTauri:
 
 
 @pytest.fixture
-def tauri(service_argv: list[str]) -> Iterator[_FakeTauri]:
-    fake = _FakeTauri(process=_spawn(service_argv))
+def tauri(service_argv: list[str], tmp_path: Path) -> Iterator[_FakeTauri]:
+    fake = _FakeTauri(process=_spawn(service_argv, tmp_path))
     try:
         yield fake
     finally:
@@ -250,6 +252,82 @@ def test_full_handshake_and_authenticated_health_round_trip(tauri: _FakeTauri) -
 
     with pytest.raises(OSError):
         socket.create_connection((host, port), timeout=1)
+
+
+def _complete_handshake(fake: _FakeTauri) -> None:
+    fake.send_startup_secret()
+    fake.read_endpoint_ready()
+    nonce = os.urandom(16)
+    assert fake.do_challenge(nonce=nonce).json()["response"] == fake.expected_response_for(nonce)
+    fake.send_install_token(VALID_TOKEN)
+    fake.read_ready()
+
+
+def _shutdown_cleanly(fake: _FakeTauri) -> None:
+    fake.send_shutdown()
+    fake.read_shutdown_ack()
+    assert fake.process.wait(timeout=_SHORT_TIMEOUT_SECONDS) == 0
+
+
+def test_assessment_persists_across_a_real_service_restart(
+    service_argv: list[str], tmp_path: Path
+) -> None:
+    """Sprint 2 exit criterion, against the real (or `--service-exe` frozen)
+    process: create over the authenticated channel, stop the process, start
+    a new one on the same data directory, and read the assessment back."""
+    auth = {"Authorization": f"Bearer {VALID_TOKEN}"}
+
+    first = _FakeTauri(process=_spawn(service_argv, tmp_path))
+    try:
+        _complete_handshake(first)
+        frameworks = httpx.get(
+            f"{first.base_url()}/frameworks", headers=auth, timeout=_SHORT_TIMEOUT_SECONDS
+        ).json()["frameworks"]
+        assert [f["id"] for f in frameworks] == ["nist-800-53-rev5"]
+        created = httpx.post(
+            f"{first.base_url()}/assessments",
+            json={"name": "Restart check", "framework_id": "nist-800-53-rev5"},
+            headers=auth,
+            timeout=_SHORT_TIMEOUT_SECONDS,
+        )
+        assert created.status_code == 201
+        unauthenticated = httpx.get(
+            f"{first.base_url()}/assessments", timeout=_SHORT_TIMEOUT_SECONDS
+        )
+        assert unauthenticated.status_code == 401
+        _shutdown_cleanly(first)
+    finally:
+        first.terminate_and_capture()
+
+    second = _FakeTauri(process=_spawn(service_argv, tmp_path))
+    try:
+        _complete_handshake(second)
+        listed = httpx.get(
+            f"{second.base_url()}/assessments", headers=auth, timeout=_SHORT_TIMEOUT_SECONDS
+        ).json()
+        assert [a["id"] for a in listed["assessments"]] == [created.json()["id"]]
+        _shutdown_cleanly(second)
+    finally:
+        second.terminate_and_capture()
+    # The data directory path never appears in the service's logs.
+    assert str(tmp_path) not in first.stderr_text + second.stderr_text
+
+
+def test_unusable_data_directory_fails_closed_before_any_endpoint(
+    service_argv: list[str], tmp_path: Path
+) -> None:
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("x")
+    fake = _FakeTauri(process=_spawn(service_argv, blocker))
+    try:
+        fake.send_startup_secret()
+        message = _read_frame_with_timeout(fake._stdout, timeout=_READY_TIMEOUT_SECONDS)
+        assert message["type"] == "error"
+        assert message["reason"] in {"data_dir_create_failed", "data_dir_not_a_directory"}
+        assert fake.process.wait(timeout=_READY_TIMEOUT_SECONDS) != 0
+    finally:
+        fake.terminate_and_capture()
+    assert "not-a-directory" not in fake.stderr_text
 
 
 def test_port_is_os_assigned_and_unaffected_by_an_unrelated_listener(tauri: _FakeTauri) -> None:
@@ -383,7 +461,9 @@ def test_no_secret_or_probe_content_and_no_traceback_in_logs(tauri: _FakeTauri) 
 _SECRET_MARKER = "MARKER-SECRET-VALUE-DO-NOT-LEAK-9f3a7c1e"
 
 
-def test_secret_markers_in_malformed_frames_never_appear_in_logs(service_argv: list[str]) -> None:
+def test_secret_markers_in_malformed_frames_never_appear_in_logs(
+    service_argv: list[str], tmp_path: Path
+) -> None:
     """S1-04 review finding 4 regression test: place a recognizable
     synthetic value inside *every* interesting field of a malformed first
     message and confirm it never surfaces in captured stdout/stderr. An
@@ -406,7 +486,7 @@ def test_secret_markers_in_malformed_frames_never_appear_in_logs(service_argv: l
     ]
 
     for frame in malformed_frames:
-        fake = _FakeTauri(process=_spawn(service_argv))
+        fake = _FakeTauri(process=_spawn(service_argv, tmp_path))
         try:
             fake.send_raw(frame)
             fake.process.wait(timeout=_READY_TIMEOUT_SECONDS)

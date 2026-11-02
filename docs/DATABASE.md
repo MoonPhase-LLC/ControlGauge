@@ -338,5 +338,35 @@ None created in Sprint 0, per instructions. Once implementation begins, schema c
 through versioned migrations (e.g. Alembic, given SQLAlchemy) — no ad hoc schema edits against a
 running local database, since assessment data must survive app upgrades.
 
+Sprint 2 implemented this: `service/src/controlgauge_service/migrations/` (Alembic), applied
+automatically at service startup (`service/README.md` "Local database").
+
+## 7. Sprint 2 implementation notes and deviations (approved by owner 2026-11-02, PD-010)
+
+Implemented in Sprint 2 (migration `0002_framework_assessment`): `framework`, `control_family`,
+`control`, `control_enhancement`, `assessment`. Not yet created: `assessment_control_scope`
+(P-1 deferred, PD-006; its absence equals the documented "implicit all controls" default) and
+all evidence/analysis/mapping/decision tables (Sprints 4, 8, 10).
+
+Additions beyond the ERD above — constraints only, no new concepts:
+
+- **Uniqueness:** `framework(name, version)`, `control_family(framework_id, identifier)`,
+  `control(framework_id, identifier)`, `control_enhancement(control_id, identifier)`.
+- **Family/framework consistency:** implemented as the composite foreign key that §2 names as
+  the stricter option: `control(family_id, framework_id)` → `control_family(id, framework_id)`.
+  A NULL `family_id` leaves it unenforced (SQLite MATCH SIMPLE), which is the "ungrouped" case.
+- **Nullability:** `official_text` is nullable on `control`/`control_enhancement` (e.g. withdrawn
+  controls; the Sprint 3 source decides), `framework.source_reference` and
+  `assessment.description` are nullable.
+- **Checks:** non-blank `framework.id/name/version` and `assessment.name`; `assessment.name` ≤ 200
+  and `description` ≤ 2000 characters (same limits the API validates).
+- **Keys and time:** string surrogate keys (`assessment.id` is a UUID4; `framework.id` is the
+  stable id from its `framework.json`, e.g. `nist-800-53-rev5`). `created_at` is stored as UTC.
+- **Delete behavior:** every foreign key is `ON DELETE RESTRICT`; nothing deletes rows in V0.1.
+- **Indexes:** FK columns plus `assessment.created_at` (list ordering).
+
+Framework rows come from `frameworks/<id>/framework.json` (identity metadata only), synced at
+startup by `framework_catalog.py`; no control content exists until Sprint 3.
+
 See also: `COMPLIANCE_MODEL.md` for the conceptual model this schema implements, `ARCHITECTURE.md`
 §5 for database ownership rules.

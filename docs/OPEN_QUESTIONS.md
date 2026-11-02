@@ -11,8 +11,11 @@ resolution inline and mark Resolved) or as new ones surface during implementatio
 
 - P-1: Should V0.1 support NIST baseline selection (Low/Moderate/High) or a control subset at
   assessment creation, or is every control always in scope? (`USER_FLOWS.md` §4)
+  *Sprint 2 (owner, PD-006): baseline-selection UI deferred; Sprint 2 assessments have no
+  explicit scope. The question itself stays open.*
 - P-2: Can assessments be cloned/templated in V0.1, or is each assessment created from scratch?
-  (`USER_FLOWS.md` §4)
+  (`USER_FLOWS.md` §4) *Sprint 2 (owner, PD-006): cloning deferred; each assessment is created
+  from scratch. The question itself stays open.*
 - P-3: What is the actual target list of "recommended" GGUF models for the initial catalog, and
   who curates/maintains it over time? (`MODEL_RUNTIME.md` §3, `SPRINTS.md` Sprint 6)
 
@@ -26,6 +29,10 @@ resolution inline and mark Resolved) or as new ones surface during implementatio
   `SPRINTS.md` Sprint 12)
 - C-3: What is the authoritative source for NIST SP 800-53 Rev. 5 control text to be loaded in
   Sprint 3, and are there licensing/attribution requirements to satisfy? (`SPRINTS.md` Sprint 3)
+  **Resolved (owner, 2026-11-02, PD-012):** `usnistgov/oscal-content` release v1.5.0 (NIST SP
+  800-53 Release 5.2.0, OSCAL JSON); public domain in the US, CC0 1.0 worldwide. Preserve NIST
+  attribution, license notice, upstream version, source URL, tag/commit and file hash; do not
+  imply NIST endorsement.
 - C-4: Is cross-artifact contradiction analysis (e.g. "a policy claims MFA is required but a
   separate technical export shows accounts without MFA") a real V0.1-or-soon-after product
   requirement, given it's a genuinely valuable compliance use case? An architectural review found
@@ -69,6 +76,10 @@ resolution inline and mark Resolved) or as new ones surface during implementatio
   implementation; fixed-vs-dynamic allocation and environment-variable IPC are no longer open.
 - A-2: Where are models and the SQLite database stored on disk, and is either path
   user-configurable? (`USER_FLOWS.md` §3, §12)
+  **Partially resolved (owner, 2026-11-02, `planning/DECISION_LOG.md` PD-006):** the SQLite
+  database lives in the OS per-user, machine-local app-data directory
+  (`%LOCALAPPDATA%\ControlGauge` on Windows; see `service/README.md`). A user-configurable path is
+  deferred. Model storage location remains open (Sprint 5).
 - A-3: What is the packaging strategy for bundling the Python runtime inside the Tauri app for
   distribution (Sprint 16), and does the chosen approach affect earlier sprints' assumptions?
   Flagged as the top technical risk in `DECISIONS.md` D-001. The Sprint 1 spike

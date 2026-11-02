@@ -1,8 +1,13 @@
 # NIST SP 800-53 Rev. 5 — Framework Data
 
-This directory is a placeholder. It intentionally contains **no control data yet**.
+This directory intentionally contains **no control data yet**.
 
-## Why empty
+Since Sprint 2 it holds `framework.json`: identity metadata only (`id`, `name`, `version`,
+`source_reference`), which the service registers as a `framework` row at startup so assessments
+can target this framework (owner decision PD-006). It contains no control, family or enhancement
+text. Its fields are the documented publication title and DOI, not control language.
+
+## Why no control data
 
 Per project instructions, official framework data must not be fabricated. Populating this
 directory requires an authoritative source for NIST SP 800-53 Rev. 5 control text, which is a

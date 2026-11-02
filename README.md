@@ -56,8 +56,14 @@ architecture, security, and planning documentation. Completed on `main` so far:
   `scripts/package-windows.ps1`. It passed a manual test on a clean Windows machine (see
   [`docs/PACKAGING.md`](docs/PACKAGING.md)).
 
-There is still no evidence handling, database, model runtime, or working assessment feature.
-Remaining Sprint 1 work: Sprint 1 exit validation (S1-08, awaiting product-owner sign-off).
+**Sprint 2 — Assessment and Database Layer (implemented on a branch, in review).** A local
+SQLite database with versioned migrations, NIST SP 800-53 Rev. 5 framework *metadata* (no control
+text yet), an authenticated assessment API, and create/list/view assessment screens. Assessments
+persist across app restarts. See [`docs/planning/BATCH_JOBS.md`](docs/planning/BATCH_JOBS.md)
+S2-01..S2-05.
+
+There is still no evidence handling, control catalog, or model runtime. Sprint 1 exit validation
+(S1-08) still awaits product-owner sign-off.
 Live execution status and next steps: [`docs/planning/CURRENT_STATUS.md`](docs/planning/CURRENT_STATUS.md).
 See `docs/SPRINT_1_BACKLOG.md` for ticket details, `docs/SPRINTS.md` for the full sprint plan,
 and `docs/OPEN_QUESTIONS.md` for decisions still pending product-owner input.
@@ -68,10 +74,11 @@ and `docs/OPEN_QUESTIONS.md` for decisions still pending product-owner input.
 |---|---|
 | Tauri desktop shell + supervised local service | Implemented (Sprint 1) |
 | Authenticated service with challenge-based identity verification | Implemented (Sprint 1) |
-| Evidence ingestion and document parsing | Planned (Sprint 2+) |
+| Assessments (create/list/view) with local SQLite persistence | Implemented (Sprint 2, in review) |
+| Evidence ingestion and document parsing | Planned (Sprint 4) |
 | Local LLM runtime (llama.cpp + GGUF) and embedding/retrieval pipeline | Planned |
 | AI-suggested evidence ↔ control mappings with human review workflow | Planned |
-| SQLite persistence for artifacts, controls, findings | Planned |
+| SQLite persistence for artifacts, controls, findings | Schema for frameworks/controls in place (Sprint 2); artifacts and findings planned |
 | NIST SP 800-53 Rev 5 framework support | First framework; loading/evaluation work planned |
 | Additional frameworks | Out of scope for V0.1; architecture must not preclude them (`docs/PRODUCT.md` §6) |
 | Packaged installer distribution | S1-09 spike, then Sprint 16 |
