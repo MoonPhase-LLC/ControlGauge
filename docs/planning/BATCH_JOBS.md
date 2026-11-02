@@ -103,7 +103,19 @@ directed Sprint 2 to proceed while R-01 (S1-08 sign-off) stays pending. One bran
 - **Tests:** pytest for constraints, FK integrity, upgrade from empty DB.
 
 ### S2-03 — Assessment CRUD API
-- **Depends:** S2-02. **Status:** Blocked.
+- **Depends:** S2-02. **Status:** Implemented/verified (on branch, PR pending).
+- **Result:** `GET /frameworks`, `GET/POST /assessments`, `GET /assessments/{id}` behind the
+  unchanged D-009 middleware; strict input validation; sanitized error contract
+  (`routes/errors.py`) replacing FastAPI's input-echoing 422; documented in `service/README.md`.
+  Assessments require an existing framework (P-1/P-2 deferred per PD-006). DB init failure
+  reasons added to the private-channel error allowlist.
+- **Issues found and fixed:** unknown-field errors echoed the client's key name → reported
+  against `body`.
+- **Evidence (local, 2026-11-02):** `uv run pytest` → 342 passed (new `test_assessments_api.py`:
+  401 on all routes × 3 bad credentials, validation matrix, no input echo, paging, 404s,
+  restart persistence, 503 without DB, sanitized 500 + rollback); ruff/mypy clean. Real process:
+  `test_assessment_persists_across_a_real_service_restart` and fail-closed data-dir test pass in
+  dev and against the frozen exe (`--service-exe` → 13 passed).
 - **Deliverables:** authenticated create/list/get endpoints (D-009 token; D-018 identity
   handshake unchanged); input validation; minimal error contract.
 - **Acceptance:** endpoints reject missing/invalid credentials; data persists across service

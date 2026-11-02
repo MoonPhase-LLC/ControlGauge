@@ -33,8 +33,11 @@ from .challenge import StartupChallengeState
 from .config import Settings
 from .credentials import CredentialStore
 from .db import Database
+from .routes.assessments import router as assessments_router
 from .routes.challenge import CHALLENGE_PATH
 from .routes.challenge import router as challenge_router
+from .routes.errors import install_error_handlers
+from .routes.frameworks import router as frameworks_router
 from .routes.health import router as health_router
 
 logger = logging.getLogger("controlgauge_service")
@@ -95,6 +98,11 @@ def create_app(
     )
 
     app.include_router(health_router)
+    # Sprint 2 data routes. Authenticated by the middleware above like every
+    # other route; errors use the sanitized contract in `routes/errors.py`.
+    install_error_handlers(app)
+    app.include_router(frameworks_router)
+    app.include_router(assessments_router)
     if startup_challenge is not None:
         app.include_router(challenge_router)
 

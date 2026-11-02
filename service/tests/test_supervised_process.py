@@ -254,6 +254,82 @@ def test_full_handshake_and_authenticated_health_round_trip(tauri: _FakeTauri) -
         socket.create_connection((host, port), timeout=1)
 
 
+def _complete_handshake(fake: _FakeTauri) -> None:
+    fake.send_startup_secret()
+    fake.read_endpoint_ready()
+    nonce = os.urandom(16)
+    assert fake.do_challenge(nonce=nonce).json()["response"] == fake.expected_response_for(nonce)
+    fake.send_install_token(VALID_TOKEN)
+    fake.read_ready()
+
+
+def _shutdown_cleanly(fake: _FakeTauri) -> None:
+    fake.send_shutdown()
+    fake.read_shutdown_ack()
+    assert fake.process.wait(timeout=_SHORT_TIMEOUT_SECONDS) == 0
+
+
+def test_assessment_persists_across_a_real_service_restart(
+    service_argv: list[str], tmp_path: Path
+) -> None:
+    """Sprint 2 exit criterion, against the real (or `--service-exe` frozen)
+    process: create over the authenticated channel, stop the process, start
+    a new one on the same data directory, and read the assessment back."""
+    auth = {"Authorization": f"Bearer {VALID_TOKEN}"}
+
+    first = _FakeTauri(process=_spawn(service_argv, tmp_path))
+    try:
+        _complete_handshake(first)
+        frameworks = httpx.get(
+            f"{first.base_url()}/frameworks", headers=auth, timeout=_SHORT_TIMEOUT_SECONDS
+        ).json()["frameworks"]
+        assert [f["id"] for f in frameworks] == ["nist-800-53-rev5"]
+        created = httpx.post(
+            f"{first.base_url()}/assessments",
+            json={"name": "Restart check", "framework_id": "nist-800-53-rev5"},
+            headers=auth,
+            timeout=_SHORT_TIMEOUT_SECONDS,
+        )
+        assert created.status_code == 201
+        unauthenticated = httpx.get(
+            f"{first.base_url()}/assessments", timeout=_SHORT_TIMEOUT_SECONDS
+        )
+        assert unauthenticated.status_code == 401
+        _shutdown_cleanly(first)
+    finally:
+        first.terminate_and_capture()
+
+    second = _FakeTauri(process=_spawn(service_argv, tmp_path))
+    try:
+        _complete_handshake(second)
+        listed = httpx.get(
+            f"{second.base_url()}/assessments", headers=auth, timeout=_SHORT_TIMEOUT_SECONDS
+        ).json()
+        assert [a["id"] for a in listed["assessments"]] == [created.json()["id"]]
+        _shutdown_cleanly(second)
+    finally:
+        second.terminate_and_capture()
+    # The data directory path never appears in the service's logs.
+    assert str(tmp_path) not in first.stderr_text + second.stderr_text
+
+
+def test_unusable_data_directory_fails_closed_before_any_endpoint(
+    service_argv: list[str], tmp_path: Path
+) -> None:
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("x")
+    fake = _FakeTauri(process=_spawn(service_argv, blocker))
+    try:
+        fake.send_startup_secret()
+        message = _read_frame_with_timeout(fake._stdout, timeout=_READY_TIMEOUT_SECONDS)
+        assert message["type"] == "error"
+        assert message["reason"] in {"data_dir_create_failed", "data_dir_not_a_directory"}
+        assert fake.process.wait(timeout=_READY_TIMEOUT_SECONDS) != 0
+    finally:
+        fake.terminate_and_capture()
+    assert "not-a-directory" not in fake.stderr_text
+
+
 def test_port_is_os_assigned_and_unaffected_by_an_unrelated_listener(tauri: _FakeTauri) -> None:
     blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:

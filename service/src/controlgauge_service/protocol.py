@@ -254,6 +254,12 @@ _ERROR_REASONS = frozenset(
         "invalid_startup_secret",
         "bind_failed",
         "internal_error",
+        # Sprint 2: local database initialization (`db/bootstrap.py`).
+        "data_dir_override_not_absolute",
+        "data_dir_create_failed",
+        "data_dir_not_a_directory",
+        "database_migration_failed",
+        "framework_sync_failed",
     }
 )
 

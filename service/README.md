@@ -93,6 +93,37 @@ Migrations live in `src/controlgauge_service/migrations/` (packaged as data by
 uv run alembic revision --autogenerate -m "describe the change"   # uses alembic.ini
 ```
 
+## Endpoints
+
+Every endpoint requires `Authorization: Bearer <session token>`; missing or wrong credentials get
+`401 {"detail": "Unauthorized"}` before routing (no exemptions besides the D-025 startup
+challenge in supervised mode).
+
+| Method | Path | Success | Notes |
+|---|---|---|---|
+| `GET` | `/health` | 200 | S1-03 |
+| `GET` | `/frameworks` | 200 `{"frameworks": [{id, name, version, source_reference, control_count}]}` | Metadata only; `control_count` is 0 until Sprint 3 loads a catalog |
+| `GET` | `/assessments?limit=&offset=` | 200 `{"assessments": [...], total, limit, offset}` | Newest first; `limit` 1–100 (default 50) |
+| `POST` | `/assessments` | 201 assessment | Body `{"name", "framework_id", "description"?}`; unknown fields rejected |
+| `GET` | `/assessments/{id}` | 200 assessment | Unknown or non-canonical UUID → 404 `assessment_not_found` |
+
+An assessment is `{id, name, description, framework: {id, name, version}, created_at}`
+(`created_at` is ISO 8601 UTC). Validation: `name` trimmed, 1–200 characters, no control
+characters or line breaks; `description` optional, trimmed (blank → `null`), ≤ 2000 characters,
+line breaks and tabs allowed; `framework_id` must name a registered framework.
+
+Errors on these routes share one shape and never echo submitted values:
+
+```json
+{"error": {"code": "validation_failed", "message": "The request is not valid.",
+           "fields": [{"field": "name", "code": "too_long", "message": "This value is too long."}]}}
+```
+
+Top-level codes: `validation_failed` (422), `malformed_body` (400), `assessment_not_found` (404),
+`database_unavailable` (503). Field codes: `required`, `blank`, `too_long`, `invalid_characters`,
+`invalid_type`, `unknown_field` (reported against `body`), `framework_not_found`, `invalid`.
+Unexpected failures return the existing generic `500 {"detail": "Internal Server Error"}`.
+
 ## Entry points
 
 Both of the following start the identical service with identical configuration behavior — the
