@@ -5,7 +5,7 @@ documents describe plans or decisions; none of them track progress. Navigation:
 [MASTER_PLAN](MASTER_PLAN.md) · [BATCH_JOBS](BATCH_JOBS.md) · [EXECUTION_RULES](EXECUTION_RULES.md) ·
 [DECISION_LOG](DECISION_LOG.md)
 
-Last updated: 2026-11-02 (Continuum setup; docs-only, branch `claude/continuum-planning`).
+Last updated: 2026-11-02 (Sprint 2 prep; PRs #14 and #15 merged).
 
 ## Position
 
@@ -13,9 +13,10 @@ Last updated: 2026-11-02 (Continuum setup; docs-only, branch `claude/continuum-p
 |---|---|
 | Current sprint | Sprint 1 — Desktop Foundation (implementation done, exit sign-off pending) |
 | Active batch | None in progress |
-| Next action | **R-01** (see below), then **R-02**; Sprint 2 batches are blocked on R-02 |
-| Baseline | `origin/main` @ `146cea9` (merge of PR #13) |
-| Continuum PR | Not yet opened/merged until owner reviews (see BATCH_JOBS `R-00`) |
+| Next action | **R-01** (owner S1-08 sign-off), and **R-03** (owner answers A-2, P-1/P-2). Sprint 2 batches stay blocked until both are done |
+| Baseline | `origin/main` @ `3ed2d67` (merge of PR #15) |
+| Merged this session | PR #14 (Continuum planning, `a63f31f`), PR #15 (Graphify guidance, `3ed2d67`) |
+| Open PRs | None |
 
 ## Verified facts (checked against repo/GitHub on 2026-11-02)
 
@@ -60,9 +61,26 @@ Last updated: 2026-11-02 (Continuum setup; docs-only, branch `claude/continuum-p
 
 ## Last verified test results
 
-CI (`.github/workflows/ci.yml`, frontend + browser smoke + service + Rust) green on `main`
-@ `146cea9`. Windows native smoke is local-only by design (`CONTRIBUTING.md`) and was not run.
+- CI on `main` @ `a63f31f`: CI workflow **success**. Graphify PR #15 CI (`fadd9d8`): all 8 checks
+  success, including Windows Rust, Windows packaged service and Python 3.12 Windows.
+- Local, 2026-11-02, on `claude/sprint-2-prep` from `main` @ `3ed2d67`:
+  - `service`: `uv run pytest` → 255 passed; `ruff check` ok; `ruff format --check` ok;
+    `mypy` → no issues in 31 files.
+  - `app`: `npm test` → 27 passed; `npm run lint`, `npm run build`, `npm run typecheck:test` → exit 0.
+- Not run: Rust `cargo` checks locally, Playwright locally, Windows native smoke (local-only by design).
+
+## Repository hygiene (checked 2026-11-02)
+
+- Remote branches with commits not in `main`: `claude/s1-05-frontend-foundation` (`f5216db`
+  "updated agents", adds EvidenceGraph-branded `AGENTS.md`). This is not a PR. Owner to decide
+  whether to keep or delete it. Agents do not delete branches.
+- Local untracked `AGENTS.md` in the working tree is the same file. Owner to decide.
+- `claude/s1-01`, `s1-02`, `s1-03`, `sprint-0-bootstrap`, `sprint-0-review-fixes` have no remote
+  branch (`gone`). Their PRs were merged. Local cleanup only; no action needed.
 
 ## Update log (newest first; keep to one line each)
 
-- 2026-11-02 — Continuum planning docs created (docs-only). No code run or changed.
+- 2026-11-02 — Sprint 2 prep: merged PR #14 and #15; verified local tests/lint/build; reconciled
+  status (R-00 done).
+- 2026-11-02 — Graphify code-graph guidance (PR #15), `--code-only` local use.
+- 2026-11-02 — Continuum planning docs created (PR #14).

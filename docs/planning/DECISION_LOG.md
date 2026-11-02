@@ -13,6 +13,7 @@ Format: `PD-NNN — date — decision — rationale — who decided`. Append onl
 | PD-001 | 2026-11-02 | `docs/planning/CURRENT_STATUS.md` is the only execution-status tracker; `SPRINTS.md` stays the roadmap, `SPRINT_1_BACKLOG.md` stays ticket specs | One source of truth avoids conflicting progress claims | Owner (Continuum request) |
 | PD-002 | 2026-11-02 | Sprint 2–16 work is split into batches only as a sprint nears execution; later sprints stay milestone-level | Matches `SPRINTS.md` note that later backlogs are created at sprint start | Owner (Continuum request) |
 | PD-003 | 2026-11-02 | Add recovery batches R-01 (S1-08 sign-off) and R-02 (doc/status reconciliation) before Sprint 2 | S1-08 is a documented gate for Sprint 2; several docs still say "Sprint 0 draft" | Proposed by agent; owner to confirm |
+| PD-005 | 2026-11-02 | Graphify is used per developer, locally, only in `--code-only` / `update` mode; LLM-backed commands, hosted MCP, `clone`/`add`/`--push`, and `claude install`/`hook install` are not used | Keeps code and evidence off external services (`CLAUDE.md` privacy rules); `graphify-out/` is gitignored | Owner (PR #15 approved for merge) |
 | PD-004 | 2026-11-02 | Batch branches use `claude/<short-description>` per `CLAUDE.md`; Continuum bookkeeping updates ship in the same PR as the batch work | Keeps status in step with merged code | Existing rule applied |
 
 ## Not decided here
