@@ -58,7 +58,7 @@ describe("app shell smoke test", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Welcome to ControlGauge" })).toBeVisible();
     expect(screen.getByRole("navigation", { name: "Main" })).toBeVisible();
     expect(screen.getByRole("main")).toBeVisible();
-    expect(screen.getByText("Assessment features are not available yet")).toBeVisible();
+    expect(screen.getByText("Create and review assessments")).toBeVisible();
     const section = serviceSection();
     expect(within(section).getByText("Service ready")).toBeVisible();
     expect(within(section).getByText("controlgauge-service")).toBeVisible();
@@ -88,8 +88,35 @@ describe("app shell smoke test", () => {
   });
 });
 
+describe("navigation", () => {
+  it("marks the current screen and moves focus to the new screen's heading", async () => {
+    const { user } = await renderReadyApp();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    const home = within(nav).getByRole("button", { name: "Home" });
+    const assessments = within(nav).getByRole("button", { name: "Assessments" });
+    expect(home).toHaveAttribute("aria-current", "page");
+    expect(assessments).not.toHaveAttribute("aria-current");
+
+    await user.click(assessments);
+    await settle();
+    const heading = screen.getByRole("heading", { level: 1, name: "Assessments" });
+    expect(heading).toHaveFocus();
+    expect(assessments).toHaveAttribute("aria-current", "page");
+    expect(home).not.toHaveAttribute("aria-current");
+
+    await user.click(home);
+    await settle();
+    expect(screen.getByRole("heading", { level: 1, name: "Welcome to ControlGauge" })).toHaveFocus();
+  });
+
+  it("does not move focus on first load", async () => {
+    await renderReadyApp();
+    expect(screen.getByRole("heading", { level: 1, name: "Welcome to ControlGauge" })).not.toHaveFocus();
+  });
+});
+
 describe("unavailable navigation", () => {
-  it.each(["Assessments", "Settings"])("%s is focusable, marked unavailable, and does nothing", async (label) => {
+  it.each(["Settings"])("%s is focusable, marked unavailable, and does nothing", async (label) => {
     const { ipc, user } = await renderReadyApp();
     const item = screen.getByRole("button", { name: new RegExp(`^${label}`) });
 

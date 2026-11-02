@@ -1,17 +1,27 @@
+import { ArrowRight } from "lucide-react";
+import { ScreenHeading } from "@/components/screen";
 import { ServiceStatusPanel } from "@/components/service/ServiceStatus";
+import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { LocalService } from "@/service/useLocalService";
 
 /**
- * The only screen in this build. It states plainly what is not available
- * yet and shows the local service's status; it shows no sample or
- * invented assessment data.
+ * The start screen: what the app is, where assessments live, and the local
+ * service's status. It shows no sample or invented assessment data.
  */
-export function HomeScreen({ service }: { service: LocalService }) {
+export function HomeScreen({
+  service,
+  focusOnMount,
+  onOpenAssessments,
+}: {
+  service: LocalService;
+  focusOnMount: boolean;
+  onOpenAssessments: () => void;
+}) {
   return (
     <div className="flex flex-col gap-10">
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Welcome to ControlGauge</h1>
+        <ScreenHeading focusOnMount={focusOnMount}>Welcome to ControlGauge</ScreenHeading>
         <p className="max-w-prose text-muted-foreground">
           ControlGauge is a local-first tool for analyzing cybersecurity compliance evidence
           against framework controls.
@@ -23,13 +33,16 @@ export function HomeScreen({ service }: { service: LocalService }) {
           Assessments
         </h2>
         <Card>
-          <CardHeader>
-            <CardTitle>Assessment features are not available yet</CardTitle>
+          <CardHeader className="justify-items-start gap-2">
+            <CardTitle>Create and review assessments</CardTitle>
             <CardDescription className="max-w-prose">
-              Creating assessments, uploading evidence, and reviewing suggested control mappings
-              will be added in later releases. Nothing can be created or uploaded in this
-              version.
+              Set up an assessment for a framework. Uploading evidence and reviewing suggested
+              control mappings will be added in later releases.
             </CardDescription>
+            <Button type="button" variant="outline" onClick={onOpenAssessments} className="mt-1">
+              Go to assessments
+              <ArrowRight aria-hidden="true" />
+            </Button>
           </CardHeader>
         </Card>
       </section>

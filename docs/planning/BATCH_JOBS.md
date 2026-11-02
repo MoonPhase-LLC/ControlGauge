@@ -124,7 +124,22 @@ directed Sprint 2 to proceed while R-01 (S1-08 sign-off) stays pending. One bran
 - **Docs:** `service/README.md` endpoint table.
 
 ### S2-04 — Assessment UI (create/list/view)
-- **Depends:** S2-03. **Status:** Blocked.
+- **Depends:** S2-03. **Status:** Implemented/verified (on branch, PR pending).
+- **Result:** Rust `supervisor/service_api.rs` + 4 Tauri commands over the pinned connection
+  (UUID/paging validation in Rust, 32 KiB request / 2 MiB response bounds, closed schemas, only the
+  documented bounded error shape relayed). React: Home/Assessments nav (Settings stays a
+  placeholder), list (newest first, "Show more" paging, empty/loading/error+retry, service
+  not-ready/failed states), create form (local + service field errors on the field,
+  `aria-invalid`/`aria-describedby`, focus to first invalid field, duplicate-submit guard,
+  framework preselected with an honest "catalog not loaded" note), detail (404 handled; evidence
+  marked not available yet). shadcn `input`/`textarea`/`label`/`native-select` added via
+  `npx shadcn add` (no new npm dependency).
+- **Evidence (local, 2026-11-02):** `cargo fmt --check`, `cargo clippy -D warnings` clean,
+  `cargo test` → 103 passed (real-child round trip incl. validation relay and restart
+  persistence; fake-endpoint auth header/fixed path, closed schema, oversized response fails
+  closed, oversized request never sent); `npm run lint`, `npm run build`, `npm run typecheck:test`
+  exit 0; `npm test` → 42 passed (14 new); `npx playwright test` → 2 passed (new create/view/list
+  flow in Chromium). Screens reviewed visually from Chromium screenshots.
 - **Deliverables:** screens replacing the navigation placeholder; service access through the
   existing Rust-mediated channel (frontend never holds the credential).
 - **Acceptance:** user can create/list/view an assessment; accessible (focus, labels) consistent

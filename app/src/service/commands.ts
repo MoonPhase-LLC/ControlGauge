@@ -1,9 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { HealthResponse, SupervisorState } from "./types";
+import type {
+  Assessment,
+  AssessmentList,
+  FrameworkSummary,
+  HealthResponse,
+  NewAssessment,
+  SupervisorState,
+} from "./types";
 
-// Typed wrappers around the only two Tauri commands the frontend uses
-// (registered in `app/src-tauri/src/lib.rs`). Neither returns, nor accepts,
-// any connection detail: the authenticated request happens entirely in Rust.
+// Typed wrappers around the Tauri commands the frontend uses (registered in
+// `app/src-tauri/src/lib.rs`). None returns, nor accepts, any connection
+// detail: every authenticated request happens entirely in Rust. Data
+// commands reject with a `ServiceCallError` object (see `types.ts`).
 
 /** Read-only snapshot of the supervisor state. Safe to call at any time. */
 export function getServiceStatus(): Promise<SupervisorState> {
@@ -16,4 +24,21 @@ export function getServiceStatus(): Promise<SupervisorState> {
  */
 export function checkServiceHealth(): Promise<HealthResponse> {
   return invoke<HealthResponse>("check_service_health");
+}
+
+export async function listFrameworks(): Promise<FrameworkSummary[]> {
+  const result = await invoke<{ frameworks: FrameworkSummary[] }>("list_frameworks");
+  return result.frameworks;
+}
+
+export function listAssessments(limit: number, offset: number): Promise<AssessmentList> {
+  return invoke<AssessmentList>("list_assessments", { limit, offset });
+}
+
+export function getAssessment(id: string): Promise<Assessment> {
+  return invoke<Assessment>("get_assessment", { id });
+}
+
+export function createAssessment(input: NewAssessment): Promise<Assessment> {
+  return invoke<Assessment>("create_assessment", { input });
 }

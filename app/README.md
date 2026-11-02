@@ -33,6 +33,15 @@ architecture it implements. In brief:
   the `get_service_status` command for a `Starting → Ready`/`Failed`
   snapshot and calls `check_service_health`, which performs the
   authenticated `GET /health` round trip entirely in Rust.
+- Sprint 2 adds four equally narrow data commands, `list_frameworks`,
+  `list_assessments(limit, offset)`, `get_assessment(id)` and
+  `create_assessment(input)` (`src-tauri/src/supervisor/service_api.rs`). Each
+  makes one fixed request over the same pinned, identity-verified connection;
+  ids must be canonical UUIDs and paging values integers before anything is
+  sent; request and response sizes are bounded; responses are parsed into
+  closed schemas. Failures reach the frontend as a `kind`-tagged
+  `ServiceCallError`; only the service's documented, bounded error shape is
+  relayed (`api_error`). A transport failure fails closed like `/health`.
 
 ## Frontend conventions (S1-05)
 
@@ -41,12 +50,13 @@ only when something needs it.
 
 | Path | Holds |
 |---|---|
-| `src/components/ui/` | shadcn/ui primitives (`button`, `card`). Add them with `npx shadcn add <name>`, not by hand, and keep local edits to them minimal. |
+| `src/components/ui/` | shadcn/ui primitives (`button`, `card`, `input`, `textarea`, `label`, `native-select`). Add them with `npx shadcn add <name>`, not by hand, and keep local edits to them minimal. |
+| `src/components/screen.tsx` | Shared screen pieces: focusable `ScreenHeading`, service-not-ready, loading and error notices, date formatting. |
 | `src/components/layout/` | App frame pieces: `AppShell` (sidebar + scrolling main region, collapsing to a top bar below the `md` breakpoint) and `SidebarNav`. |
 | `src/components/<area>/` | Reusable components for one area, e.g. `components/service/` for service status display. |
-| `src/screens/` | One component per screen. `HomeScreen` is the only screen today. |
-| `src/service/` | Everything that talks to the Rust side: the TypeScript mirrors of Rust types (`types.ts`), typed wrappers for the Tauri commands (`commands.ts`), and hooks over them (`useLocalService`). Components never call `invoke` directly. |
-| `src/App.tsx` | Composition only: shell, navigation items, current screen. |
+| `src/screens/` | One component per screen: `HomeScreen`, `AssessmentsScreen`, `NewAssessmentScreen`, `AssessmentDetailScreen`. |
+| `src/service/` | Everything that talks to the Rust side: the TypeScript mirrors of Rust types (`types.ts`), typed wrappers for the Tauri commands (`commands.ts`), error wording (`errors.ts`), and hooks over them (`useLocalService`, `useServiceQuery`). Components never call `invoke` directly. |
+| `src/App.tsx` | Composition: shell, navigation items, and the current view (a small state machine; no router dependency). Focus moves to the new screen's `h1` after user navigation, never on first load. |
 
 Rules that apply to every screen:
 
