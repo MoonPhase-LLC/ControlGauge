@@ -14,11 +14,11 @@ Evidence line format when closing a batch: `Evidence: <commands run → result>;
 ## Recovery batches (before Sprint 2)
 
 ### R-00 — Continuum planning docs
-- **Status:** In review (this PR, branch `claude/continuum-planning`).
+- **Status:** Done.
 - **Deliverables:** `docs/planning/*`, `CLAUDE.md` workflow section, stale-status pointers in
   `README.md`, `docs/SPRINTS.md`, `docs/SPRINT_1_BACKLOG.md`.
 - **Acceptance:** documentation-only diff; owner reviews and merges.
-- **Evidence:** pending (set at PR open).
+- **Evidence:** PR #14 merged as `a63f31f`; CI on `main` success. Docs-only, so no test run required.
 
 ### R-01 — S1-08 Sprint 1 exit validation
 - **Status:** Blocked on owner (human-gated). Depends: R-00 merged (to record result).
