@@ -25,6 +25,24 @@ Full rules, including interrupted-work recovery: `docs/planning/EXECUTION_RULES.
 `CURRENT_STATUS.md` is the single execution-status tracker. Everything else in this file still
 applies and takes precedence.
 
+## Code Graph (Graphify, optional)
+
+A local code knowledge graph may exist in `graphify-out/` (gitignored, generated). Use it only for
+structural questions that would otherwise take many greps or file reads: "what calls/depends on
+X", "where is X defined", "how do A and B connect". Skip it for small, targeted edits, for files
+you already know, and for docs.
+
+- Query: `graphify query "<question>" --budget 1500`, `graphify explain "<path::Symbol>"`,
+  `graphify path "A" "B"`, `graphify affected "<Symbol>"`. Keep budgets small; one query is
+  usually enough. Treat results as hints and confirm in the source before editing.
+- Rebuild after significant code changes: `graphify update .` (AST only). First build:
+  `graphify extract . --code-only`.
+- Privacy: always use `--code-only` or `update`. Never run `graphify extract` without
+  `--code-only`, `label`, or LLM-backed `cluster-only` (omit with `--no-label`), the hosted
+  Graphify MCP server, or `clone`/`add`/`export --push`: these call model APIs or external
+  services. Do not run `graphify claude install` or `graphify hook install`; no generated
+  graph content or doc text may go to external services (see Privacy Rules).
+
 ## Git Workflow
 
 Never push directly to `main`.

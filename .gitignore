@@ -285,3 +285,6 @@ $RECYCLE.BIN/
 *~
 *.swp
 *.swo
+
+# Graphify generated code graph (local, rebuilt with: graphify extract . --code-only)
+graphify-out/
