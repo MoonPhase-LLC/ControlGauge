@@ -16,7 +16,7 @@ Last updated: 2026-11-02 (Sprint 2 implemented on branch; PR opened for owner re
 | Next action | **Owner:** review and merge the Sprint 2 PR (incl. `DATABASE.md` §7 deviations, PD-008); give S1-08 sign-off (R-01). **Agent, after merge:** mark S2-* and R-03 Done with the merge SHA, then start Sprint 3 prep (C-3 first) |
 | Baseline | `origin/main` @ `4699152` (merge of PR #16) |
 | Branch | `claude/sprint-2-assessment-db`: S2-01 `3cfc00a`, S2-02 `ed3b5a8`, S2-03 `b6e93be`, S2-04 `ddd0989`, S2-05 (this commit) |
-| Open PRs | Sprint 2 PR (see BATCH_JOBS S2-05 / PR list) |
+| Open PRs | #17 (Sprint 2), CI green |
 
 ## Verified facts (2026-11-02, this session)
 
@@ -53,7 +53,8 @@ Last updated: 2026-11-02 (Sprint 2 implemented on branch; PR opened for owner re
 - `app/src-tauri`: `cargo fmt --check`, `cargo clippy -D warnings` clean; `cargo test` → 103 passed.
 - `app`: `npm run lint`, `build`, `typecheck:test` exit 0; Vitest → 42 passed; Playwright
   browser → 2 passed; native Windows smoke (`test:e2e:native`) → 3 passed.
-- CI on the PR: see the PR checks (not yet recorded here at time of writing).
+- CI on PR #17 @ `d2fc79d`: run 41527916889 — all 8 checks **pass** (frontend, browser smoke,
+  Python 3.11/3.12 ubuntu + 3.12 Windows, Rust Windows, packaged service Windows, claude-review).
 
 ## Update log (newest first; keep to one line each)
 

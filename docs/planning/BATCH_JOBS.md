@@ -170,7 +170,7 @@ directed Sprint 2 to proceed while R-01 (S1-08 sign-off) stays pending. One bran
   `typecheck:test` exit 0, Vitest → 42 passed, Playwright → 2 passed, native → 3 passed.
   No test run touched the real `%LOCALAPPDATA%\ControlGauge` (verified absent afterwards).
 - **Still required:** owner review/acceptance of the PR, including the `DATABASE.md` §7 schema
-  deviations and PD-008; CI green on the PR.
+  deviations and PD-008. CI on PR #17 (`d2fc79d`, run 41527916889): all 8 checks pass.
 - **Acceptance:** `SPRINTS.md` Sprint 2 exit criteria demonstrated: create/list/view, persistence
   across app restart (including packaged build via `scripts/package-windows.ps1` if owner
   requests), migration reproducible on clean DB. Owner acceptance recorded; packaged-build
