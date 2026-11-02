@@ -76,8 +76,14 @@ machine-local app-data directory (owner decision PD-006 / `docs/OPEN_QUESTIONS.m
 | Linux | `$XDG_DATA_HOME/controlgauge` (default `~/.local/share/controlgauge`) |
 
 A user-configurable location is deferred. `CONTROLGAUGE_DATA_DIR` (absolute path) overrides the
-directory for **development and tests only** (PD-008); the test suites set it so they never touch
-the real database. Uninstalling the app does not delete this directory.
+directory for **development and tests only** (PD-008/PD-011); the test suites set it so they never
+touch the real database. It must be a local path: UNC/device paths (`\\server\share`, `\\?\...`,
+`//server/share`) and Windows mapped network drives are refused with
+`data_dir_override_remote`, and startup fails closed (SQLite on network storage risks corruption).
+Network detection for other POSIX mounts is not implemented. **Production behavior:** the
+packaged service also honors the variable if it is set in the user's environment (CI's frozen-exe
+tests rely on this); it is not exposed in the UI or documented to end users. Uninstalling the app
+does not delete the data directory.
 
 At startup, before any socket is opened, the service creates the directory if needed, opens the
 database (`PRAGMA foreign_keys = ON` on every connection) and applies all pending Alembic

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,43 @@ def test_linux_ignores_relative_xdg_data_home() -> None:
 def test_override_must_be_absolute() -> None:
     with pytest.raises(storage.StorageLocationError, match="not_absolute"):
         storage.resolve_data_dir(environ={storage.DATA_DIR_ENV_VAR: "relative/dir"})
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        r"\\fileserver\share\cg",
+        r"\\?\UNC\fileserver\share\cg",
+        r"\\?\C:\cg",
+        r"\\.\pipe\x",
+        "//fileserver/share/cg",
+    ],
+)
+def test_override_rejects_unc_and_device_paths(raw: str) -> None:
+    with pytest.raises(storage.StorageLocationError, match="data_dir_override_remote") as info:
+        storage.resolve_data_dir(environ={storage.DATA_DIR_ENV_VAR: raw})
+    assert "fileserver" not in str(info.value)
+
+
+def test_override_rejects_a_mapped_network_drive() -> None:
+    with pytest.raises(storage.StorageLocationError, match="data_dir_override_remote"):
+        storage.check_override_is_local(r"Z:\cg", platform="win32", drive_type=lambda _r: 4)
+
+
+def test_override_accepts_a_local_fixed_drive() -> None:
+    seen: list[str] = []
+
+    def probe(root: str) -> int:
+        seen.append(root)
+        return 3  # DRIVE_FIXED
+
+    storage.check_override_is_local(r"C:\cg", platform="win32", drive_type=probe)
+    assert seen == ["C:\\"]
+
+
+@pytest.mark.skipif(not sys.platform.startswith("win"), reason="real GetDriveTypeW probe")
+def test_real_drive_probe_accepts_the_temp_directory(tmp_path: Path) -> None:
+    storage.check_override_is_local(str(tmp_path))
 
 
 def test_override_is_used_when_absolute(tmp_path: Path) -> None:

@@ -32,6 +32,18 @@ Evidence line format when closing a batch: `Evidence: <commands run → result>;
 - **Validation:** `uv run pytest` (service), `npm test` (app), `cargo test` (src-tauri) or the
   green CI run on the sign-off commit.
 
+- **Result (2026-11-02):** Owner accepted S1-08 on the documented evidence (PD-009), recorded in
+  `SPRINT_1_BACKLOG.md` S1-08. Fail-closed occupied-port/impersonation coverage: pytest
+  `test_port_is_os_assigned_and_unaffected_by_an_unrelated_listener`, cargo
+  `fake_http_endpoint_with_wrong_response_is_rejected`,
+  `child_death_between_liveness_check_and_send_never_leaks_credential_to_replacement_listener`.
+  Done with the Sprint 2 PR merge.
+
+### R-04 — Clean-machine retest of the rebranded installer (release task)
+- **Status:** Ready (owner, manual). Rebuild with `scripts/package-windows.ps1`, install on a clean
+  Windows machine, record edition, install time and installer SHA-256 in `docs/PACKAGING.md`.
+  Separate from S1-08 (PD-009). Not claimed done.
+
 ### R-02 — Status/doc reconciliation
 - **Status:** Blocked on R-01 (can run in parallel in a docs-only PR if owner prefers).
 - **Scope:** Update stale "Sprint 0 draft" status lines in `docs/*.md` that are still accurate as
@@ -183,7 +195,7 @@ Detailed batches are created at the start of each sprint (PD-002). Do not pre-pl
 
 | Sprint | Milestone | First step when reached |
 |---|---|---|
-| 3 | NIST Rev. 5 catalog loaded, browsable, no hardcoded NIST logic | Resolve C-3 with owner; owner supplies/approves source data |
+| 3 | NIST Rev. 5 catalog loaded, browsable, no hardcoded NIST logic | C-3 resolved (PD-012: oscal-content v1.5.0). Create batches per PD-013: framework-agnostic OSCAL importer with length/identifier validation, verbatim text, full hierarchy/params/references/withdrawn/provenance, framework-version preservation for existing assessments |
 | 4 | Upload + parsers + verified parser containment (D-022) | Resolve S-1, S-2 |
 | 5 | Local GGUF model import, health check, structured output, offline | Owner approves dev model |
 | 6 | Hardware detection, catalog, verified download | Resolve P-3, S-4 |

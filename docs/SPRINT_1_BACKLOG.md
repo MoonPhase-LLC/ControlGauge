@@ -295,6 +295,18 @@ product owner's explicit go/no-go decision before Sprint 2 proceeds.
 
 **Required tests:** N/A.
 
+**Sign-off (2026-11-02): ACCEPTED by the product owner**, on the documented evidence, which was
+checked against each requirement above:
+- Full loop on a real Windows machine: the native smoke test
+  (`app/e2e-native/native.spec.ts`: launch → supervised service spawn → authenticated health →
+  graceful close with child cleanup, plus crash revocation) passed on Windows 11 on 2026-11-02
+  (3 passed), on the Sprint 2 branch, which leaves the Sprint 1 loop unchanged.
+- D-001 records the packaging-risk outcome ("validated early", S1-09, PR #11).
+- S1-09 clean-machine result: the owner's manual pass, recorded in D-001 and `PACKAGING.md`.
+  That pass predates the ControlGauge rebrand. **A clean-machine retest of the current
+  rebranded installer is a separate release task** (BATCH_JOBS R-04), not part of this sign-off.
+  No other test evidence is claimed beyond the above.
+
 ---
 
 ### S1-09: Packaged-build spike (clean-machine validation)

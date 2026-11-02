@@ -29,6 +29,10 @@ resolution inline and mark Resolved) or as new ones surface during implementatio
   `SPRINTS.md` Sprint 12)
 - C-3: What is the authoritative source for NIST SP 800-53 Rev. 5 control text to be loaded in
   Sprint 3, and are there licensing/attribution requirements to satisfy? (`SPRINTS.md` Sprint 3)
+  **Resolved (owner, 2026-11-02, PD-012):** `usnistgov/oscal-content` release v1.5.0 (NIST SP
+  800-53 Release 5.2.0, OSCAL JSON); public domain in the US, CC0 1.0 worldwide. Preserve NIST
+  attribution, license notice, upstream version, source URL, tag/commit and file hash; do not
+  imply NIST endorsement.
 - C-4: Is cross-artifact contradiction analysis (e.g. "a policy claims MFA is required but a
   separate technical export shows accounts without MFA") a real V0.1-or-soon-after product
   requirement, given it's a genuinely valuable compliance use case? An architectural review found

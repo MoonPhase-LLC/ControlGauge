@@ -14,6 +14,10 @@ storage path is deferred.
 hook only** (isolating test runs and dev sessions from a real database),
 not a product setting: nothing in the UI exposes it, and it confers nothing
 an attacker who can already set this user's environment does not have.
+Production behavior: the packaged service honors it too (CI's frozen-exe
+tests depend on that), because the Tauri app passes its environment to the
+service. It must be an absolute, local path: UNC/device paths and mapped
+network drives are refused (PD-008 safeguards), and startup fails closed.
 
 The resolved path is never logged (it contains the OS user name); startup
 logs record only that the database is ready and its schema revision.
@@ -21,8 +25,10 @@ logs record only that the database is ready and its schema revision.
 
 from __future__ import annotations
 
+import ntpath
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 DATA_DIR_ENV_VAR = "CONTROLGAUGE_DATA_DIR"
@@ -54,10 +60,41 @@ def default_data_dir(*, platform: str | None = None, environ: dict[str, str] | N
     return base / _APP_DIR_NAME_POSIX
 
 
+_DRIVE_REMOTE = 4  # GetDriveTypeW: network (mapped) drive
+
+
+def _windows_drive_type(root: str) -> int:
+    import ctypes
+
+    return int(ctypes.windll.kernel32.GetDriveTypeW(root))  # type: ignore[attr-defined,unused-ignore]
+
+
+def check_override_is_local(
+    raw: str,
+    *,
+    platform: str | None = None,
+    drive_type: Callable[[str], int] | None = None,
+) -> None:
+    """PD-008 safeguard: the dev/test override must be a local path. SQLite
+    on network storage risks corruption (unreliable locking), so UNC/device
+    paths (`\\\\server\\share`, `\\\\?\\...`, `//server/share`) and, on Windows,
+    mapped network drives are refused. Fixed reasons only, never the path."""
+    plat = platform if platform is not None else sys.platform
+    if raw.startswith(("\\\\", "//")):
+        raise StorageLocationError("data_dir_override_remote")
+    if plat.startswith("win"):
+        drive = ntpath.splitdrive(raw)[0]
+        if len(drive) == 2 and drive[1] == ":":
+            probe = drive_type if drive_type is not None else _windows_drive_type
+            if probe(drive + "\\") == _DRIVE_REMOTE:
+                raise StorageLocationError("data_dir_override_remote")
+
+
 def resolve_data_dir(*, environ: dict[str, str] | None = None) -> Path:
     env = environ if environ is not None else dict(os.environ)
     override = env.get(DATA_DIR_ENV_VAR)
     if override:
+        check_override_is_local(override)
         path = Path(override)
         if not path.is_absolute():
             raise StorageLocationError("data_dir_override_not_absolute")

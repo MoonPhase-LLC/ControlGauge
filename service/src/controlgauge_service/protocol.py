@@ -256,6 +256,7 @@ _ERROR_REASONS = frozenset(
         "internal_error",
         # Sprint 2: local database initialization (`db/bootstrap.py`).
         "data_dir_override_not_absolute",
+        "data_dir_override_remote",
         "data_dir_create_failed",
         "data_dir_not_a_directory",
         "database_migration_failed",

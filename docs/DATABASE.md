@@ -341,7 +341,7 @@ running local database, since assessment data must survive app upgrades.
 Sprint 2 implemented this: `service/src/controlgauge_service/migrations/` (Alembic), applied
 automatically at service startup (`service/README.md` "Local database").
 
-## 7. Sprint 2 implementation notes and deviations (owner approval requested in the Sprint 2 PR)
+## 7. Sprint 2 implementation notes and deviations (approved by owner 2026-11-02, PD-010)
 
 Implemented in Sprint 2 (migration `0002_framework_assessment`): `framework`, `control_family`,
 `control`, `control_enhancement`, `assessment`. Not yet created: `assessment_control_scope`
