@@ -11,6 +11,20 @@ Before implementing any feature, read:
 
 If those files do not exist yet, do not invent architecture. Follow the current task and keep changes minimal.
 
+## Continuum Workflow (default)
+
+Work resumes across sessions through `docs/planning/`. At the start of every session:
+
+1. Read `docs/planning/CURRENT_STATUS.md` first and follow its documented next action.
+2. Consult `docs/planning/MASTER_PLAN.md` and only the subsystem docs the active batch needs.
+3. Work the next unblocked batch in `docs/planning/BATCH_JOBS.md`, within its scope only.
+4. Before ending the session, and at every batch completion, update `CURRENT_STATUS.md` and
+   `BATCH_JOBS.md` (concise, factual, evidence-backed; no unverified completion claims).
+
+Full rules, including interrupted-work recovery: `docs/planning/EXECUTION_RULES.md`.
+`CURRENT_STATUS.md` is the single execution-status tracker. Everything else in this file still
+applies and takes precedence.
+
 ## Git Workflow
 
 Never push directly to `main`.
