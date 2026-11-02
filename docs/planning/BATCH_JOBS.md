@@ -85,7 +85,17 @@ directed Sprint 2 to proceed while R-01 (S1-08 sign-off) stays pending. One bran
 - **Docs:** `service/README.md`, `docs/DATABASE.md` (only if deviating, with owner approval).
 
 ### S2-02 — Framework/control schema migration
-- **Depends:** S2-01. **Status:** Blocked.
+- **Depends:** S2-01. **Status:** Implemented/verified (on branch, PR pending).
+- **Result:** `db/models.py` + migration `0002_framework_assessment` (5 tables; deviations listed
+  in `docs/DATABASE.md` §7 for owner approval — constraints only, incl. the composite
+  family/framework FK §2 names as the stricter option). `framework_catalog.py` syncs identity
+  metadata from `frameworks/*/framework.json` (untrusted: size-limited, strict schema, invalid
+  files skipped); `frameworks/nist-800-53-rev5/framework.json` holds name/version/DOI only. No
+  control rows inserted. `assessment_control_scope` not created (P-1 deferred).
+- **Evidence (local, 2026-11-02):** `alembic upgrade head` + `alembic check` → "No new upgrade
+  operations detected" (migration matches models); downgrade/re-upgrade clean; `uv run pytest` →
+  296 passed (new `test_schema.py`: FKs, composite FK, uniqueness, checks, UTC round-trip, no
+  control content, AST check that no code string literal names NIST); ruff/mypy clean.
 - **Deliverables:** models and migration for `framework`, `control_family` (optional per D-016),
   `control`, `control_enhancement`, `assessment` per `DATABASE.md`.
 - **Acceptance:** schema matches `DATABASE.md` (deviations listed); no NIST-specific columns or

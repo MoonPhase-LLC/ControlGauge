@@ -42,5 +42,16 @@ def initialize_database(data_dir: Path | None = None) -> Database:
         logger.error("database_migration_failed", extra={"exc_type": type(exc).__name__})
         raise DatabaseInitError("database_migration_failed") from None
 
+    # Framework *metadata* only (PD-006); imported lazily to keep this
+    # module free of an import cycle with the catalog's model imports.
+    from ..framework_catalog import sync_from_default_location
+
+    try:
+        sync_from_default_location(database)
+    except Exception as exc:
+        database.dispose()
+        logger.error("framework_sync_failed", extra={"exc_type": type(exc).__name__})
+        raise DatabaseInitError("framework_sync_failed") from None
+
     logger.info("database_ready", extra={"schema_revision": revision})
     return database

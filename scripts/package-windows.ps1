@@ -68,6 +68,11 @@ foreach ($m in $excludes) { $pyiArgs += @('--exclude-module', $m) }
 # package (`db/migrate.py` resolves them relative to itself).
 $migrations = Join-Path $service 'src\controlgauge_service\migrations'
 $pyiArgs += @('--add-data', "$migrations;controlgauge_service\migrations")
+# Framework identity metadata (framework.json only; no control content until
+# Sprint 3). `framework_catalog.py` reads `<bundle>/_internal/frameworks/`.
+foreach ($meta in Get-ChildItem (Join-Path $repo 'frameworks') -Recurse -Filter 'framework.json') {
+    $pyiArgs += @('--add-data', "$($meta.FullName);frameworks\$($meta.Directory.Name)")
+}
 $pyiArgs += (Join-Path $service 'packaging\pyinstaller_entry.py')
 Invoke-Native 'Freeze the service (PyInstaller --onedir)' { & $python @pyiArgs }
 
@@ -91,6 +96,9 @@ $bundledMigrations = Join-Path $bundle '_internal\controlgauge_service\migration
 if (-not (Test-Path (Join-Path $bundledMigrations 'env.py') -PathType Leaf) -or
     -not (Get-ChildItem (Join-Path $bundledMigrations 'versions') -Filter '*.py')) {
     throw 'bundle is missing the database migrations'
+}
+if (-not (Get-ChildItem (Join-Path $bundle '_internal\frameworks') -Recurse -Filter 'framework.json' -ErrorAction SilentlyContinue)) {
+    throw 'bundle is missing framework metadata'
 }
 Write-Host "Frozen service OK: $exe"
 if ($ServiceOnly) { return }

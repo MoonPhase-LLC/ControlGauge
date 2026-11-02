@@ -1,0 +1,6 @@
+{
+  "id": "nist-800-53-rev5",
+  "name": "NIST SP 800-53",
+  "version": "Revision 5",
+  "source_reference": "NIST Special Publication 800-53 Revision 5, Security and Privacy Controls for Information Systems and Organizations. https://doi.org/10.6028/NIST.SP.800-53r5"
+}
