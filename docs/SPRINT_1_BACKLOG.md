@@ -1,6 +1,7 @@
 # ControlGauge — Sprint 1 Backlog: Desktop Foundation
 
-Status: Sprint 0 draft. Tickets are scoped to be independently completable and reviewable. Do not
+Status: ticket specs (execution status is tracked only in `docs/planning/CURRENT_STATUS.md`:
+S1-01..S1-07 and S1-09 merged, S1-08 pending). Tickets are scoped to be independently completable and reviewable. Do not
 implement these during Sprint 0 — this is planning output only.
 
 ---

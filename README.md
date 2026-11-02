@@ -57,7 +57,8 @@ architecture, security, and planning documentation. Completed on `main` so far:
   [`docs/PACKAGING.md`](docs/PACKAGING.md)).
 
 There is still no evidence handling, database, model runtime, or working assessment feature.
-Remaining Sprint 1 work: Sprint 1 exit validation (S1-08).
+Remaining Sprint 1 work: Sprint 1 exit validation (S1-08, awaiting product-owner sign-off).
+Live execution status and next steps: [`docs/planning/CURRENT_STATUS.md`](docs/planning/CURRENT_STATUS.md).
 See `docs/SPRINT_1_BACKLOG.md` for ticket details, `docs/SPRINTS.md` for the full sprint plan,
 and `docs/OPEN_QUESTIONS.md` for decisions still pending product-owner input.
 
