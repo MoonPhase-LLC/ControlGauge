@@ -48,6 +48,7 @@ from .app import create_app
 from .challenge import StartupChallengeState
 from .config import Settings
 from .credentials import CredentialStore
+from .db import DatabaseInitError, initialize_database
 from .logging_config import configure_logging
 
 logger = logging.getLogger("controlgauge_service.supervised")
@@ -154,6 +155,14 @@ def main() -> None:
     except protocol.ProtocolError:
         _fail("invalid_startup_secret")
 
+    # Sprint 2: open and migrate the local database before any socket
+    # exists, so a service that cannot reach its data never advertises an
+    # endpoint (fail closed, fixed reason, no path).
+    try:
+        database = initialize_database()
+    except DatabaseInitError as exc:
+        _fail(exc.reason)
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         # Bind and retain ownership of this exact socket all the way to
@@ -182,6 +191,7 @@ def main() -> None:
             credential_store=credential_store,
             startup_challenge=challenge_state,
             supervised=True,
+            database=database,
         )
 
         logger.info(
@@ -228,6 +238,8 @@ def main() -> None:
         # wrong" signal to the parent without that risk.
         logger.error("supervised_unexpected_failure", extra={})
         raise SystemExit(_STARTUP_ERROR_EXIT_CODE) from None
+    finally:
+        database.dispose()
 
     logger.info("supervised_stopped", extra={"clean_shutdown": outcome.clean_shutdown})
     if not outcome.clean_shutdown:

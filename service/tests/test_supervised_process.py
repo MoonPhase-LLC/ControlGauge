@@ -78,11 +78,13 @@ def service_argv(request: pytest.FixtureRequest) -> list[str]:
     return [str(path), "--supervised"]
 
 
-def _spawn(argv: list[str]) -> subprocess.Popen[bytes]:
+def _spawn(argv: list[str], data_dir: Path) -> subprocess.Popen[bytes]:
     env = dict(os.environ)
     for key in list(env):
         if key.startswith("CONTROLGAUGE_"):
             del env[key]
+    # Sprint 2: never touch the real per-user database from a test run.
+    env["CONTROLGAUGE_DATA_DIR"] = str(data_dir)
     return subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, no untrusted input
         argv,
         env=env,
@@ -199,8 +201,8 @@ class _FakeTauri:
 
 
 @pytest.fixture
-def tauri(service_argv: list[str]) -> Iterator[_FakeTauri]:
-    fake = _FakeTauri(process=_spawn(service_argv))
+def tauri(service_argv: list[str], tmp_path: Path) -> Iterator[_FakeTauri]:
+    fake = _FakeTauri(process=_spawn(service_argv, tmp_path))
     try:
         yield fake
     finally:
@@ -383,7 +385,9 @@ def test_no_secret_or_probe_content_and_no_traceback_in_logs(tauri: _FakeTauri) 
 _SECRET_MARKER = "MARKER-SECRET-VALUE-DO-NOT-LEAK-9f3a7c1e"
 
 
-def test_secret_markers_in_malformed_frames_never_appear_in_logs(service_argv: list[str]) -> None:
+def test_secret_markers_in_malformed_frames_never_appear_in_logs(
+    service_argv: list[str], tmp_path: Path
+) -> None:
     """S1-04 review finding 4 regression test: place a recognizable
     synthetic value inside *every* interesting field of a malformed first
     message and confirm it never surfaces in captured stdout/stderr. An
@@ -406,7 +410,7 @@ def test_secret_markers_in_malformed_frames_never_appear_in_logs(service_argv: l
     ]
 
     for frame in malformed_frames:
-        fake = _FakeTauri(process=_spawn(service_argv))
+        fake = _FakeTauri(process=_spawn(service_argv, tmp_path))
         try:
             fake.send_raw(frame)
             fake.process.wait(timeout=_READY_TIMEOUT_SECONDS)

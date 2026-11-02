@@ -820,10 +820,27 @@ mod tests {
     use tokio::net::TcpListener;
 
     fn real_dev_target() -> (std::path::PathBuf, Vec<String>) {
+        isolate_service_data_dir();
         process::resolve_dev().expect(
             "service/.venv python not found -- run `uv sync` in service/ first \
              (see service/README.md)",
         )
+    }
+
+    /// Sprint 2: the real child opens its SQLite database at startup. Point
+    /// it (via the inherited `CONTROLGAUGE_DATA_DIR` dev/test override) at a
+    /// per-test-run temp directory so tests never touch the real per-user
+    /// database. Set once, before any child is spawned.
+    fn isolate_service_data_dir() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            let dir = std::env::temp_dir().join(format!(
+                "controlgauge-supervisor-tests-{}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).expect("create test data dir");
+            std::env::set_var("CONTROLGAUGE_DATA_DIR", &dir);
+        });
     }
 
     #[tokio::test]

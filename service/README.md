@@ -64,6 +64,35 @@ curl -i http://127.0.0.1:51823/health   # -> 401, no token supplied
 curl -H "Authorization: Bearer <your-generated-token>" http://127.0.0.1:51823/health
 ```
 
+## Local database (Sprint 2)
+
+The service stores assessments in a local SQLite file, `controlgauge.db`, in the OS per-user,
+machine-local app-data directory (owner decision PD-006 / `docs/OPEN_QUESTIONS.md` A-2):
+
+| OS | Directory |
+|---|---|
+| Windows | `%LOCALAPPDATA%\ControlGauge` (Local, never Roaming) |
+| macOS | `~/Library/Application Support/ControlGauge` |
+| Linux | `$XDG_DATA_HOME/controlgauge` (default `~/.local/share/controlgauge`) |
+
+A user-configurable location is deferred. `CONTROLGAUGE_DATA_DIR` (absolute path) overrides the
+directory for **development and tests only** (PD-008); the test suites set it so they never touch
+the real database. Uninstalling the app does not delete this directory.
+
+At startup, before any socket is opened, the service creates the directory if needed, opens the
+database (`PRAGMA foreign_keys = ON` on every connection) and applies all pending Alembic
+migrations. If any of that fails, the process exits non-zero with a fixed reason
+(`data_dir_create_failed`, `database_migration_failed`, ...) and never serves; a database from a
+newer app version (unknown revision) also fails closed. The path is never logged; the log records
+only `database_ready` with the schema revision.
+
+Migrations live in `src/controlgauge_service/migrations/` (packaged as data by
+`scripts/package-windows.ps1`). To author a new one against a scratch database:
+
+```sh
+uv run alembic revision --autogenerate -m "describe the change"   # uses alembic.ini
+```
+
 ## Entry points
 
 Both of the following start the identical service with identical configuration behavior — the

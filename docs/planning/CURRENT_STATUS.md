@@ -11,9 +11,9 @@ Last updated: 2026-11-02 (Sprint 2 prep; PRs #14 and #15 merged).
 
 | Item | Value |
 |---|---|
-| Current sprint | Sprint 1 — Desktop Foundation (implementation done, exit sign-off pending) |
-| Active batch | None in progress |
-| Next action | **R-01** (owner S1-08 sign-off), and **R-03** (owner answers A-2, P-1/P-2). Sprint 2 batches stay blocked until both are done |
+| Current sprint | Sprint 2 — Assessment and Database Layer (in progress on `claude/sprint-2-assessment-db`); Sprint 1 exit sign-off (R-01) still pending |
+| Active batch | S2-02 (S2-01 implemented/verified, committed on branch) |
+| Next action | Continue S2-02 → S2-05 on the same branch, then open the single Sprint 2 PR. Owner: R-01 sign-off still outstanding |
 | Baseline | `origin/main` @ `3ed2d67` (merge of PR #15) |
 | Merged this session | PR #14 (Continuum planning, `a63f31f`), PR #15 (Graphify guidance, `3ed2d67`) |
 | Open PRs | None |

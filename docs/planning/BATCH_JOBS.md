@@ -50,12 +50,33 @@ Evidence line format when closing a batch: `Evidence: <commands run → result>;
 ## Sprint 2 — Assessment and Database Layer
 
 Spec: `docs/SPRINTS.md` Sprint 2; schema reference `docs/DATABASE.md`; ADRs D-002, D-005, D-006,
-D-016. All batches depend on R-01 and R-03. Any deviation from `DATABASE.md` needs owner
-approval. New dependencies (SQLAlchemy, Alembic) require the justification note required by
-`CLAUDE.md`; they are already named in the approved stack (D-001) but confirm before adding.
+D-016. Any deviation from `DATABASE.md` needs owner approval. New dependencies (SQLAlchemy,
+Alembic) require the justification note required by `CLAUDE.md`; they are already named in the
+approved stack (D-001).
+
+**Unblocked by owner instruction (2026-11-02, PD-006/PD-007):** R-03's gating answers were given
+as approved defaults (A-2 database location; P-1/P-2 deferred; NIST metadata only), and the owner
+directed Sprint 2 to proceed while R-01 (S1-08 sign-off) stays pending. One branch,
+`claude/sprint-2-assessment-db`, one PR; batches are "Implemented/verified" until it merges.
 
 ### S2-01 — SQLAlchemy + Alembic foundation
-- **Depends:** R-01, R-03. **Status:** Blocked.
+- **Depends:** R-03 (answered via PD-006). **Status:** Implemented/verified (on branch, PR pending).
+- **Dependency note (`CLAUDE.md`):** `sqlalchemy>=2.0.36,<2.1` (locked 2.0.55) and
+  `alembic>=1.14,<2` (locked 1.20.1, pulls Mako/MarkupSafe/greenlet) — the ORM and migration tool
+  already named in D-001; no lighter option gives versioned, reproducible SQLite migrations.
+- **Result:** `storage.py` (per-user data dir, `CONTROLGAUGE_DATA_DIR` dev/test override, PD-008),
+  `db/engine.py` (FK pragma + busy timeout on every connection, real transactions, `BEGIN
+  IMMEDIATE` for migrations/writes), `db/migrate.py` + `migrations/` (baseline `0001_baseline`),
+  `db/bootstrap.py` (fail-closed init, path never logged). Both entry points migrate before
+  opening a socket. PyInstaller script ships migrations as data and rebuilds the project wheel.
+- **Issues found and fixed:** (1) frozen build missed `db.models`/`db.base` (only imported by
+  data-file `env.py`) → imported from `migrate.py`; (2) parallel children migrating one fresh DB
+  raced (`SQLITE_BUSY`) → `BEGIN IMMEDIATE`; (3) local packaging reused a stale cached wheel →
+  `--reinstall-package`.
+- **Evidence (local, Windows, 2026-11-02):** `uv run pytest` → 276 passed; `ruff check`, `ruff
+  format --check`, `mypy` (42 files) clean; frozen exe: `pytest tests/test_supervised_process.py
+  --service-exe ...` → 11 passed; `cargo fmt --check`, `cargo clippy -D warnings` clean, `cargo
+  test` → 91 passed.
 - **Deliverables:** SQLite engine/session setup in `service/` at the A-2-approved location;
   Alembic config; empty baseline migration; migration runs on a clean database.
 - **Acceptance:** service starts with the DB initialized; migration reproducible on a fresh path;

@@ -41,7 +41,10 @@ $env:UV_PROJECT_ENVIRONMENT = $buildVenv
 try {
     Push-Location $service
     Invoke-Native 'Create the isolated build environment (frozen, no dev group)' {
-        uv sync --frozen --no-dev --group package --no-editable
+        # --reinstall-package: uv caches the built wheel of this local project
+        # keyed on pyproject.toml, so source-only changes would otherwise be
+        # frozen from a stale wheel on a developer machine.
+        uv sync --frozen --no-dev --group package --no-editable --reinstall-package controlgauge-service
     }
 } finally {
     Pop-Location
@@ -60,6 +63,11 @@ $pyiArgs = @(
     '--distpath', $distPath, '--workpath', $workPath, '--specpath', $workPath
 )
 foreach ($m in $excludes) { $pyiArgs += @('--exclude-module', $m) }
+# Sprint 2: Alembic loads migration scripts (env.py, versions/*.py) from files
+# at runtime, not from the PYZ archive, so they ship as data next to the
+# package (`db/migrate.py` resolves them relative to itself).
+$migrations = Join-Path $service 'src\controlgauge_service\migrations'
+$pyiArgs += @('--add-data', "$migrations;controlgauge_service\migrations")
 $pyiArgs += (Join-Path $service 'packaging\pyinstaller_entry.py')
 Invoke-Native 'Freeze the service (PyInstaller --onedir)' { & $python @pyiArgs }
 
@@ -78,6 +86,11 @@ $bad = @($archive | Where-Object { $_ -match $pattern })
 if ($bad.Count -gt 0) { throw "frozen archive contains build/dev-only modules: $(($bad | Select-Object -First 10) -join ', ')" }
 if (-not ($archive | Where-Object { $_ -match '^\s*controlgauge_service\.supervised$' })) {
     throw 'frozen archive is missing controlgauge_service.supervised'
+}
+$bundledMigrations = Join-Path $bundle '_internal\controlgauge_service\migrations'
+if (-not (Test-Path (Join-Path $bundledMigrations 'env.py') -PathType Leaf) -or
+    -not (Get-ChildItem (Join-Path $bundledMigrations 'versions') -Filter '*.py')) {
+    throw 'bundle is missing the database migrations'
 }
 Write-Host "Frozen service OK: $exe"
 if ($ServiceOnly) { return }
