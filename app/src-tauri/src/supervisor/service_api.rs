@@ -1,5 +1,5 @@
-//! Sprint 2 (S2-04): assessment and framework requests made on the
-//! frontend's behalf, entirely in Rust, over the **same pinned,
+//! Sprint 2 (S2-04) and Sprint 3 (S3-05): assessment, framework and
+//! catalog requests made on the frontend's behalf, entirely in Rust, over the **same pinned,
 //! identity-verified connection** `check_service_health` uses (D-026). The
 //! frontend never sees the session token, host, port, or raw HTTP: each
 //! `#[tauri::command]` in `lib.rs` takes typed, validated arguments, builds
@@ -11,9 +11,10 @@
 //! - Response bodies are size-bounded while reading ([`MAX_API_RESPONSE_BYTES`]);
 //!   request bodies are bounded before sending ([`MAX_API_REQUEST_BYTES`]).
 //! - Every response is parsed into a closed schema (`deny_unknown_fields`).
-//! - Path segments are never interpolated from free text: the only
-//!   caller-supplied segment, an assessment id, must be a canonical
-//!   lowercase UUID ([`is_canonical_uuid`]); paging values are integers.
+//! - Path segments are never interpolated from free text: caller-supplied
+//!   ids must be canonical lowercase UUIDs ([`is_canonical_uuid`]); paging
+//!   values are integers; the one free-text query value (catalog search) is
+//!   length/character-checked and percent-encoded ([`encode_query_value`]).
 //! - Error responses from the service are accepted only in the service's
 //!   documented error shape, with bounded field lengths and a constrained
 //!   code alphabet, so nothing arbitrary is relayed to the WebView.
@@ -36,6 +37,8 @@ pub const MAX_API_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 /// Upper bound on a request body this process will send.
 pub const MAX_API_REQUEST_BYTES: usize = 32 * 1024;
 pub const LIST_LIMIT_MAX: u32 = 100;
+pub const CONTROL_LIMIT_MAX: u32 = 500;
+pub const SEARCH_MAX_CHARS: usize = 100;
 pub const LIST_OFFSET_MAX: u64 = 1_000_000;
 
 const MAX_ERROR_FIELDS: usize = 32;
@@ -94,12 +97,21 @@ struct ApiErrorBody {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct ReleaseSummary {
+    pub id: String,
+    pub version: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct FrameworkSummary {
     pub id: String,
     pub name: String,
     pub version: String,
     pub source_reference: Option<String>,
     pub control_count: u64,
+    pub current_release: Option<ReleaseSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -123,6 +135,7 @@ pub struct Assessment {
     pub name: String,
     pub description: Option<String>,
     pub framework: FrameworkRef,
+    pub catalog_release: Option<ReleaseSummary>,
     pub created_at: String,
 }
 
@@ -131,6 +144,187 @@ pub struct Assessment {
 pub struct AssessmentList {
     pub assessments: Vec<Assessment>,
     pub total: u64,
+    pub limit: u32,
+    pub offset: u64,
+}
+
+// --- catalog (S3-05; mirrors routes/catalog.py) ---
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Part {
+    pub name: String,
+    pub label: Option<String>,
+    pub title: Option<String>,
+    pub prose: Option<String>,
+    pub parts: Vec<Part>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Param {
+    pub source_id: String,
+    pub label: Option<String>,
+    pub guidelines: Vec<String>,
+    pub select_how_many: Option<String>,
+    pub choices: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct LinkTarget {
+    pub kind: String,
+    pub id: Option<String>,
+    pub control_id: Option<String>,
+    pub part_label: Option<String>,
+    pub identifier: Option<String>,
+    pub title: Option<String>,
+    pub citation: Option<String>,
+    pub href: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Link {
+    pub rel: Option<String>,
+    pub href: String,
+    pub target: LinkTarget,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct FamilyRef {
+    pub id: String,
+    pub identifier: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Family {
+    pub id: String,
+    pub identifier: String,
+    pub name: String,
+    pub control_count: u64,
+    pub parts: Vec<Part>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct BaselineSummary {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+    pub version: Option<String>,
+    pub member_count: u64,
+    pub source_file_name: String,
+    pub source_sha256: String,
+    pub source_file_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseSource {
+    pub format: String,
+    pub format_version: Option<String>,
+    pub last_modified: Option<String>,
+    pub file_name: String,
+    pub sha256: String,
+    pub repository_url: Option<String>,
+    pub release_url: Option<String>,
+    pub file_url: Option<String>,
+    pub tag: Option<String>,
+    pub commit: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogRelease {
+    pub id: String,
+    pub framework: FrameworkRef,
+    pub version: String,
+    pub title: String,
+    pub is_current: bool,
+    pub imported_at: String,
+    pub source: ReleaseSource,
+    pub license_notice: String,
+    pub attribution: String,
+    pub control_count: u64,
+    pub enhancement_count: u64,
+    pub ungrouped_control_count: u64,
+    pub families: Vec<Family>,
+    pub baselines: Vec<BaselineSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ControlSummary {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+    pub status: Option<String>,
+    pub family_id: Option<String>,
+    pub enhancement_count: u64,
+    pub baselines: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ControlList {
+    pub controls: Vec<ControlSummary>,
+    pub total: u64,
+    pub limit: u32,
+    pub offset: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Enhancement {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+    pub status: Option<String>,
+    pub baselines: Vec<String>,
+    pub parts: Vec<Part>,
+    pub params: Vec<Param>,
+    pub links: Vec<Link>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseRef {
+    pub id: String,
+    pub version: String,
+    pub title: String,
+    pub is_current: bool,
+    pub attribution: String,
+    pub framework: FrameworkRef,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ControlDetail {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+    pub status: Option<String>,
+    pub release: ReleaseRef,
+    pub family: Option<FamilyRef>,
+    pub baselines: Vec<String>,
+    pub parts: Vec<Part>,
+    pub params: Vec<Param>,
+    pub links: Vec<Link>,
+    pub enhancements: Vec<Enhancement>,
+}
+
+/// Command input for listing a release's controls. Ids must be canonical
+/// UUIDs; the search text is bounded and percent-encoded.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ControlQuery {
+    pub family_id: Option<String>,
+    pub baseline_id: Option<String>,
+    pub search: Option<String>,
     pub limit: u32,
     pub offset: u64,
 }
@@ -310,6 +504,97 @@ pub async fn create_assessment(
     .await
 }
 
+pub async fn get_catalog_release(
+    connection: &ReadyConnection,
+    id: &str,
+) -> Result<CatalogRelease, ServiceCallError> {
+    if !is_canonical_uuid(id) {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    let path = format!("/catalog-releases/{id}");
+    call(connection, Method::GET, &path, None, StatusCode::OK).await
+}
+
+/// Percent-encodes a query value: every byte outside RFC 3986's unreserved
+/// set becomes `%XX`, so free text can never add parameters or path parts.
+pub fn encode_query_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() * 3);
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// Search text accepted for the catalog query: at most
+/// [`SEARCH_MAX_CHARS`] characters and no control or line-separator
+/// characters (the service applies the same rule).
+fn is_valid_search(value: &str) -> bool {
+    value.chars().count() <= SEARCH_MAX_CHARS
+        && !value
+            .chars()
+            .any(|c| c.is_control() || c == '\u{2028}' || c == '\u{2029}')
+}
+
+/// The request path for a control listing, or `None` if any argument is
+/// out of bounds.
+pub fn control_list_path(release_id: &str, query: &ControlQuery) -> Option<String> {
+    if !is_canonical_uuid(release_id)
+        || !(1..=CONTROL_LIMIT_MAX).contains(&query.limit)
+        || query.offset > LIST_OFFSET_MAX
+    {
+        return None;
+    }
+    let mut path = format!(
+        "/catalog-releases/{release_id}/controls?limit={}&offset={}",
+        query.limit, query.offset
+    );
+    for (name, value) in [
+        ("family_id", &query.family_id),
+        ("baseline_id", &query.baseline_id),
+    ] {
+        if let Some(id) = value {
+            if !is_canonical_uuid(id) {
+                return None;
+            }
+            path.push_str(&format!("&{name}={id}"));
+        }
+    }
+    if let Some(search) = &query.search {
+        if !is_valid_search(search) {
+            return None;
+        }
+        if !search.trim().is_empty() {
+            path.push_str("&q=");
+            path.push_str(&encode_query_value(search));
+        }
+    }
+    Some(path)
+}
+
+pub async fn list_catalog_controls(
+    connection: &ReadyConnection,
+    release_id: &str,
+    query: &ControlQuery,
+) -> Result<ControlList, ServiceCallError> {
+    let path = control_list_path(release_id, query).ok_or(ServiceCallError::InvalidArgument)?;
+    call(connection, Method::GET, &path, None, StatusCode::OK).await
+}
+
+pub async fn get_control(
+    connection: &ReadyConnection,
+    id: &str,
+) -> Result<ControlDetail, ServiceCallError> {
+    if !is_canonical_uuid(id) {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    let path = format!("/controls/{id}");
+    call(connection, Method::GET, &path, None, StatusCode::OK).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,6 +669,125 @@ mod tests {
             r#"{"name":"n","frameworkId":"fw","status":"compliant"}"#
         )
         .is_err());
+    }
+
+    const RELEASE: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const FAMILY: &str = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+
+    fn query() -> ControlQuery {
+        ControlQuery {
+            limit: 100,
+            ..ControlQuery::default()
+        }
+    }
+
+    #[test]
+    fn query_values_are_percent_encoded() {
+        assert_eq!(encode_query_value("AC-2(1)"), "AC-2%281%29");
+        assert_eq!(
+            encode_query_value("a&limit=500#x/../y"),
+            "a%26limit%3D500%23x%2F..%2Fy"
+        );
+        assert_eq!(encode_query_value("\u{e9} 100%"), "%C3%A9%20100%25");
+    }
+
+    #[test]
+    fn control_list_path_is_built_only_from_checked_values() {
+        assert_eq!(
+            control_list_path(RELEASE, &query()).unwrap(),
+            format!("/catalog-releases/{RELEASE}/controls?limit=100&offset=0")
+        );
+        let full = ControlQuery {
+            family_id: Some(FAMILY.into()),
+            search: Some("account & mgmt".into()),
+            offset: 5,
+            ..query()
+        };
+        assert_eq!(
+            control_list_path(RELEASE, &full).unwrap(),
+            format!(
+                "/catalog-releases/{RELEASE}/controls?limit=100&offset=5&family_id={FAMILY}&q=account%20%26%20mgmt"
+            )
+        );
+        let blank = ControlQuery {
+            search: Some("   ".into()),
+            ..query()
+        };
+        assert!(!control_list_path(RELEASE, &blank).unwrap().contains("q="));
+    }
+
+    #[test]
+    fn control_list_path_rejects_out_of_bounds_input() {
+        let bad = [
+            ControlQuery {
+                limit: 0,
+                ..query()
+            },
+            ControlQuery {
+                limit: CONTROL_LIMIT_MAX + 1,
+                ..query()
+            },
+            ControlQuery {
+                offset: LIST_OFFSET_MAX + 1,
+                ..query()
+            },
+            ControlQuery {
+                family_id: Some("AC".into()),
+                ..query()
+            },
+            ControlQuery {
+                baseline_id: Some("../x".into()),
+                ..query()
+            },
+            ControlQuery {
+                search: Some("x".repeat(SEARCH_MAX_CHARS + 1)),
+                ..query()
+            },
+            ControlQuery {
+                search: Some("line\nbreak".into()),
+                ..query()
+            },
+        ];
+        for q in bad {
+            assert_eq!(control_list_path(RELEASE, &q), None, "{q:?}");
+        }
+        assert_eq!(control_list_path("not-a-uuid", &query()), None);
+        let at_limit = ControlQuery {
+            search: Some("x".repeat(SEARCH_MAX_CHARS)),
+            ..query()
+        };
+        assert!(control_list_path(RELEASE, &at_limit).is_some());
+    }
+
+    #[test]
+    fn control_detail_schema_is_closed_and_recursive() {
+        let body = r##"{"id":"c","identifier":"X-1","title":"T","status":null,
+            "release":{"id":"r","version":"1","title":"R","is_current":true,"attribution":"A",
+                "framework":{"id":"f","name":"F","version":"1"}},
+            "family":null,"baselines":["low"],
+            "parts":[{"name":"statement","label":null,"title":null,"prose":"p",
+                "parts":[{"name":"item","label":"a.","title":null,"prose":"q","parts":[]}]}],
+            "params":[],"links":[{"rel":"related","href":"#y","target":{"kind":"control",
+                "id":"y","control_id":"y","part_label":null,"identifier":"Y","title":"Y",
+                "citation":null,"href":null}}],
+            "enhancements":[]}"##;
+        let parsed: ControlDetail = serde_json::from_str(body).unwrap();
+        assert_eq!(parsed.parts[0].parts[0].label.as_deref(), Some("a."));
+        let extra = body.replacen(r#""status":null"#, r#""status":null,"compliant":true"#, 1);
+        assert!(serde_json::from_str::<ControlDetail>(&extra).is_err());
+    }
+
+    #[test]
+    fn control_query_input_is_closed_camel_case() {
+        let parsed: ControlQuery = serde_json::from_str(
+            r#"{"familyId":null,"baselineId":null,"search":"x","limit":10,"offset":0}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.search.as_deref(), Some("x"));
+        assert!(
+            serde_json::from_str::<ControlQuery>(r#"{"limit":10,"offset":0,"path":"/admin"}"#)
+                .is_err()
+        );
     }
 
     #[test]

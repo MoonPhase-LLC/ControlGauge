@@ -36,6 +36,7 @@ function seed(ipc: ServiceIpcMock, count: number) {
       name: `Seeded ${i}`,
       description: i === 1 ? "First seeded assessment" : null,
       framework: { id: FRAMEWORK.id, name: FRAMEWORK.name, version: FRAMEWORK.version },
+      catalog_release: FRAMEWORK.current_release,
       created_at: "2026-11-01T09:30:00Z",
     });
   }
@@ -137,7 +138,7 @@ describe("creating an assessment", () => {
 
     const framework = screen.getByRole("combobox", { name: "Framework" });
     expect(framework).toHaveValue(FRAMEWORK.id);
-    expect(screen.getByText(/control catalog is not loaded yet/)).toBeVisible();
+    expect(screen.getByText(/Uses catalog release 2\.0/)).toBeVisible();
 
     await user.type(screen.getByRole("textbox", { name: /Name/ }), "  FY26 annual  ");
     await user.type(screen.getByRole("textbox", { name: "Description" }), "HQ systems");

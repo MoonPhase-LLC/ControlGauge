@@ -74,6 +74,19 @@ export function AssessmentDetailScreen({
                 <dd>
                   {assessment.framework.name} {assessment.framework.version}
                 </dd>
+                <dt className="text-sm text-muted-foreground">Catalog release</dt>
+                <dd>
+                  {assessment.catalog_release ? (
+                    <>
+                      Release {assessment.catalog_release.version}
+                      <span className="block text-sm text-muted-foreground">
+                        This assessment stays on this release even if a newer one is installed.
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">No control catalog was loaded for this framework</span>
+                  )}
+                </dd>
                 <dt className="text-sm text-muted-foreground">Created</dt>
                 <dd>
                   <time dateTime={assessment.created_at}>{formatDateTime(assessment.created_at)}</time>

@@ -214,9 +214,11 @@ export function NewAssessmentScreen({
                 </NativeSelect>
                 <p id={`${ids.framework}-hint`} className="flex gap-1.5 text-xs text-muted-foreground">
                   <Info aria-hidden="true" className="mt-px size-3.5 shrink-0" />
-                  {selected && selected.control_count === 0
-                    ? "This framework's control catalog is not loaded yet; it will be added in a later release. Every control in the framework will be in scope."
-                    : "Every control in the framework will be in scope."}
+                  {selected && selected.current_release === null
+                    ? "This framework's control catalog is not loaded. Every control in the framework will be in scope."
+                    : selected?.current_release
+                      ? `Uses catalog release ${selected.current_release.version}; every control in it will be in scope. The assessment keeps this release even if a newer one is installed later.`
+                      : "Every control in the framework will be in scope."}
                 </p>
                 {errors.framework_id && (
                   <p id={`${ids.framework}-hint-error`} className="text-sm text-destructive">
