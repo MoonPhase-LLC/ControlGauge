@@ -1,8 +1,8 @@
-"""GET /frameworks (S2-03): frameworks an assessment can target.
+"""GET /frameworks: frameworks an assessment can target.
 
-Metadata only. `control_count` is the number of controls loaded for the
-framework -- 0 until the catalog is imported (Sprint 3) -- so clients can
-say so plainly instead of implying a populated catalog.
+`current_release` is the catalog release new assessments are pinned to
+(null while no catalog is imported) and `control_count` is the number of
+controls in it, so clients can say plainly when no catalog is loaded.
 """
 
 from __future__ import annotations
@@ -14,10 +14,16 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from ..db import Database
-from ..db.models import Control, Framework
+from ..db.models import CatalogRelease, Control, Framework
 from .deps import get_database
 
 router = APIRouter()
+
+
+class ReleaseSummary(BaseModel):
+    id: str
+    version: str
+    title: str
 
 
 class FrameworkOut(BaseModel):
@@ -26,6 +32,7 @@ class FrameworkOut(BaseModel):
     version: str
     source_reference: str | None
     control_count: int
+    current_release: ReleaseSummary | None
 
 
 class FrameworkList(BaseModel):
@@ -35,14 +42,18 @@ class FrameworkList(BaseModel):
 @router.get("/frameworks")
 def list_frameworks(database: Annotated[Database, Depends(get_database)]) -> FrameworkList:
     counts = (
-        select(Control.framework_id, func.count().label("n"))
-        .group_by(Control.framework_id)
+        select(Control.catalog_release_id, func.count().label("n"))
+        .group_by(Control.catalog_release_id)
         .subquery()
     )
     with database.session() as session:
         rows: Any = session.execute(
-            select(Framework, func.coalesce(counts.c.n, 0))
-            .outerjoin(counts, counts.c.framework_id == Framework.id)
+            select(Framework, CatalogRelease, func.coalesce(counts.c.n, 0))
+            .outerjoin(
+                CatalogRelease,
+                (CatalogRelease.framework_id == Framework.id) & CatalogRelease.is_current.is_(True),
+            )
+            .outerjoin(counts, counts.c.catalog_release_id == CatalogRelease.id)
             .order_by(Framework.name, Framework.version)
         ).all()
         return FrameworkList(
@@ -53,7 +64,12 @@ def list_frameworks(database: Annotated[Database, Depends(get_database)]) -> Fra
                     version=f.version,
                     source_reference=f.source_reference,
                     control_count=int(n),
+                    current_release=(
+                        ReleaseSummary(id=r.id, version=r.version, title=r.title)
+                        if r is not None
+                        else None
+                    ),
                 )
-                for f, n in rows
+                for f, r, n in rows
             ]
         )
