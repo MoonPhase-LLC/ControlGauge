@@ -258,7 +258,7 @@ assessments). Genericity rule: `ARCHITECTURE.md` §8 (no NIST-specific code). On
   part property). Candidate for a later batch.
 
 ### S3-06 — Sprint 3 exit validation
-- **Depends:** S3-05. **Status:** Implemented/verified; **owner acceptance pending** (PR review,
+- **Depends:** S3-05. **Status:** Implemented/verified; **owner acceptance pending** (PR #18 review,
   incl. `DATABASE.md` §8).
 - **Exit criteria (`SPRINTS.md` Sprint 3), agent-verified locally on Windows 11, 2026-11-03:**
   - *Full catalog loaded and browsable:* verbatim round-trip test over all 1,196 items; native test
