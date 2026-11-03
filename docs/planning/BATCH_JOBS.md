@@ -40,9 +40,9 @@ Evidence line format when closing a batch: `Evidence: <commands run → result>;
   Done with the Sprint 2 PR merge.
 
 ### R-04 — Clean-machine retest of the rebranded installer (release task)
-- **Status:** Ready (owner, manual). Rebuild with `scripts/package-windows.ps1`, install on a clean
-  Windows machine, record edition, install time and installer SHA-256 in `docs/PACKAGING.md`.
-  Separate from S1-08 (PD-009). Not claimed done.
+- **Status:** Done (owner-reported, 2026-11-03, PD-014). Owner ran the rebranded executable on a
+  clean machine: worked well. Recorded in `docs/PACKAGING.md`; edition, install time and installer
+  SHA-256 were not provided. Separate from S1-08 (PD-009).
 
 ### R-02 — Status/doc reconciliation
 - **Status:** Blocked on R-01 (can run in parallel in a docs-only PR if owner prefers).
@@ -188,6 +188,57 @@ directed Sprint 2 to proceed while R-01 (S1-08 sign-off) stays pending. One bran
   requests), migration reproducible on clean DB. Owner acceptance recorded; packaged-build
   PyInstaller spec includes any new service dependencies.
 - **Tests:** full CI green; manual restart test recorded with evidence.
+
+## Sprint 3 — NIST 800-53 Framework Engine
+
+Spec: `docs/SPRINTS.md` Sprint 3; source PD-012 (oscal-content v1.5.0); requirements PD-013;
+defaults PD-015 (vendored source, baselines as reference data, one-time pinning of unpinned
+assessments). Genericity rule: `ARCHITECTURE.md` §8 (no NIST-specific code). One branch,
+`claude/sprint-3-framework-engine`, one PR (same pattern as PD-007).
+
+### S3-01 — Vendored OSCAL source and provenance manifest
+- **Depends:** PD-012, PD-015. **Status:** Ready.
+- **Deliverables:** upstream catalog + 4 baseline profiles (minified JSON, unmodified) and the
+  upstream license under `frameworks/nist-800-53-rev5/oscal/`; `framework.json` extended with the
+  catalog/profile manifest (path, SHA-256, release version, tag, commit, URLs, license notice,
+  attribution, no-endorsement statement); framework README.
+- **Acceptance:** file hashes match the manifest; upstream files byte-identical to the tag.
+
+### S3-02 — Catalog schema (migration 0003)
+- **Depends:** S3-01. **Status:** Ready.
+- **Deliverables:** `catalog_release` (provenance, one current release per framework), release-scoped
+  family/control/enhancement, `control_part`, `control_parameter`, `control_link`,
+  `catalog_resource`, `baseline`/`baseline_member`, `assessment.catalog_release_id`; database
+  triggers making imported content and an assessment's pinned release immutable.
+- **Acceptance:** upgrade from 0002 keeps assessments; `alembic check` clean; downgrade works;
+  deviations recorded in `DATABASE.md` §8 for owner review.
+
+### S3-03 — Generic OSCAL importer
+- **Depends:** S3-02. **Status:** Ready.
+- **Deliverables:** framework-agnostic OSCAL catalog/profile importer (hash check before parse,
+  size/count/length/identifier validation, verbatim text, all parts/params/links/back-matter,
+  withdrawn status), startup integration, idempotent re-run, refusal to alter an imported release,
+  one-time pinning of unpinned assessments, new assessments pinned to the current release.
+- **Acceptance:** full catalog loads within the supervisor startup budget; tampered/oversized/
+  malformed/unsupported input refused; no NIST literals in code (existing AST test).
+
+### S3-04 — Catalog browsing API
+- **Depends:** S3-03. **Status:** Ready.
+- **Deliverables:** authenticated read endpoints for a release (provenance, families, baselines),
+  control list (family filter, text search, paging), control detail (parts, parameters,
+  enhancements, resolved links, references); assessment responses include the pinned release.
+
+### S3-05 — Rust commands and browsing UI
+- **Depends:** S3-04. **Status:** Ready.
+- **Deliverables:** Tauri commands with closed schemas/bounds; Framework catalog screens
+  (families, control list with search, control detail) rendering official text as inert text,
+  clearly labeled with source and release; parameter placeholders shown as such.
+
+### S3-06 — Sprint 3 exit validation
+- **Depends:** S3-05. **Status:** Ready.
+- **Deliverables:** full local test matrix, frozen-service check with the catalog bundled,
+  genericity review against `ARCHITECTURE.md` §8, Continuum update, local Graphify refresh
+  (`graphify update .`, owner request 2026-11-03).
 
 ## Later sprints (milestone level only)
 
