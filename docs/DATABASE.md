@@ -365,8 +365,56 @@ Additions beyond the ERD above — constraints only, no new concepts:
 - **Delete behavior:** every foreign key is `ON DELETE RESTRICT`; nothing deletes rows in V0.1.
 - **Indexes:** FK columns plus `assessment.created_at` (list ordering).
 
-Framework rows come from `frameworks/<id>/framework.json` (identity metadata only), synced at
-startup by `framework_catalog.py`; no control content exists until Sprint 3.
+Framework rows come from `frameworks/<id>/framework.json`, synced at startup by
+`framework_catalog.py`; control content is imported from Sprint 3 on (§8).
+
+## 8. Sprint 3 implementation notes and deviations (owner review pending)
+
+Migration `0003_catalog_releases` (S3-02) implements PD-013's version-preservation requirement by
+scoping all framework content to an imported **catalog release**. Deviations from §1, for owner
+review in the Sprint 3 PR:
+
+- **New `catalog_release`** (one imported version of a framework's catalog): `framework_id`,
+  `version` (the source's own version, e.g. `5.2.0`), `title`, and provenance -- source format and
+  format version, source last-modified, file name, **SHA-256**, repository/release/file URLs,
+  upstream tag and commit, license notice, attribution -- plus `is_current` (the release new
+  assessments are pinned to; a partial unique index allows at most one per framework) and
+  `imported_at`. Unique `(framework_id, version)`.
+- **Release-scoped content.** `control_family`, `control` and `control_enhancement` gain
+  `catalog_release_id`, `source_id` (the identifier inside the source document) and `position`
+  (source order); `control`/`control_enhancement` gain `status` (the source's lifecycle status
+  verbatim, e.g. `withdrawn`). Uniqueness moves from per-framework to per-release
+  (`(catalog_release_id, identifier)` and `(catalog_release_id, source_id)`). Composite foreign
+  keys keep a family, control and enhancement in the same release, and the release in the same
+  framework, as the control (the §2 family/framework rule, now per release). These three tables
+  were empty after Sprint 2; the migration refuses to run if they are not.
+- **`official_text` replaced by `control_part`.** The source's text is structured (statements with
+  lettered/numbered items, guidance, and further parts), so it is stored as a tree of parts rather
+  than one flattened string: `name` (the source's part name), `source_id`, `label`, `title`,
+  verbatim `prose` (including the source's own parameter-insertion markers), `parent_id`,
+  `position`, and exactly one owner (`family_id`, `control_id` or `enhancement_id`; a family can
+  carry introductory text). Nothing is rewritten or flattened.
+- **New `control_parameter`** (parameters the text refers to: `source_id`, `label`, verbatim
+  `guidelines` and `choices` as JSON lists, `select_how_many`), **`control_link`** (`rel` and
+  `href` verbatim, resolved within the release at read time) and **`catalog_resource`** (the
+  source's reference documents: title, citation, first URL).
+- **New `baseline` / `baseline_member`** (PD-015): control selections published with the release
+  (e.g. Low/Moderate/High/Privacy), stored as reference data with their own file name and SHA-256.
+  Assessments are **not** scoped by them; `assessment_control_scope` is still not created (P-1).
+- **`assessment.catalog_release_id`** (nullable): the release an assessment uses, set at creation to
+  the framework's current release. A composite foreign key keeps it within the assessment's own
+  framework. Assessments created before any catalog existed are pinned once, at the first import.
+- **Immutability triggers** (schema-level, so they bind every writer): any `UPDATE` of imported
+  content (`control_family`, `control`, `control_enhancement`, `control_part`,
+  `control_parameter`, `control_link`, `catalog_resource`, `baseline`, `baseline_member`) aborts
+  with `catalog_content_immutable`; an `UPDATE` of `catalog_release` that changes anything but
+  `is_current` aborts the same way; changing an assessment's `catalog_release_id` once it is set
+  aborts with `assessment_catalog_release_pinned`. Deletes were already refused by the
+  `ON DELETE RESTRICT` foreign keys for any referenced row.
+
+A new catalog version is imported **beside** existing releases, never over them; the importer
+refuses a source whose hash differs from an already-imported release of the same version
+(`release_conflict`). See `service/README.md` "Framework catalogs".
 
 See also: `COMPLIANCE_MODEL.md` for the conceptual model this schema implements, `ARCHITECTURE.md`
 §5 for database ownership rules.

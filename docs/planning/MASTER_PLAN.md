@@ -14,7 +14,7 @@ State legend: **Done** (merged, evidence in repo) · **Pending** (next, detailed
 | Phase | Sprints | Milestone | State |
 |---|---|---|---|
 | A. Foundation | 0, 1 | Docs set approved; Tauri + FastAPI shape proven incl. packaged build | Sprint 0 **Done**; Sprint 1 built, S1-08 sign-off **Pending** |
-| B. Data & framework | 2, 3 | Persistent assessments; real NIST 800-53 Rev. 5 catalog browsable | Sprint 2 **In review**, Sprint 3 **Future** (needs C-3) |
+| B. Data & framework | 2, 3 | Persistent assessments; real NIST 800-53 Rev. 5 catalog browsable | Sprint 2 **Done**, Sprint 3 **In review** |
 | C. Evidence & AI substrate | 4, 5, 6, 7 | Safe ingestion with parser containment; local model runtime; classification | **Future** |
 | D. Core analysis | 8, 9, 10 | Evidence→control mapping with provenance; human review workflow | **Future** |
 | E. Insight | 11, 12 | Knowledge graph; coverage signals and gap analysis | **Future** |
@@ -28,9 +28,9 @@ information lives.
 | Sprint | Title | Depends on | State | Detail |
 |---|---|---|---|---|
 | 0 | Architecture and product definition | — | Done (PRs #2, #3) | `docs/*.md` |
-| 1 | Desktop foundation | 0 | S1-01..07, 09 merged; S1-08 pending | `SPRINT_1_BACKLOG.md`, `PACKAGING.md`, D-001, D-009, D-018, D-025, D-026 |
-| 2 | Assessment and database layer | 1 | Implemented on `claude/sprint-2-assessment-db`, PR in review (S2-01..S2-05); proceeding with S1-08 pending per PD-007 | `DATABASE.md` §7, `BATCH_JOBS.md` S2-* |
-| 3 | NIST 800-53 framework engine | 2 | Future | `COMPLIANCE_MODEL.md`, D-016, OQ C-3 |
+| 1 | Desktop foundation | 0 | Done (S1-08 accepted, PD-009) | `SPRINT_1_BACKLOG.md`, `PACKAGING.md`, D-001, D-009, D-018, D-025, D-026 |
+| 2 | Assessment and database layer | 1 | Done (PR #17) | `DATABASE.md` §7, `BATCH_JOBS.md` S2-* |
+| 3 | NIST 800-53 framework engine | 2 | Implemented on `claude/sprint-3-framework-engine`, PR in review (S3-01..S3-06) | `DATABASE.md` §8, `BATCH_JOBS.md` S3-*, PD-012/013/015 |
 | 4 | Evidence ingestion + parser containment | 2 | Future | `SECURITY.md`, D-010, D-022, OQ S-1, S-2 |
 | 5 | Local model runtime | 1 | Future | `MODEL_RUNTIME.md`, D-011, D-017, D-023 |
 | 6 | Hardware detection + model recommendations | 5 | Future | `MODEL_RUNTIME.md`, OQ P-3, S-4 |

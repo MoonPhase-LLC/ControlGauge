@@ -194,51 +194,92 @@ directed Sprint 2 to proceed while R-01 (S1-08 sign-off) stays pending. One bran
 Spec: `docs/SPRINTS.md` Sprint 3; source PD-012 (oscal-content v1.5.0); requirements PD-013;
 defaults PD-015 (vendored source, baselines as reference data, one-time pinning of unpinned
 assessments). Genericity rule: `ARCHITECTURE.md` §8 (no NIST-specific code). One branch,
-`claude/sprint-3-framework-engine`, one PR (same pattern as PD-007).
+`claude/sprint-3-framework-engine`, one PR (same pattern as PD-007). Batches are
+"Implemented/verified" until the owner merges.
 
 ### S3-01 — Vendored OSCAL source and provenance manifest
-- **Depends:** PD-012, PD-015. **Status:** Ready.
-- **Deliverables:** upstream catalog + 4 baseline profiles (minified JSON, unmodified) and the
-  upstream license under `frameworks/nist-800-53-rev5/oscal/`; `framework.json` extended with the
-  catalog/profile manifest (path, SHA-256, release version, tag, commit, URLs, license notice,
-  attribution, no-endorsement statement); framework README.
-- **Acceptance:** file hashes match the manifest; upstream files byte-identical to the tag.
+- **Depends:** PD-012, PD-015. **Status:** Implemented/verified (commit `c53a905`).
+- **Result:** upstream catalog + LOW/MODERATE/HIGH/PRIVACY profiles (minified JSON) and the upstream
+  license in `frameworks/nist-800-53-rev5/oscal/`, unmodified from tag v1.5.0 (commit `78650f02`);
+  `framework.json` pins each file's SHA-256 with release version, tag, commit, URLs, license
+  notice, attribution and a no-endorsement statement. `.gitattributes` (`-text`) keeps hashes
+  stable across checkouts; README documents the format and how to add a release.
+- **Evidence:** `git show HEAD:<file> | sha256sum` matches every pinned hash; files have no line
+  breaks to convert.
 
 ### S3-02 — Catalog schema (migration 0003)
-- **Depends:** S3-01. **Status:** Ready.
-- **Deliverables:** `catalog_release` (provenance, one current release per framework), release-scoped
-  family/control/enhancement, `control_part`, `control_parameter`, `control_link`,
-  `catalog_resource`, `baseline`/`baseline_member`, `assessment.catalog_release_id`; database
-  triggers making imported content and an assessment's pinned release immutable.
-- **Acceptance:** upgrade from 0002 keeps assessments; `alembic check` clean; downgrade works;
-  deviations recorded in `DATABASE.md` §8 for owner review.
+- **Depends:** S3-01. **Status:** Implemented/verified (commit `cd8082a`).
+- **Result:** `catalog_release` + release-scoped family/control/enhancement, `control_part`
+  (replaces `official_text`), `control_parameter`, `control_link`, `catalog_resource`,
+  `baseline`/`baseline_member`, `assessment.catalog_release_id`; immutability triggers. Deviations
+  listed in `DATABASE.md` §8 **for owner review**.
+- **Evidence:** `alembic upgrade head` + `alembic check` → no drift; downgrade to 0002 and
+  re-upgrade clean; `test_schema.py` (composite FKs, one-owner checks, every trigger, one current
+  release, pinned release unchangeable, cross-framework pin refused).
 
 ### S3-03 — Generic OSCAL importer
-- **Depends:** S3-02. **Status:** Ready.
-- **Deliverables:** framework-agnostic OSCAL catalog/profile importer (hash check before parse,
-  size/count/length/identifier validation, verbatim text, all parts/params/links/back-matter,
-  withdrawn status), startup integration, idempotent re-run, refusal to alter an imported release,
-  one-time pinning of unpinned assessments, new assessments pinned to the current release.
-- **Acceptance:** full catalog loads within the supervisor startup budget; tampered/oversized/
-  malformed/unsupported input refused; no NIST literals in code (existing AST test).
+- **Depends:** S3-02. **Status:** Implemented/verified (commit `cd8082a`).
+- **Result:** `oscal.py` (hash before parse; size/count/depth/length/token limits; duplicate keys,
+  NaN, control characters, dangling parameter references refused; unsupported shapes refused,
+  not simplified) and `catalog_import.py` (one-transaction import at startup, verify on later
+  starts, `release_conflict` on changed bytes, new releases imported beside old ones, one-time
+  pinning). Refused sources are logged with a fixed reason; the service still starts.
+- **Evidence:** first import ≈ 1.5 s incl. migrations, re-verify ≈ 0.02 s (supervisor budget
+  20 s). `test_oscal.py` (44), `test_catalog_import.py` (21 + 1 symlink test skipped on Windows,
+  runs on Linux CI) incl. verbatim round-trip of all 1,196 controls/enhancements and concurrent
+  first imports. Shipped catalog: 20 families, 324 controls, 872 enhancements, 12,730 parts,
+  1,600 parameters, 5,265 links, 201 references; baselines low 149, moderate 287, high 370,
+  privacy 96. AST test: no NIST literals in service code.
 
 ### S3-04 — Catalog browsing API
-- **Depends:** S3-03. **Status:** Ready.
-- **Deliverables:** authenticated read endpoints for a release (provenance, families, baselines),
-  control list (family filter, text search, paging), control detail (parts, parameters,
-  enhancements, resolved links, references); assessment responses include the pinned release.
+- **Depends:** S3-03. **Status:** Implemented/verified (commit `41f96ab`).
+- **Result:** `GET /catalog-releases/{id}`, `/catalog-releases/{id}/controls` (family/baseline
+  filters, literal search incl. enhancements, paging ≤ 500), `/controls/{id}` (part trees,
+  parameters, enhancements, links resolved to control/enhancement/part/family/resource);
+  `/frameworks` reports `current_release`; assessments report and are pinned to it.
+- **Evidence:** `test_catalog_api.py` (23): auth on every route, provenance, filters, LIKE
+  wildcards literal, no input echo, 404s, every shipped link resolves. Largest control response
+  169 KB (bound 2 MiB).
 
 ### S3-05 — Rust commands and browsing UI
-- **Depends:** S3-04. **Status:** Ready.
-- **Deliverables:** Tauri commands with closed schemas/bounds; Framework catalog screens
-  (families, control list with search, control detail) rendering official text as inert text,
-  clearly labeled with source and release; parameter placeholders shown as such.
+- **Depends:** S3-04. **Status:** Implemented/verified (commit `6b3bd3b`).
+- **Result:** Tauri commands `get_catalog_release`, `list_catalog_controls`, `get_control`
+  (closed schemas; UUID-only ids; search bounded and percent-encoded). Framework catalog screen
+  (provenance, source/license with all hashes, family/baseline filters, search, paging) and
+  control detail (official text in a labeled, attributed region rendered as text nodes; parameter
+  placeholders from source labels/choices; parameters, links, enhancements). Assessment screens
+  show the pinned release.
+- **Evidence:** `cargo test` → 108 passed (round trip fetches every control detail through the
+  pinned connection); Vitest → 51 passed (9 new, incl. inert markup); Playwright browser → 2
+  passed; native → 4 passed (new: real app browses the shipped catalog). Screens reviewed from
+  native screenshots.
+- **Known follow-up (not in scope):** part properties are not stored, so the three SP 800-53A
+  "Assessment method" parts of a control share one heading (their EXAMINE/INTERVIEW/TEST name is a
+  part property). Candidate for a later batch.
 
 ### S3-06 — Sprint 3 exit validation
-- **Depends:** S3-05. **Status:** Ready.
-- **Deliverables:** full local test matrix, frozen-service check with the catalog bundled,
-  genericity review against `ARCHITECTURE.md` §8, Continuum update, local Graphify refresh
-  (`graphify update .`, owner request 2026-11-03).
+- **Depends:** S3-05. **Status:** Implemented/verified; **owner acceptance pending** (PR review,
+  incl. `DATABASE.md` §8).
+- **Exit criteria (`SPRINTS.md` Sprint 3), agent-verified locally on Windows 11, 2026-11-03:**
+  - *Full catalog loaded and browsable:* verbatim round-trip test over all 1,196 items; native test
+    browses it in the real app; frozen exe imports it from an empty data directory.
+  - *No product text presented as official:* official text only inside the labeled "Official
+    text" region with the source attribution; product hints outside it; Vitest asserts inert
+    rendering.
+  - *No NIST-specific hardcoding:* AST test over service code; grep of app/Rust code finds NIST
+    only in comments/tests; importer proven on synthetic non-NIST catalogs (ungrouped control,
+    unusual ids/part names).
+- **Packaging:** `scripts/package-windows.ps1 -ServiceOnly` now bundles each framework directory and
+  checks every bundled source against its pinned SHA-256; `pytest tests/test_supervised_process.py
+  --service-exe ...` → 13 passed (restart test now imports the catalog from scratch in the frozen
+  exe and keeps the pin).
+- **Final local evidence (2026-11-03):** service `uv lock --check`, `ruff check`, `ruff format
+  --check`, `mypy` (58 files) clean, `pytest` → 460 passed, 1 skipped; Rust `cargo fmt --check`,
+  `clippy -D warnings` clean, `cargo test` → 108 passed; app `lint`, `typecheck:test`, `build`
+  exit 0, Vitest → 51 passed, Playwright → 2 passed, native → 4 passed. Real
+  `%LOCALAPPDATA%\ControlGauge` absent afterwards.
+- **Graphify:** `graphify update .` (AST only, local) → 2,099 nodes, 4,965 edges (owner request).
+  `graphify label` (LLM) not run, per `CLAUDE.md`.
 
 ## Later sprints (milestone level only)
 
@@ -246,7 +287,7 @@ Detailed batches are created at the start of each sprint (PD-002). Do not pre-pl
 
 | Sprint | Milestone | First step when reached |
 |---|---|---|
-| 3 | NIST Rev. 5 catalog loaded, browsable, no hardcoded NIST logic | C-3 resolved (PD-012: oscal-content v1.5.0). Create batches per PD-013: framework-agnostic OSCAL importer with length/identifier validation, verbatim text, full hierarchy/params/references/withdrawn/provenance, framework-version preservation for existing assessments |
+| 3 | NIST Rev. 5 catalog loaded, browsable, no hardcoded NIST logic | Batched above (S3-01..S3-06) |
 | 4 | Upload + parsers + verified parser containment (D-022) | Resolve S-1, S-2 |
 | 5 | Local GGUF model import, health check, structured output, offline | Owner approves dev model |
 | 6 | Hardware detection, catalog, verified download | Resolve P-3, S-4 |

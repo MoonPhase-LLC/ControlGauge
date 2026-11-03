@@ -178,6 +178,11 @@ control detail must work for any framework conforming to the (yet-to-be-finalize
 framework data format — it must not special-case NIST identifiers (e.g. must not assume all
 control IDs match `^[A-Z]{2}-\d+$`, since future frameworks will not share that shape).
 
+*Sprint 3:* the data format is a `framework.json` manifest that pins OSCAL JSON catalog/profile
+files by SHA-256; any OSCAL catalog within the supported shape imports the same way
+(`frameworks/nist-800-53-rev5/README.md`, `service/README.md` "Framework catalogs", schema in
+`DATABASE.md` §8).
+
 Family is **optional**, not required: a Control may belong to a Control Family or attach directly
 to its Framework (`DECISIONS.md` D-016). Requiring every framework to have a family-level grouping
 would itself be a NIST-shaped assumption baked into the schema, even though NIST 800-53 Rev. 5 does

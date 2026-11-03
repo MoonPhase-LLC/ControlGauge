@@ -99,6 +99,31 @@ Migrations live in `src/controlgauge_service/migrations/` (packaged as data by
 uv run alembic revision --autogenerate -m "describe the change"   # uses alembic.ini
 ```
 
+## Framework catalogs (Sprint 3)
+
+Each `frameworks/<id>/framework.json` names a framework and may declare its catalog: an OSCAL JSON
+catalog file plus optional OSCAL profiles (published control selections), each pinned by
+SHA-256, with the release version, upstream tag/commit/URLs, license notice and attribution.
+At startup, after migrations and before any socket opens (`catalog_import.py`):
+
+1. A declared release that is already imported is **verified** (stored hash equals the
+   manifest's); a different hash under the same version is refused (`release_conflict`) and the
+   stored release is left untouched.
+2. Otherwise each file's size and SHA-256 are checked **before** parsing, then `oscal.py`
+   validates it (sizes, counts, nesting depth, field lengths, OSCAL identifier syntax and
+   uniqueness, no control characters, every parameter reference resolves, duplicate JSON keys
+   and NaN refused). Shapes it cannot store faithfully -- nested groups, controls nested deeper
+   than one enhancement level, profiles that modify, exclude, match by pattern or import several
+   sources -- are refused, never simplified. The whole release is written in one transaction.
+3. The release becomes the framework's current one, and assessments of that framework with no
+   pinned release are pinned to it (once).
+
+A refused source is logged as `catalog_import_refused` with a fixed `reason`; the service still
+starts and that framework simply has no catalog. Source text is never logged. The importer is
+framework-agnostic: identifiers come from a control's unclassed `label` property (else its OSCAL
+`id`) and are never parsed. A first import of the shipped catalog takes about 1.5 s; later
+starts only verify (about 20 ms).
+
 ## Endpoints
 
 Every endpoint requires `Authorization: Bearer <session token>`; missing or wrong credentials get
@@ -108,12 +133,16 @@ challenge in supervised mode).
 | Method | Path | Success | Notes |
 |---|---|---|---|
 | `GET` | `/health` | 200 | S1-03 |
-| `GET` | `/frameworks` | 200 `{"frameworks": [{id, name, version, source_reference, control_count}]}` | Metadata only; `control_count` is 0 until Sprint 3 loads a catalog |
+| `GET` | `/frameworks` | 200 `{"frameworks": [{id, name, version, source_reference, control_count, current_release}]}` | `current_release` `{id, version, title}` or `null`; `control_count` counts its controls |
 | `GET` | `/assessments?limit=&offset=` | 200 `{"assessments": [...], total, limit, offset}` | Newest first; `limit` 1–100 (default 50) |
 | `POST` | `/assessments` | 201 assessment | Body `{"name", "framework_id", "description"?}`; unknown fields rejected |
 | `GET` | `/assessments/{id}` | 200 assessment | Unknown or non-canonical UUID → 404 `assessment_not_found` |
+| `GET` | `/catalog-releases/{id}` | 200 release | Provenance (`source`, `license_notice`, `attribution`), counts, `families` (with any introductory `parts`), `baselines`; 404 `catalog_release_not_found` |
+| `GET` | `/catalog-releases/{id}/controls?family_id=&baseline_id=&q=&limit=&offset=` | 200 `{"controls": [...], total, limit, offset}` | Source order; `q` (≤ 100 chars) matches identifier/title of the control or its enhancements, literally (no wildcards); `limit` 1–500 (default 100) |
+| `GET` | `/controls/{id}` | 200 control | Verbatim `parts` tree, `params`, `links` (each with a resolved `target`: control, enhancement, part, family, resource, external or unresolved), `enhancements`, `baselines`; 404 `control_not_found` |
 
-An assessment is `{id, name, description, framework: {id, name, version}, created_at}`
+An assessment is `{id, name, description, framework: {id, name, version}, catalog_release,
+created_at}` (`catalog_release` is the pinned `{id, version, title}` or `null`)
 (`created_at` is ISO 8601 UTC). Validation: `name` trimmed, 1–200 characters, no control
 characters or line breaks; `description` optional, trimmed (blank → `null`), ≤ 2000 characters,
 line breaks and tabs allowed; `framework_id` must name a registered framework.
@@ -125,7 +154,8 @@ Errors on these routes share one shape and never echo submitted values:
            "fields": [{"field": "name", "code": "too_long", "message": "This value is too long."}]}}
 ```
 
-Top-level codes: `validation_failed` (422), `malformed_body` (400), `assessment_not_found` (404),
+Top-level codes: `validation_failed` (422), `malformed_body` (400), `assessment_not_found`,
+`catalog_release_not_found`, `control_not_found` (404),
 `database_unavailable` (503). Field codes: `required`, `blank`, `too_long`, `invalid_characters`,
 `invalid_type`, `unknown_field` (reported against `body`), `framework_not_found`, `invalid`.
 Unexpected failures return the existing generic `500 {"detail": "Internal Server Error"}`.

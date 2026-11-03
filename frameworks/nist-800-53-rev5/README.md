@@ -1,43 +1,51 @@
 # NIST SP 800-53 Rev. 5 — Framework Data
 
-This directory intentionally contains **no control data yet**.
+This directory holds the NIST SP 800-53 Rev. 5 control catalog that ControlGauge imports at
+startup (Sprint 3). The source is fixed by owner decision PD-012.
 
-Since Sprint 2 it holds `framework.json`: identity metadata only (`id`, `name`, `version`,
-`source_reference`), which the service registers as a `framework` row at startup so assessments
-can target this framework (owner decision PD-006). It contains no control, family or enhancement
-text. Its fields are the documented publication title and DOI, not control language.
+## Contents
 
-## Why no control data
+| File | What it is |
+|---|---|
+| `framework.json` | Manifest: framework identity, plus the pinned catalog and profile files with their SHA-256, release version, upstream tag/commit/URLs, license notice and attribution |
+| `oscal/NIST_SP-800-53_rev5_catalog-min.json` | The full catalog, NIST SP 800-53 Release 5.2.0 in OSCAL JSON |
+| `oscal/NIST_SP-800-53_rev5_{LOW,MODERATE,HIGH,PRIVACY}-baseline_profile-min.json` | The four published baselines (OSCAL profiles) |
+| `oscal/UPSTREAM_LICENSE.md` | The upstream repository's license, unmodified |
 
-Per project instructions, official framework data must not be fabricated. Populating this
-directory requires an authoritative source for NIST SP 800-53 Rev. 5 control text, which is a
-dedicated, explicitly-assigned task (`docs/SPRINTS.md` Sprint 3), not something invented during
-documentation/bootstrap work.
+The `oscal/` files are **byte-for-byte copies** of the files in
+[`usnistgov/oscal-content`](https://github.com/usnistgov/oscal-content) at tag
+[`v1.5.0`](https://github.com/usnistgov/oscal-content/releases/tag/v1.5.0) (commit
+`78650f02ad9321bb7b817846f8fbd4f2bcd620de`), path `nist.gov/SP800-53/rev5/json/`. Nothing in them
+was edited. `.gitattributes` stops Git from converting their line endings, so their hashes stay
+valid on every checkout.
 
-## Expected format (to be finalized in Sprint 3)
+## License and attribution
 
-The framework engine (`docs/ARCHITECTURE.md` §8) expects framework data to express the generic
-Framework → Family → Control → Enhancement hierarchy described in `docs/COMPLIANCE_MODEL.md`.
-Anticipated shape, subject to change when Sprint 3 finalizes the actual loader:
+The content is a work of the United States Government: public domain in the United States, with
+copyright waived worldwide under CC0 1.0 (see `oscal/UPSTREAM_LICENSE.md`). The app shows the
+attribution from `framework.json` next to all control text, keeps the text verbatim, and states
+that NIST does not endorse the product.
 
-```
-frameworks/nist-800-53-rev5/
-├── framework.json          # id, name, version, source_reference
-├── families/
-│   ├── AC.json              # family identifier, name, and its controls
-│   ├── AU.json
-│   └── ...
-```
+## How it is used
 
-Each family file would contain its controls and their enhancements, with official text kept
-verbatim and distinguishable from any product-generated "expected evidence" guidance (which, per
-`COMPLIANCE_MODEL.md` §7, must never be presented as official NIST language).
+At startup the service checks each file's SHA-256 against `framework.json` before parsing it,
+validates it, and imports it as an immutable catalog release (`service/README.md` "Framework
+catalogs"; schema in `docs/DATABASE.md` §8). The importer is generic OSCAL: nothing in the code is
+specific to this framework (`docs/ARCHITECTURE.md` §8). The baselines are reference data for
+browsing; assessments are not scoped by them (`docs/OPEN_QUESTIONS.md` P-1).
+
+## Adding a newer release
+
+1. Copy the new upstream files into `oscal/`, unmodified (keep the old ones only if still needed).
+2. Update `framework.json`: path, `sha256` (`sha256sum <file>`), `release_version` (must equal the
+   catalog's own `metadata.version`), tag, commit and URLs.
+3. On the next start the service imports the new release **beside** the old one and makes it
+   current for new assessments. Existing assessments keep the release they were pinned to.
+
+Never change a file in place while keeping the same `release_version`: the service refuses a
+source whose hash differs from an already-imported release of that version.
 
 ## Do not
 
-- Do not hand-author plausible-looking control text here as a placeholder.
-- Do not hardcode application logic against assumptions about this directory's exact contents
-  until Sprint 3 defines the real format — `ARCHITECTURE.md` §8's genericity rule still applies.
-
-See `docs/SPRINTS.md` Sprint 3 and `docs/OPEN_QUESTIONS.md` C-3 for the source/licensing question
-that must be resolved before this directory is populated.
+- Do not edit, reformat or "fix" the upstream files. Their text is official framework language.
+- Do not add hand-written or product-generated text here, and never present it as NIST wording.
