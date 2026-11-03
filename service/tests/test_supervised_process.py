@@ -37,6 +37,8 @@ import pytest
 from controlgauge_service import b64url, protocol
 from controlgauge_service.challenge import DOMAIN_SEPARATOR
 
+from .conftest import SeedDataDir
+
 _READY_TIMEOUT_SECONDS = 15.0
 _SHORT_TIMEOUT_SECONDS = 5.0
 
@@ -201,8 +203,10 @@ class _FakeTauri:
 
 
 @pytest.fixture
-def tauri(service_argv: list[str], tmp_path: Path) -> Iterator[_FakeTauri]:
-    fake = _FakeTauri(process=_spawn(service_argv, tmp_path))
+def tauri(
+    service_argv: list[str], tmp_path: Path, seed_data_dir: SeedDataDir
+) -> Iterator[_FakeTauri]:
+    fake = _FakeTauri(process=_spawn(service_argv, seed_data_dir(tmp_path)))
     try:
         yield fake
     finally:

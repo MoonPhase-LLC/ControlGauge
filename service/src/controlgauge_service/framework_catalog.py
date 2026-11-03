@@ -1,16 +1,16 @@
-"""Framework *metadata* registry (S2-02, owner decision PD-006).
+"""Framework registry: `frameworks/<dir>/framework.json` manifests.
 
-Reads `frameworks/<dir>/framework.json` files -- identity metadata only
-(`id`, `name`, `version`, `source_reference`) -- and upserts one `framework`
-row per file at startup. Nothing NIST-specific is coded here: adding a
-framework means adding a directory, not changing code
-(`docs/ARCHITECTURE.md` §8). No control, family or enhancement content is
-read or written; the real catalog import is Sprint 3 (`OPEN_QUESTIONS.md`
-C-3), and its file format may extend `framework.json`.
+Each manifest gives a framework's identity (`id`, `name`, `version`,
+`source_reference`) and, optionally (Sprint 3), the pinned source files of
+its catalog and published control selections ("profiles"): path, SHA-256,
+release version and provenance. At startup the identity is upserted as a
+`framework` row and the catalog is imported by `catalog_import.py`.
+Nothing framework-specific is coded here: adding a framework means adding
+a directory, not changing code (`docs/ARCHITECTURE.md` §8).
 
-Framework files are untrusted input (`CLAUDE.md`): each is size-limited,
-strictly validated, and skipped with a fixed-category warning if invalid.
-Rows are never deleted here -- an assessment may reference them.
+Manifests are untrusted input (`CLAUDE.md`): each is size-limited, strictly
+validated, and skipped with a fixed-category warning if invalid. Rows are
+never deleted here -- an assessment may reference them.
 """
 
 from __future__ import annotations
@@ -19,12 +19,13 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import select
 
 from .db.engine import Database
-from .db.models import ID_MAX, Framework
+from .db.models import ID_MAX, IDENTIFIER_MAX, Framework
 
 logger = logging.getLogger("controlgauge_service.frameworks")
 
@@ -32,13 +33,63 @@ METADATA_FILENAME = "framework.json"
 _MAX_METADATA_BYTES = 64 * 1024
 
 
-class FrameworkMetadata(BaseModel):
+_SHA256 = r"^[0-9a-f]{64}$"
+#: A relative path inside the framework's own directory: segments that start
+#: with a letter, digit or underscore (so never `.` or `..`), joined by `/`.
+#: No drive, root or backslash can match. The loader also re-checks that
+#: the resolved file stays inside the directory.
+_RELATIVE_PATH = r"^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$"
+_HTTPS_URL = r"^https://[^\s]+$"
+
+
+class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
+
+class SourceProvenance(_Strict):
+    repository_url: str | None = Field(default=None, max_length=500, pattern=_HTTPS_URL)
+    release_url: str | None = Field(default=None, max_length=500, pattern=_HTTPS_URL)
+    tag: str | None = Field(default=None, min_length=1, max_length=100)
+    commit: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
+    file_url: str | None = Field(default=None, max_length=500, pattern=_HTTPS_URL)
+
+
+class CatalogSource(_Strict):
+    format: Literal["oscal-catalog-json"]
+    path: str = Field(max_length=255, pattern=_RELATIVE_PATH)
+    sha256: str = Field(pattern=_SHA256)
+    release_version: str = Field(min_length=1, max_length=100)
+    source: SourceProvenance
+    license_notice: str = Field(min_length=1, max_length=2000)
+    attribution: str = Field(min_length=1, max_length=2000)
+
+
+class ProfileSource(_Strict):
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9.-]*$", min_length=1, max_length=IDENTIFIER_MAX)
+    format: Literal["oscal-profile-json"]
+    path: str = Field(max_length=255, pattern=_RELATIVE_PATH)
+    sha256: str = Field(pattern=_SHA256)
+    file_url: str | None = Field(default=None, max_length=500, pattern=_HTTPS_URL)
+
+
+class FrameworkMetadata(_Strict):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9.-]*$", min_length=1, max_length=ID_MAX)
     name: str = Field(min_length=1, max_length=200)
     version: str = Field(min_length=1, max_length=100)
     source_reference: str | None = Field(default=None, max_length=500)
+    catalog: CatalogSource | None = None
+    profiles: tuple[ProfileSource, ...] = Field(default=(), max_length=50)
+    #: The manifest's own directory (set by the loader, not read from JSON).
+    directory: Path | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def _profiles_need_a_catalog(self) -> FrameworkMetadata:
+        if self.profiles and self.catalog is None:
+            raise ValueError("profiles_without_catalog")
+        ids = [p.id for p in self.profiles]
+        if len(set(ids)) != len(ids):
+            raise ValueError("duplicate_profile_id")
+        return self
 
 
 def default_frameworks_root() -> Path | None:
@@ -65,9 +116,10 @@ def load_framework_metadata(root: Path) -> list[FrameworkMetadata]:
         try:
             if path.stat().st_size > _MAX_METADATA_BYTES:
                 raise ValueError("too_large")
-            metadata = FrameworkMetadata.model_validate(
-                json.loads(path.read_text(encoding="utf-8"))
-            )
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict) or "directory" in raw:
+                raise ValueError("invalid_shape")
+            metadata = FrameworkMetadata.model_validate({**raw, "directory": directory})
         except (OSError, ValueError, ValidationError):
             # ValidationError is a ValueError subclass; listed for clarity.
             logger.warning("framework_metadata_invalid", extra={"directory": directory.name})
@@ -102,8 +154,11 @@ def sync_frameworks(database: Database, frameworks: list[FrameworkMetadata]) -> 
         return len(session.scalars(select(Framework.id)).all())
 
 
-def sync_from_default_location(database: Database) -> int:
-    root = default_frameworks_root()
+def sync_from_default_location(database: Database, root: Path | None = None) -> int:
+    """Registers every framework under `root` (default: the shipped
+    `frameworks/`) and imports or verifies each declared catalog."""
+    if root is None:
+        root = default_frameworks_root()
     if root is None:
         logger.warning("framework_metadata_directory_missing")
         frameworks: list[FrameworkMetadata] = []
@@ -111,4 +166,10 @@ def sync_from_default_location(database: Database) -> int:
         frameworks = load_framework_metadata(root)
     count = sync_frameworks(database, frameworks)
     logger.info("frameworks_synced", extra={"framework_count": count})
+
+    # Imported here, not at module top, to keep the importer's own imports
+    # (and their cost) out of code paths that only read manifests.
+    from .catalog_import import sync_catalogs
+
+    sync_catalogs(database, frameworks)
     return count
