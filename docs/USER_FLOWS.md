@@ -67,7 +67,8 @@ cloned/templated.
    scanned-image PDF with no extractable text or a partially-recovered document is visible as its
    own distinct state, not lumped in with either success or failure.
 
-Open questions: max file size and count limits for V0.1; whether folder-based bulk upload is
+Limits for V0.1 are set by PD-016 (50 MB per file, 50 files per upload, 1,000 files per
+assessment; `OPEN_QUESTIONS.md` S-2). Open questions: whether folder-based bulk upload is
 required; how near-duplicate (not byte-identical) evidence is surfaced, if at all, in V0.1.
 
 ## 6. Artifact Review

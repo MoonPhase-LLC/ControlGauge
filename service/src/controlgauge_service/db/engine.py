@@ -62,6 +62,9 @@ class Database:
 
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
+        #: The data directory this database lives in (set by
+        #: `initialize_database`); the evidence store sits beside it.
+        self.data_dir: Path | None = None
         self._sessions = sessionmaker(bind=engine, expire_on_commit=False)
         self._write_sessions = sessionmaker(
             bind=engine.execution_options(**{IMMEDIATE_OPTION: True}), expire_on_commit=False

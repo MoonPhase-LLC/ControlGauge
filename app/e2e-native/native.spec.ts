@@ -232,6 +232,49 @@ test("real app: the shipped catalog is browsable and official text is labeled", 
   }
 });
 
+test("real app: evidence uploads, is parsed in the sandbox, and duplicates are flagged", async () => {
+  const name = `Native evidence check ${Date.now()}`;
+  const launched = await launch();
+  try {
+    const { page } = launched;
+    await expect(page.getByRole("region", { name: "Local service" }).getByText("Service ready")).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Assessments", exact: true }).click();
+    await page.getByRole("button", { name: "New assessment" }).click();
+    await page.getByRole("textbox", { name: "Name", exact: true }).fill(name);
+    await page.getByRole("button", { name: "Create assessment" }).click();
+    await expect(page.getByRole("heading", { level: 1, name })).toBeVisible({ timeout: 10_000 });
+
+    // Real path: WebView bytes -> Rust raw IPC -> service -> contained worker.
+    const input = page.getByTestId("evidence-input");
+    await input.setInputFiles([
+      { name: "access-review.txt", mimeType: "text/plain", buffer: Buffer.from("Accounts are reviewed quarterly.") },
+      { name: "users.csv", mimeType: "text/csv", buffer: Buffer.from("user,role\nalice,admin\n") },
+      { name: "renamed.pdf", mimeType: "application/pdf", buffer: Buffer.from("not a pdf") },
+    ]);
+    await expect(page.getByText(/does not match its file type/)).toBeVisible({ timeout: 20_000 });
+    const rows = page.getByTestId("artifact-row");
+    await expect(rows).toHaveCount(2, { timeout: 20_000 });
+    await expect(rows.filter({ hasText: "Text extracted" })).toHaveCount(2, { timeout: 30_000 });
+
+    const txt = rows.filter({ hasText: "access-review.txt" });
+    await txt.getByRole("button", { name: "View text" }).click();
+    await expect(txt.getByText("Accounts are reviewed quarterly.")).toBeVisible();
+    await expect(txt.getByText("lines 1-1")).toBeVisible();
+
+    await input.setInputFiles([
+      { name: "copy.txt", mimeType: "text/plain", buffer: Buffer.from("Accounts are reviewed quarterly.") },
+    ]);
+    await expect(page.getByText(/Same content as “access-review.txt”/)).toBeVisible({ timeout: 20_000 });
+    await expect(rows).toHaveCount(2);
+
+    expect(await closeGracefully(launched)).toBe(0);
+  } finally {
+    if (launched.app.exitCode === null) launched.app.kill();
+  }
+});
+
 test("real app: service crash revokes readiness and clears health", async () => {
   const launched = await launch();
   try {

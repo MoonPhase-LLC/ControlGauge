@@ -10,6 +10,10 @@ dependencies = [
     "alembic>=1.14,<2",
     "fastapi>=0.115,<0.116",
     "pydantic-settings>=2.6,<3.0",
+    # Sprint 4 (PD-016): PDF text extraction inside the contained parser
+    # worker. Pure Python (no native code, no required dependencies), so it
+    # adds no memory-corruption surface of its own. DOCX/TXT/CSV use stdlib.
+    "pypdf>=6,<7",
     "sqlalchemy>=2.0.36,<2.1",
     "uvicorn>=0.34,<0.35",
 ]

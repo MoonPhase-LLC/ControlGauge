@@ -208,3 +208,62 @@ export type HealthResponse = {
   service: string;
   version: string;
 };
+
+// --- Sprint 4 evidence commands ------------------------------------------------
+// `filename`, `locator` and section `content` come from uploaded evidence:
+// untrusted text, rendered as inert text nodes only (SECURITY T-21).
+
+/** `DATABASE.md` §3 extraction outcomes, plus the two in-progress states. */
+export type ParseStatus =
+  | "pending"
+  | "parsing"
+  | "parsed"
+  | "partial"
+  | "empty"
+  | "unsupported_format"
+  | "failed";
+
+export type Artifact = {
+  id: string;
+  assessment_id: string;
+  filename: string;
+  sha256: string;
+  size_bytes: number;
+  format: string;
+  mime_type: string;
+  parse_status: ParseStatus;
+  /** Fixed category (e.g. `encrypted`, `timeout`); never document text. */
+  parse_detail: string | null;
+  parser_version: string | null;
+  section_count: number;
+  uploaded_at: string;
+  parsed_at: string | null;
+};
+
+export type UploadLimits = {
+  max_file_bytes: number;
+  max_files_per_batch: number;
+  max_artifacts_per_assessment: number;
+  max_assessment_bytes: number;
+};
+
+export type ArtifactList = {
+  artifacts: Artifact[];
+  total: number;
+  total_bytes: number;
+  limit: number;
+  offset: number;
+  limits: UploadLimits;
+};
+
+export type UploadResult = { artifact: Artifact; duplicate: boolean };
+
+export type ArtifactSection = { id: string; sequence_index: number; locator: string; content: string };
+
+export type SectionList = {
+  artifact_id: string;
+  sections: ArtifactSection[];
+  total: number;
+  limit: number;
+  offset: number;
+};

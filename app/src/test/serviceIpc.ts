@@ -54,6 +54,7 @@ const DATA_COMMANDS = [
   "get_catalog_release",
   "list_catalog_controls",
   "get_control",
+  "list_artifacts",
 ] as const;
 type DataCommand = (typeof DATA_COMMANDS)[number];
 
@@ -159,6 +160,21 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
           offset: q.offset,
         };
       }
+      case "list_artifacts":
+        // Sprint 4: evidence has its own panel tests (components/evidence).
+        return {
+          artifacts: [],
+          total: 0,
+          total_bytes: 0,
+          limit: Number(args.limit),
+          offset: Number(args.offset),
+          limits: {
+            max_file_bytes: 50 * 1024 * 1024,
+            max_files_per_batch: 50,
+            max_artifacts_per_assessment: 1000,
+            max_assessment_bytes: 2 * 1024 * 1024 * 1024,
+          },
+        };
       case "get_control": {
         const found = CONTROLS.find((c) => c.id === args.id);
         if (!found) throw apiError(404, "control_not_found", "The control was not found.");

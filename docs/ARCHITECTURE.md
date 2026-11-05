@@ -65,7 +65,7 @@ flowchart LR
         U3["LLM output"]
     end
     subgraph TB1["Trust boundary: file ingestion"]
-        Parser["Contained parsers\n(subprocess, size/time-limited)"]
+        Parser["Contained parsers\n(per-parse LPAC AppContainer + Job Object)"]
     end
     subgraph TB2["Trust boundary: model output"]
         Validator["Deterministic schema validation"]
@@ -87,8 +87,9 @@ Three boundaries matter most:
    verifies/hardens it adversarially. Process separation (a subprocess) alone is **not** the
    requirement — the boundary must restrict the parser worker to read-only access on its own input,
    write access to a dedicated scratch location only, no database/credential/network access, and
-   enforced memory/CPU/time/archive-size limits (`DECISIONS.md` D-022); the specific mechanism
-   providing these properties is still open (`OPEN_QUESTIONS.md` S-1). Extracted text is still
+   enforced memory/CPU/time/archive-size limits (`DECISIONS.md` D-022). The mechanism is a fresh
+   less-privileged AppContainer per parse inside a Job Object, with the input passed as a
+   read-only handle and no network capability (`DECISIONS.md` D-027, decided in Sprint 4). Extracted text is still
    treated as *data*, never as instructions, downstream (see `SECURITY.md`).
 2. **Model output boundary**: LLM output is untrusted/probabilistic. It must pass deterministic
    schema validation before being persisted as a Mapping Candidate. A model that returns malformed

@@ -153,7 +153,7 @@ describe("creating an assessment", () => {
     expect(heading).toHaveFocus();
     expect(screen.getByText("HQ systems")).toBeVisible();
     expect(screen.getByText(ipc.assessments[0].id)).toBeVisible();
-    expect(screen.getByText(/Uploading evidence and reviewing suggested control mappings are not available yet/)).toBeVisible();
+    expect(await screen.findByText("No evidence has been uploaded to this assessment yet.")).toBeVisible();
 
     // Back to the list: the new assessment is there.
     await user.click(screen.getByRole("button", { name: "Back to assessments" }));
@@ -258,7 +258,12 @@ describe("viewing an assessment", () => {
 
     expect(screen.getByRole("heading", { level: 1, name: "Seeded 1" })).toHaveFocus();
     expect(screen.getByText("First seeded assessment")).toBeVisible();
-    expect(ipc.calls.data[ipc.calls.data.length - 1]).toEqual({ cmd: "get_assessment", args: { id: ipc.assessments[0].id } });
+    expect(ipc.calls.data).toContainEqual({ cmd: "get_assessment", args: { id: ipc.assessments[0].id } });
+    // Sprint 4: the evidence panel loads this assessment's files.
+    expect(ipc.calls.data).toContainEqual({
+      cmd: "list_artifacts",
+      args: { assessmentId: ipc.assessments[0].id, limit: 200, offset: 0 },
+    });
   });
 
   it("reports a missing assessment plainly", async () => {

@@ -7,7 +7,7 @@ Live status: [CURRENT_STATUS](CURRENT_STATUS.md). Executable work: [BATCH_JOBS](
 Rules: [EXECUTION_RULES](EXECUTION_RULES.md). Decisions: [DECISION_LOG](DECISION_LOG.md).
 
 State legend: **Done** (merged, evidence in repo) · **Pending** (next, detailed) · **Future**
-(milestone level only). States as of 2026-11-02.
+(milestone level only). States as of 2026-11-05.
 
 ## Phases and milestones
 
@@ -30,8 +30,8 @@ information lives.
 | 0 | Architecture and product definition | — | Done (PRs #2, #3) | `docs/*.md` |
 | 1 | Desktop foundation | 0 | Done (S1-08 accepted, PD-009) | `SPRINT_1_BACKLOG.md`, `PACKAGING.md`, D-001, D-009, D-018, D-025, D-026 |
 | 2 | Assessment and database layer | 1 | Done (PR #17) | `DATABASE.md` §7, `BATCH_JOBS.md` S2-* |
-| 3 | NIST 800-53 framework engine | 2 | Implemented on `claude/sprint-3-framework-engine`, PR in review (S3-01..S3-06) | `DATABASE.md` §8, `BATCH_JOBS.md` S3-*, PD-012/013/015 |
-| 4 | Evidence ingestion + parser containment | 2 | Future | `SECURITY.md`, D-010, D-022, OQ S-1, S-2 |
+| 3 | NIST 800-53 framework engine | 2 | Done (PR #18, merged 2026-11-05) | `DATABASE.md` §8, `BATCH_JOBS.md` S3-*, PD-012/013/015 |
+| 4 | Evidence ingestion + parser containment | 2 | Implemented on `claude/sprint-4-evidence-ingestion`, PR in review (S4-01..S4-06) | `DATABASE.md` §9, `BATCH_JOBS.md` S4-*, PD-016, D-027 |
 | 5 | Local model runtime | 1 | Future | `MODEL_RUNTIME.md`, D-011, D-017, D-023 |
 | 6 | Hardware detection + model recommendations | 5 | Future | `MODEL_RUNTIME.md`, OQ P-3, S-4 |
 | 7 | Artifact classification | 4, 5 | Future | `AI_PIPELINE.md` §4, OQ AI-2 |
@@ -72,7 +72,7 @@ Source: `docs/OPEN_QUESTIONS.md` (unchanged by Continuum).
 | Storage location | Sprint 2 persistence design finalized | A-2 — DB location answered (PD-006); configurable path and model location open |
 | Baseline scope | Sprint 12 (deferred from Sprint 2 by PD-006) | P-1, P-2, C-2 |
 | NIST source + licensing | Sprint 3 | C-3 |
-| Limits + containment mechanism | Sprint 4 | S-1, S-2 |
+| Limits + containment mechanism | Sprint 4 | Resolved (PD-016, D-027) |
 | Model catalog + sources | Sprints 5–6 | P-3, S-4 |
 | Classification method | Sprint 7 | AI-2 |
 | Retrieval tuning, eval method | Sprints 8, 14 | AI-1, AI-3 |

@@ -37,7 +37,7 @@ See `docs/PRODUCT.md` for the complete set of product principles.
 
 ## Project Status
 
-**Sprint 1 — Desktop Foundation (in progress).** Sprint 0 produced the product,
+**Sprint 1 — Desktop Foundation (complete).** Sprint 0 produced the product,
 architecture, security, and planning documentation. Completed on `main` so far:
 
 - **S1-02:** a Tauri v2 desktop shell under [`app/`](app/), with a React + TypeScript
@@ -56,14 +56,20 @@ architecture, security, and planning documentation. Completed on `main` so far:
   `scripts/package-windows.ps1`. It passed a manual test on a clean Windows machine (see
   [`docs/PACKAGING.md`](docs/PACKAGING.md)).
 
-**Sprint 2 — Assessment and Database Layer (implemented on a branch, in review).** A local
-SQLite database with versioned migrations, NIST SP 800-53 Rev. 5 framework *metadata* (no control
-text yet), an authenticated assessment API, and create/list/view assessment screens. Assessments
-persist across app restarts. See [`docs/planning/BATCH_JOBS.md`](docs/planning/BATCH_JOBS.md)
-S2-01..S2-05.
+**Sprint 2 — Assessment and Database Layer (complete).** A local SQLite database with versioned
+migrations, an authenticated assessment API, and create/list/view assessment screens.
 
-There is still no evidence handling, control catalog, or model runtime. Sprint 1 exit validation
-(S1-08) still awaits product-owner sign-off.
+**Sprint 3 — NIST SP 800-53 Framework Engine (complete).** The official NIST SP 800-53 Release
+5.2.0 catalog (OSCAL) is imported verbatim, hash-verified, and browsable; each assessment is pinned
+to a catalog release.
+
+**Sprint 4 — Evidence Ingestion (implemented on a branch, in review).** PDF, DOCX, TXT and CSV
+evidence can be uploaded to an assessment. Text is extracted inside a per-parse Windows sandbox
+(AppContainer + Job Object, no network or file access beyond the one input) and shown per file
+with its outcome; duplicates are flagged. See
+[`docs/planning/BATCH_JOBS.md`](docs/planning/BATCH_JOBS.md) S4-01..S4-06.
+
+There is no model runtime or AI analysis yet.
 Live execution status and next steps: [`docs/planning/CURRENT_STATUS.md`](docs/planning/CURRENT_STATUS.md).
 See `docs/SPRINT_1_BACKLOG.md` for ticket details, `docs/SPRINTS.md` for the full sprint plan,
 and `docs/OPEN_QUESTIONS.md` for decisions still pending product-owner input.
@@ -74,12 +80,13 @@ and `docs/OPEN_QUESTIONS.md` for decisions still pending product-owner input.
 |---|---|
 | Tauri desktop shell + supervised local service | Implemented (Sprint 1) |
 | Authenticated service with challenge-based identity verification | Implemented (Sprint 1) |
-| Assessments (create/list/view) with local SQLite persistence | Implemented (Sprint 2, in review) |
-| Evidence ingestion and document parsing | Planned (Sprint 4) |
+| Assessments (create/list/view) with local SQLite persistence | Implemented (Sprint 2) |
+| NIST SP 800-53 Rev. 5 catalog import and browsing | Implemented (Sprint 3) |
+| Evidence ingestion and sandboxed document parsing | Implemented (Sprint 4, in review) |
 | Local LLM runtime (llama.cpp + GGUF) and embedding/retrieval pipeline | Planned |
 | AI-suggested evidence ↔ control mappings with human review workflow | Planned |
-| SQLite persistence for artifacts, controls, findings | Schema for frameworks/controls in place (Sprint 2); artifacts and findings planned |
-| NIST SP 800-53 Rev 5 framework support | First framework; loading/evaluation work planned |
+| SQLite persistence for artifacts, controls, findings | Frameworks, catalog and artifacts in place; findings planned |
+| NIST SP 800-53 Rev 5 framework support | First framework; catalog loaded, evaluation work planned |
 | Additional frameworks | Out of scope for V0.1; architecture must not preclude them (`docs/PRODUCT.md` §6) |
 | Packaged installer distribution | S1-09 spike, then Sprint 16 |
 

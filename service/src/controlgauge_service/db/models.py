@@ -376,3 +376,89 @@ class Assessment(Base):
         Index("ix_assessment_catalog_release_id", "catalog_release_id"),
         Index("ix_assessment_created_at", "created_at"),
     )
+
+
+# --- Sprint 4: evidence (migration 0004, docs/DATABASE.md §9) ----------------
+
+ARTIFACT_FILENAME_MAX = 255
+SECTION_LOCATOR_MAX = 300
+#: `DATABASE.md` §3 extraction outcomes.
+PARSE_STATUSES = (
+    "pending",
+    "parsing",
+    "parsed",
+    "partial",
+    "empty",
+    "unsupported_format",
+    "failed",
+)
+ARTIFACT_FORMATS = ("pdf", "docx", "txt", "csv")
+
+
+def _in(column: str, values: tuple[str, ...]) -> str:
+    return f"{column} IN ({', '.join(repr(v) for v in values)})"
+
+
+class Artifact(Base):
+    """One uploaded evidence file in an assessment. The file itself lives in
+    the evidence store under a hash-derived name (`evidence/store.py`);
+    `filename` is display text only and never used as a path (T-05)."""
+
+    __tablename__ = "artifact"
+
+    id: Mapped[str] = mapped_column(String(ID_MAX), primary_key=True)
+    assessment_id: Mapped[str] = mapped_column(ForeignKey("assessment.id", ondelete="RESTRICT"))
+    filename: Mapped[str] = mapped_column(String(ARTIFACT_FILENAME_MAX))
+    sha256_hash: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    format: Mapped[str] = mapped_column(String(10))
+    mime_type: Mapped[str] = mapped_column(String(100))
+    #: Set by classification (Sprint 7); null until then.
+    classification: Mapped[str | None] = mapped_column(String(100))
+    classification_source: Mapped[str | None] = mapped_column(String(20))
+    parse_status: Mapped[str] = mapped_column(String(30), default="pending")
+    #: Fixed category explaining a non-`parsed` outcome (e.g. `encrypted`,
+    #: `timeout`, `page_limit`). Never document content.
+    parse_detail: Mapped[str | None] = mapped_column(String(50))
+    parser_version: Mapped[str | None] = mapped_column(String(50))
+    section_count: Mapped[int] = mapped_column(Integer, default=0)
+    uploaded_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    parsed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+    __table_args__ = (
+        # Duplicate detection scope is the assessment (DATABASE.md §5).
+        UniqueConstraint("assessment_id", "sha256_hash"),
+        CheckConstraint("length(trim(filename)) > 0", name="filename_not_blank"),
+        CheckConstraint(f"length(filename) <= {ARTIFACT_FILENAME_MAX}", name="filename_max_length"),
+        CheckConstraint("length(sha256_hash) = 64", name="sha256_length"),
+        CheckConstraint("size_bytes >= 0", name="size_not_negative"),
+        CheckConstraint(_in("format", ARTIFACT_FORMATS), name="format_known"),
+        CheckConstraint(_in("parse_status", PARSE_STATUSES), name="parse_status_known"),
+        CheckConstraint(
+            "classification_source IS NULL OR classification_source IN ('ai', 'analyst')",
+            name="classification_source_known",
+        ),
+        CheckConstraint("section_count >= 0", name="section_count_not_negative"),
+        Index("ix_artifact_assessment_id", "assessment_id"),
+        Index("ix_artifact_parse_status", "parse_status"),
+    )
+
+
+class ArtifactSection(Base):
+    """One extracted chunk of an artifact, with a human-meaningful locator
+    (page, heading path, line or row range). Immutable once written."""
+
+    __tablename__ = "artifact_section"
+
+    id: Mapped[str] = mapped_column(String(ID_MAX), primary_key=True)
+    artifact_id: Mapped[str] = mapped_column(ForeignKey("artifact.id", ondelete="RESTRICT"))
+    sequence_index: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
+    locator: Mapped[str] = mapped_column(String(SECTION_LOCATOR_MAX))
+
+    __table_args__ = (
+        UniqueConstraint("artifact_id", "sequence_index"),
+        CheckConstraint("sequence_index >= 0", name="sequence_index_not_negative"),
+        CheckConstraint(f"length(locator) <= {SECTION_LOCATOR_MAX}", name="locator_max_length"),
+        Index("ix_artifact_section_artifact_id", "artifact_id"),
+    )

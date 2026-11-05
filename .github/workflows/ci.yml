@@ -261,6 +261,12 @@ jobs:
         working-directory: service
         run: uv run --frozen pytest tests/test_supervised_process.py --service-exe dist/pyinstaller/controlgauge-service/controlgauge-service.exe
 
+      # Sprint 4 (PD-016): the frozen executable's --parse-worker mode, run
+      # inside the parser sandbox with only its bundle directory granted.
+      - name: Frozen parser worker inside the sandbox
+        working-directory: service
+        run: uv run --frozen pytest tests/test_containment.py -k frozen --service-exe dist/pyinstaller/controlgauge-service/controlgauge-service.exe
+
       - name: Upload PyInstaller diagnostics
         if: failure()
         uses: actions/upload-artifact@v7

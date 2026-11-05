@@ -124,6 +124,36 @@ framework-agnostic: identifiers come from a control's unclassed `label` property
 `id`) and are never parsed. A first import of the shipped catalog takes about 1.5 s; later
 starts only verify (about 20 ms).
 
+## Evidence ingestion (Sprint 4)
+
+Uploads (`routes/artifacts.py`) are checked in this order before anything is stored: the
+assessment exists; size ≤ 50 MB (declared `Content-Length` and while streaming); the display name
+(`X-ControlGauge-Filename`, percent-encoded UTF-8) is clean; the extension is `.pdf`, `.docx`,
+`.txt` or `.csv`; the leading bytes match it; the assessment stays within 1,000 files and 2 GB.
+An exact duplicate (same SHA-256 in the same assessment) is **flagged**: 200 with
+`duplicate: true` and the existing artifact; nothing is stored or parsed again. Every limit lives
+in `evidence/limits.py` (owner decision PD-016).
+
+Files are stored as `<data dir>/evidence/<assessment id>/<sha256>.bin` (`evidence/store.py`); the
+client's name is display text only. One background thread (`evidence/ingest.py`) parses each new
+artifact **inside the parser sandbox** (`evidence/sandbox_windows.py`, `docs/DECISIONS.md`
+D-027): a per-parse less-privileged AppContainer with no network capability, given the file as a
+read-only stdin handle, in a Job Object (1 GB memory, 60 s CPU, one process) with a 120 s
+wall-clock and 48 MB output cap. The worker (`evidence/worker.py`, `evidence/parsers.py`; pypdf for
+PDF, standard library for the rest) returns JSON that the service validates before storing
+sections. Each outcome is one `parse_status` (`parsed`, `partial`, `empty`, `unsupported_format`,
+`failed`) with a fixed `parse_detail` code (e.g. `encrypted`, `archive_limit`, `timeout`).
+Interrupted parses are re-queued at startup.
+
+- **Windows only.** On other platforms parsing fails closed (`failed` /
+  `containment_unavailable`). Tests there inject a test-only unconfined runner explicitly.
+- **First parse on a machine** grants the `controlGaugeParserRuntime` capability read/execute on
+  the worker's program directories (inherited ACE): in development the base Python install,
+  `site-packages` and `src/`; in the frozen build the bundle directory. Nothing else changes.
+- `tests/test_containment.py` is the D-022 containment harness (a hostile probe must be denied
+  evidence, the database, writes outside scratch, the network and child processes, and be stopped
+  at each bound). `--service-exe <exe>` also runs the frozen worker contained.
+
 ## Endpoints
 
 Every endpoint requires `Authorization: Bearer <session token>`; missing or wrong credentials get
@@ -139,6 +169,10 @@ challenge in supervised mode).
 | `GET` | `/assessments/{id}` | 200 assessment | Unknown or non-canonical UUID → 404 `assessment_not_found` |
 | `GET` | `/catalog-releases/{id}` | 200 release | Provenance (`source`, `license_notice`, `attribution`), counts, `families` (with any introductory `parts`), `baselines`; 404 `catalog_release_not_found` |
 | `GET` | `/catalog-releases/{id}/controls?family_id=&baseline_id=&q=&limit=&offset=` | 200 `{"controls": [...], total, limit, offset}` | Source order; `q` (≤ 100 chars) matches identifier/title of the control or its enhancements, literally (no wildcards); `limit` 1–500 (default 100) |
+| `POST` | `/assessments/{id}/artifacts` | 201 `{artifact, duplicate: false}` or 200 `{artifact, duplicate: true}` | Raw file bytes as the body; name in `X-ControlGauge-Filename`; see "Evidence ingestion" |
+| `GET` | `/assessments/{id}/artifacts?limit=&offset=` | 200 `{"artifacts": [...], total, total_bytes, limit, offset, limits}` | Newest first; `limit` 1–200 (default 100) |
+| `GET` | `/artifacts/{id}` | 200 artifact | `{id, assessment_id, filename, sha256, size_bytes, format, mime_type, parse_status, parse_detail, parser_version, section_count, uploaded_at, parsed_at}`; 404 `artifact_not_found` |
+| `GET` | `/artifacts/{id}/sections?limit=&offset=` | 200 `{artifact_id, sections: [{id, sequence_index, locator, content}], total, limit, offset}` | Extracted text in order; `limit` 1–200 (default 50) |
 | `GET` | `/controls/{id}` | 200 control | Verbatim `parts` tree, `params`, `links` (each with a resolved `target`: control, enhancement, part, family, resource, external or unresolved), `enhancements`, `baselines`; 404 `control_not_found` |
 
 An assessment is `{id, name, description, framework: {id, name, version}, catalog_release,
@@ -155,8 +189,10 @@ Errors on these routes share one shape and never echo submitted values:
 ```
 
 Top-level codes: `validation_failed` (422), `malformed_body` (400), `assessment_not_found`,
-`catalog_release_not_found`, `control_not_found` (404),
-`database_unavailable` (503). Field codes: `required`, `blank`, `too_long`, `invalid_characters`,
+`catalog_release_not_found`, `control_not_found`, `artifact_not_found` (404),
+`database_unavailable`, `ingestion_unavailable` (503); uploads also `file_too_large` (413),
+`unsupported_file_type`, `file_type_mismatch` (415), `invalid_filename` (422),
+`assessment_artifact_limit`, `assessment_size_limit` (409). Field codes: `required`, `blank`, `too_long`, `invalid_characters`,
 `invalid_type`, `unknown_field` (reported against `body`), `framework_not_found`, `invalid`.
 Unexpected failures return the existing generic `500 {"detail": "Internal Server Error"}`.
 

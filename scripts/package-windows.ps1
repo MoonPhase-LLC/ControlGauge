@@ -91,8 +91,12 @@ if ($LASTEXITCODE -ne 0) { throw "could not list the frozen archive (exit code $
 $pattern = '^\s*(' + (($forbidden | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')(\.|$)'
 $bad = @($archive | Where-Object { $_ -match $pattern })
 if ($bad.Count -gt 0) { throw "frozen archive contains build/dev-only modules: $(($bad | Select-Object -First 10) -join ', ')" }
-if (-not ($archive | Where-Object { $_ -match '^\s*controlgauge_service\.supervised$' })) {
-    throw 'frozen archive is missing controlgauge_service.supervised'
+foreach ($required in 'controlgauge_service.supervised', 'controlgauge_service.evidence.worker', 'controlgauge_service.evidence.parsers', 'pypdf') {
+    # Sprint 4: the same executable is the contained parser worker
+    # (`--parse-worker`), so the worker, the parsers and pypdf must be frozen in.
+    if (-not ($archive | Where-Object { $_ -match ('^\s*' + [regex]::Escape($required) + '$') })) {
+        throw "frozen archive is missing $required"
+    }
 }
 $bundledMigrations = Join-Path $bundle '_internal\controlgauge_service\migrations'
 if (-not (Test-Path (Join-Path $bundledMigrations 'env.py') -PathType Leaf) -or

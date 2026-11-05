@@ -49,6 +49,7 @@ from .challenge import StartupChallengeState
 from .config import Settings
 from .credentials import CredentialStore
 from .db import DatabaseInitError, initialize_database
+from .evidence.ingest import start_ingestion
 from .logging_config import configure_logging
 
 logger = logging.getLogger("controlgauge_service.supervised")
@@ -163,6 +164,8 @@ def main() -> None:
     except DatabaseInitError as exc:
         _fail(exc.reason)
 
+    ingestion = start_ingestion(database)
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         # Bind and retain ownership of this exact socket all the way to
@@ -192,6 +195,7 @@ def main() -> None:
             startup_challenge=challenge_state,
             supervised=True,
             database=database,
+            ingestion=ingestion,
         )
 
         logger.info(
@@ -239,6 +243,8 @@ def main() -> None:
         logger.error("supervised_unexpected_failure", extra={})
         raise SystemExit(_STARTUP_ERROR_EXIT_CODE) from None
     finally:
+        if ingestion is not None:
+            ingestion.stop()
         database.dispose()
 
     logger.info("supervised_stopped", extra={"clean_shutdown": outcome.clean_shutdown})

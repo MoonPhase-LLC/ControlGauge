@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from .app import create_app
 from .config import Settings
 from .db import DatabaseInitError, initialize_database
+from .evidence.ingest import start_ingestion
 from .logging_config import configure_logging
 
 logger = logging.getLogger("controlgauge_service")
@@ -44,7 +45,8 @@ def main() -> None:
         print(f"controlgauge-service: database unavailable: {exc.reason}", file=sys.stderr)
         raise SystemExit(1) from None
 
-    app = create_app(settings, database=database)
+    ingestion = start_ingestion(database)
+    app = create_app(settings, database=database, ingestion=ingestion)
 
     logger.info(
         "starting",
@@ -59,6 +61,8 @@ def main() -> None:
     try:
         uvicorn.run(app, host=settings.host, port=settings.port, log_level="warning")
     finally:
+        if ingestion is not None:
+            ingestion.stop()
         database.dispose()
 
 

@@ -258,8 +258,8 @@ assessments). Genericity rule: `ARCHITECTURE.md` §8 (no NIST-specific code). On
   part property). Candidate for a later batch.
 
 ### S3-06 — Sprint 3 exit validation
-- **Depends:** S3-05. **Status:** Implemented/verified; **owner acceptance pending** (PR #18 review,
-  incl. `DATABASE.md` §8).
+- **Depends:** S3-05. **Status:** Done — PR #18 merged by owner instruction 2026-11-05 (PD-017),
+  accepting `DATABASE.md` §8.
 - **Exit criteria (`SPRINTS.md` Sprint 3), agent-verified locally on Windows 11, 2026-11-03:**
   - *Full catalog loaded and browsable:* verbatim round-trip test over all 1,196 items; native test
     browses it in the real app; frozen exe imports it from an empty data directory.
@@ -281,6 +281,85 @@ assessments). Genericity rule: `ARCHITECTURE.md` §8 (no NIST-specific code). On
 - **Graphify:** `graphify update .` (AST only, local) → 2,099 nodes, 4,965 edges (owner request).
   `graphify label` (LLM) not run, per `CLAUDE.md`.
 
+## Sprint 4 — Evidence Ingestion
+
+Spec: `docs/SPRINTS.md` Sprint 4; gates S-1/S-2 resolved by PD-016; mechanism D-027. One branch,
+`claude/sprint-4-evidence-ingestion`, one PR (same pattern as PD-007). Batches are
+"Implemented/verified" until the owner merges.
+
+### S4-01 — Decisions and limits
+- **Depends:** PR #18 merged. **Status:** Implemented/verified.
+- **Result:** PD-016 (S-1 mechanism, S-2 limits, pypdf approved), PD-017 (PR #18 merged), D-027
+  ADR; `OPEN_QUESTIONS.md` S-1/S-2 resolved; `SECURITY.md` T-01..T-05, T-10, T-11 updated;
+  `ARCHITECTURE.md` §3, `USER_FLOWS.md` §5, `PACKAGING.md`, `service/README.md` updated. Limits in
+  `evidence/limits.py`.
+
+### S4-02 — Artifact schema and upload API
+- **Depends:** S4-01. **Status:** Implemented/verified (commit `97aa67f`).
+- **Result:** migration `0004_artifacts` (`DATABASE.md` §9, **owner review**): `artifact`,
+  `artifact_section`, identity/section immutability triggers. `POST /assessments/{id}/artifacts`
+  (raw body, name in `X-ControlGauge-Filename`), list/detail/sections routes; size, name,
+  extension, content-sniff and per-assessment limits checked before storing; duplicates flagged
+  (200, `duplicate: true`), never re-parsed; hash-named evidence store.
+- **Evidence:** `alembic upgrade head` + `alembic check` (no drift), downgrade to 0003 and
+  re-upgrade clean; `test_artifacts_api.py` (43).
+
+### S4-03 — Parsers
+- **Depends:** S4-02. **Status:** Implemented/verified (commit `97aa67f`).
+- **Result:** `evidence/parsers.py`: PDF (pypdf; per-page sections, encrypted refused, page
+  limit), DOCX (zipfile + expat; DTD/entities refused; bounded inflate; heading-path locators;
+  tables), TXT (BOM/UTF-8/cp1252; line-range locators), CSV (header + row-range sections;
+  row/column limits); chunking ≤ 4,000 chars; every outcome a §3 status with a fixed detail code.
+- **Evidence:** `test_evidence_parsers.py` (56) incl. billion-laughs, XXE, a 1,000:1 bomb, lying zip
+  directory sizes, entry-count and size limits, corrupt/encrypted PDF.
+
+### S4-04 — Parser containment boundary and harness (D-022)
+- **Depends:** S4-03. **Status:** Implemented/verified (commit `97aa67f`).
+- **Result:** `evidence/sandbox_windows.py` (D-027): per-parse LPAC AppContainer profile (deleted
+  after; stale ones removed at startup), no network capability, `registryRead` + runtime
+  capability, input as a read-only stdin handle, explicit handle list, clean environment, per-parse
+  scratch; Job Object memory/CPU/one-process/UI limits, kill-on-close; wall-clock and output caps.
+  Worker output validated in `evidence/ingest.py`. Non-Windows fails closed.
+- **Evidence:** `test_containment.py`: probe denied other evidence, database, data-dir listing,
+  profile files, writes outside scratch, live loopback listener, outbound connect, DNS, process
+  spawn; no secrets in its environment; stopped at memory/CPU/wall/output bounds; real worker
+  parses all four formats contained; 300 MB DOCX bomb refused end to end. With `--service-exe`, the
+  frozen `--parse-worker` parses all four formats contained (4 passed).
+
+### S4-05 — Rust commands and evidence UI
+- **Depends:** S4-04. **Status:** Implemented/verified (commit `9946ee6`).
+- **Result:** Tauri `upload_evidence` (raw IPC body; id and percent-encoded name in IPC headers;
+  validated in Rust), `list_artifacts`, `get_artifact`, `list_artifact_sections` (closed schemas).
+  Evidence panel on the assessment screen: picker/drop zone, batch/size/type checks, per-file
+  results incl. duplicates, per-file status for every outcome with plain-language details, polling
+  while processing, extracted text rendered inert with locators. No new capability/permission.
+- **Evidence:** `cargo test` → 112 passed (new: upload request validation, closed schema, percent
+  decoding, real-service round trip that uploads, flags a duplicate, rejects a mismatch and reads
+  the parsed sections); Vitest → 61 passed (10 new); native → 5 passed (new: upload through the
+  real app, parsed in the sandbox, duplicate flagged). Screens reviewed from native screenshots.
+
+### S4-06 — Sprint 4 exit validation
+- **Depends:** S4-05. **Status:** Implemented/verified; **owner acceptance pending** (PR #19 review,
+  incl. `DATABASE.md` §9 and PD-016 implementation choices).
+- **Exit criteria (`SPRINTS.md` Sprint 4), agent-verified locally on Windows 11, 2026-11-05:**
+  - *PDF/DOCX/TXT/CSV upload works:* API tests, Rust round trip, native test.
+  - *Malicious/oversized/malformed files rejected safely and contained by the decided boundary:*
+    upload rejections (413/415/422/409) store nothing; adversarial parser tests; bomb through the
+    real sandbox.
+  - *Harness demonstrates containment:* S4-04 evidence (denied/terminated, not assumed).
+  - *Duplicates flagged; every outcome maps to a defined `parse_status`:* API tests.
+  - *No evidence content in logs:* log-capture test (content and file name absent).
+- **Final local evidence (2026-11-05):** service `uv lock --check`, `ruff check`, `ruff format
+  --check`, `mypy` (75 files; also `--platform linux`) clean, `pytest` → 575 passed, 6 skipped
+  (4 frozen-worker tests need `--service-exe`, 1 non-Windows test, 1 symlink test); frozen exe
+  (`package-windows.ps1 -ServiceOnly`) supervised suite + frozen worker → 17 passed; Rust `cargo
+  fmt --check`, `clippy -D warnings` clean, `cargo test` → 112 passed (one run in seven had one
+  failure that did not reproduce; the test name was not captured, see CURRENT_STATUS); app `lint`,
+  `typecheck:test`, `build` exit 0, Vitest → 61 passed, Playwright browser → 2 passed, native → 5
+  passed. Real `%LOCALAPPDATA%\ControlGauge` absent afterwards.
+- **Known follow-ups (not in scope):** re-parse of an artifact; DOCX headers/footers/footnotes
+  are not extracted (body only); OCR (scanned PDFs report `empty`); a parse-progress cancel.
+
 ## Later sprints (milestone level only)
 
 Detailed batches are created at the start of each sprint (PD-002). Do not pre-plan beyond this.
@@ -288,7 +367,7 @@ Detailed batches are created at the start of each sprint (PD-002). Do not pre-pl
 | Sprint | Milestone | First step when reached |
 |---|---|---|
 | 3 | NIST Rev. 5 catalog loaded, browsable, no hardcoded NIST logic | Batched above (S3-01..S3-06) |
-| 4 | Upload + parsers + verified parser containment (D-022) | Resolve S-1, S-2 |
+| 4 | Upload + parsers + verified parser containment (D-022) | Batched above (S4-01..S4-06) |
 | 5 | Local GGUF model import, health check, structured output, offline | Owner approves dev model |
 | 6 | Hardware detection, catalog, verified download | Resolve P-3, S-4 |
 | 7 | Classification with analyst correction | Resolve AI-2 |

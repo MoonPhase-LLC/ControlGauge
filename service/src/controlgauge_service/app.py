@@ -33,6 +33,8 @@ from .challenge import StartupChallengeState
 from .config import Settings
 from .credentials import CredentialStore
 from .db import Database
+from .evidence.ingest import IngestionService
+from .routes.artifacts import router as artifacts_router
 from .routes.assessments import router as assessments_router
 from .routes.catalog import router as catalog_router
 from .routes.challenge import CHALLENGE_PATH
@@ -51,6 +53,7 @@ def create_app(
     startup_challenge: StartupChallengeState | None = None,
     supervised: bool = False,
     database: Database | None = None,
+    ingestion: IngestionService | None = None,
 ) -> FastAPI:
     """`database` is the migrated local database (Sprint 2). Both process
     entry points always pass one; it is optional here only so tests of
@@ -85,6 +88,8 @@ def create_app(
     # code path.
     app.state.startup_challenge = startup_challenge
     app.state.database = database
+    #: Sprint 4 evidence ingestion; upload routes answer 503 without it.
+    app.state.ingestion = ingestion
 
     # Outermost of our own middleware: every request, including ones to
     # undefined paths, is checked before routing ever occurs. The
@@ -105,6 +110,7 @@ def create_app(
     app.include_router(frameworks_router)
     app.include_router(assessments_router)
     app.include_router(catalog_router)
+    app.include_router(artifacts_router)
     if startup_challenge is not None:
         app.include_router(challenge_router)
 

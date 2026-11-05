@@ -137,6 +137,89 @@ async fn get_control(
     service_api::get_control(&ready(&state).await?, &id).await
 }
 
+// --- Sprint 4: evidence commands ----------------------------------------------
+//
+// `upload_evidence` takes the file as a raw IPC body (no JSON number array)
+// with its assessment id and percent-encoded display name in IPC headers.
+// The WebView only ever hands over bytes the user picked; it never sends a
+// path, and Rust never opens one. The service stores the file by hash and
+// parses it in its sandbox (PD-016).
+
+const UPLOAD_ASSESSMENT_HEADER: &str = "x-assessment-id";
+const UPLOAD_FILENAME_HEADER: &str = "x-filename";
+
+fn percent_decode(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = value.get(i + 1..i + 3)?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+#[tauri::command]
+async fn upload_evidence(
+    state: tauri::State<'_, SupervisorHandle>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<service_api::UploadResult, ServiceCallError> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(ServiceCallError::InvalidArgument);
+    };
+    let header = |name: &str| {
+        request
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned)
+    };
+    let assessment_id =
+        header(UPLOAD_ASSESSMENT_HEADER).ok_or(ServiceCallError::InvalidArgument)?;
+    let filename = header(UPLOAD_FILENAME_HEADER)
+        .and_then(|v| percent_decode(&v))
+        .ok_or(ServiceCallError::InvalidArgument)?;
+    if bytes.len() > service_api::MAX_UPLOAD_BYTES {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    let bytes = bytes.clone();
+    service_api::upload_artifact(&ready(&state).await?, &assessment_id, &filename, bytes).await
+}
+
+#[tauri::command]
+async fn list_artifacts(
+    state: tauri::State<'_, SupervisorHandle>,
+    assessment_id: String,
+    limit: u32,
+    offset: u64,
+) -> Result<service_api::ArtifactList, ServiceCallError> {
+    service_api::list_artifacts(&ready(&state).await?, &assessment_id, limit, offset).await
+}
+
+#[tauri::command]
+async fn get_artifact(
+    state: tauri::State<'_, SupervisorHandle>,
+    id: String,
+) -> Result<service_api::Artifact, ServiceCallError> {
+    service_api::get_artifact(&ready(&state).await?, &id).await
+}
+
+#[tauri::command]
+async fn list_artifact_sections(
+    state: tauri::State<'_, SupervisorHandle>,
+    id: String,
+    limit: u32,
+    offset: u64,
+) -> Result<service_api::SectionList, ServiceCallError> {
+    service_api::list_artifact_sections(&ready(&state).await?, &id, limit, offset).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let supervisor_handle = SupervisorHandle::new();
@@ -161,7 +244,11 @@ pub fn run() {
             create_assessment,
             get_catalog_release,
             list_catalog_controls,
-            get_control
+            get_control,
+            upload_evidence,
+            list_artifacts,
+            get_artifact,
+            list_artifact_sections
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();
@@ -220,4 +307,21 @@ pub fn run() {
             });
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::percent_decode;
+
+    #[test]
+    fn percent_decoding() {
+        assert_eq!(
+            percent_decode("Pol%C3%ADtica%20v2.pdf").as_deref(),
+            Some("Política v2.pdf")
+        );
+        assert_eq!(percent_decode("plain.txt").as_deref(), Some("plain.txt"));
+        for bad in ["%", "%4", "%zz", "%ff%fe", "a%C3"] {
+            assert_eq!(percent_decode(bad), None, "{bad}");
+        }
+    }
 }
