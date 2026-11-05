@@ -125,6 +125,17 @@ cd service
 uv run --frozen pytest tests/test_supervised_process.py --service-exe dist/pyinstaller/controlgauge-service/controlgauge-service.exe
 ```
 
+## Parser worker (Sprint 4)
+
+The bundled `controlgauge-service.exe` is also the contained parser worker: the service starts it
+as `controlgauge-service.exe --parse-worker <format>` inside a per-parse AppContainer and Job
+Object (`DECISIONS.md` D-027). The worker needs read/execute on the bundle directory only
+(`<install dir>\service\`); on the first parse the service adds one inheritable ACE for the
+`controlGaugeParserRuntime` capability there. The data directory next to it
+(`controlgauge.db`, `evidence\`) gets no grant, so the worker cannot open it. The packaging script
+fails if the worker, the parsers or pypdf are missing from the frozen archive, and CI runs the
+frozen worker inside the sandbox (`tests/test_containment.py -k frozen --service-exe ...`).
+
 ## Clean-machine validation
 
 `scripts/validate-installed-windows.ps1` checks an installed package using only Windows

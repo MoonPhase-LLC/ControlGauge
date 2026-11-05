@@ -186,7 +186,12 @@ def test_memory_bound(data_dir: Path) -> None:
 
 @windows_only
 def test_cpu_bound(data_dir: Path) -> None:
-    result = _probe("spin", input_path=data_dir / "input.bin")
+    # A wide wall-clock margin so a loaded machine still reaches the CPU
+    # bound first (the CPU limit counts only time actually scheduled).
+    cpu_limits = SandboxLimits(
+        memory_bytes=LIMITS.memory_bytes, cpu_seconds=2, wall_seconds=60, output_bytes=1024
+    )
+    result = _probe("spin", limits_=cpu_limits, input_path=data_dir / "input.bin")
     assert result.outcome == "cpu_limit"
     assert interpret(result).detail == "cpu_limit"
 

@@ -368,7 +368,7 @@ Additions beyond the ERD above — constraints only, no new concepts:
 Framework rows come from `frameworks/<id>/framework.json`, synced at startup by
 `framework_catalog.py`; control content is imported from Sprint 3 on (§8).
 
-## 8. Sprint 3 implementation notes and deviations (owner review pending)
+## 8. Sprint 3 implementation notes and deviations (accepted with PR #18, PD-017)
 
 Migration `0003_catalog_releases` (S3-02) implements PD-013's version-preservation requirement by
 scoping all framework content to an imported **catalog release**. Deviations from §1, for owner
@@ -415,6 +415,29 @@ review in the Sprint 3 PR:
 A new catalog version is imported **beside** existing releases, never over them; the importer
 refuses a source whose hash differs from an already-imported release of the same version
 (`release_conflict`). See `service/README.md` "Framework catalogs".
+
+## 9. Sprint 4 implementation notes and deviations (owner review pending)
+
+Migration `0004_artifacts` creates `artifact` and `artifact_section`. Differences from §1, for
+owner review in the Sprint 4 PR:
+
+- **`artifact` additions:** `size_bytes`, `format` (`pdf`/`docx`/`txt`/`csv`, from the extension
+  and content sniff), `parse_detail` (a fixed category explaining a non-`parsed` outcome, e.g.
+  `encrypted`, `page_limit`, `timeout`; never document text), `parser_version` (provenance for
+  later analysis runs), `section_count`, `parsed_at`. `filename` is the cleaned display name
+  (≤ 255 characters) and is never used as a path; the file itself is stored as
+  `evidence/<assessment id>/<sha256>.bin` beside the database.
+- **Checks:** non-blank `filename`; 64-character `sha256_hash`; known `format`, `parse_status`
+  (the §3 values plus `pending`/`parsing`) and `classification_source`; non-negative sizes,
+  counts and indexes. Unique `(assessment_id, sha256_hash)` is the duplicate rule (§5).
+- **`artifact_section`:** as §1, plus unique `(artifact_id, sequence_index)` and `locator`
+  ≤ 300 characters (page, heading path, line or row range).
+- **Triggers:** `trg_artifact_identity_fixed` refuses changing an artifact's id, assessment,
+  name, hash, size or format; `trg_artifact_section_immutable` refuses any update of a section.
+  Status columns still change through the ingestion lifecycle. Re-parsing an artifact is not
+  implemented in Sprint 4.
+- **Not yet:** classification values (Sprint 7), analysis runs and mappings (Sprint 8+),
+  deletion/retention (S-5/T-17, Sprint 13).
 
 See also: `COMPLIANCE_MODEL.md` for the conceptual model this schema implements, `ARCHITECTURE.md`
 §5 for database ownership rules.

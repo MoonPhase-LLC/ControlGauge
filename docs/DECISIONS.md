@@ -957,4 +957,65 @@ previously enabled only through `reqwest`). `HttpClientBuildFailed` removed from
 
 ---
 
+## D-027: Parser containment mechanism: per-parse LPAC AppContainer in a Job Object
+
+**Status:** Accepted (owner, 2026-11-05, PD-016). Resolves `OPEN_QUESTIONS.md` S-1; implements
+D-010/D-022.
+
+**Context:** D-022 fixed the properties the parser boundary must have and left the Windows
+mechanism open. Options weighed: a low-integrity restricted token (blocks writes but not reads, and
+not the network, so it fails "reads only its own input"); a dedicated service account (needs admin
+rights at install, complicates packaging); WebAssembly (strong isolation, but PDF/DOCX parsing in
+Python compiled to WASM is slow and complex); an AppContainer plus a Job Object.
+
+**Decision:** Every parse runs in a fresh worker process
+(`service/src/controlgauge_service/evidence/sandbox_windows.py`):
+
+- **Less-privileged AppContainer (LPAC), new identity per parse.** A new AppContainer profile
+  (random name) is created for each parse and deleted after it, so no two parses share a SID or a
+  container folder; leftovers from a crash are deleted at the next startup. The token opts out of
+  `ALL APPLICATION PACKAGES` and has no network capability (no `internetClient`, no
+  `privateNetworkClientServer`, no loopback exemption). It holds two capabilities: the well-known
+  `registryRead` (system registry keys the interpreter needs at startup) and a named
+  `controlGaugeParserRuntime` capability that is granted read/execute on the worker's program
+  directories only (frozen: the bundle's `service\` directory; development: the base interpreter,
+  site-packages and the package source). Nothing in the data directory is granted.
+- **Inputs and outputs by handle.** The service opens the stored file read-only and passes it as
+  the worker's stdin; output is a pipe on stdout; stderr is `NUL`. An explicit handle list makes
+  these the only inherited handles. The environment block is built from scratch (no inherited
+  variables, so no session token or `CONTROLGAUGE_*` value). A per-parse scratch directory, granted
+  to that parse's SID alone and deleted afterwards, is the only writable location.
+- **Job Object:** 1 GiB process/job memory, 60 s user CPU, one active process (no children),
+  all UI restrictions, die-on-unhandled-exception, kill-on-close (the worker dies with the service).
+  The service adds a 120 s wall-clock deadline and a 48 MiB output cap, terminating the job on a
+  breach.
+- **Output is untrusted:** `evidence/ingest.py` validates the worker's JSON (closed shape, fixed
+  status/detail vocabulary, section/locator/size bounds, status/section consistency) before
+  anything is stored; anything else becomes `failed/invalid_worker_output`.
+- **No other platform parses.** Off Windows, parsing fails closed with
+  `containment_unavailable`. Tests on Linux CI use an explicitly injected, test-only unconfined
+  runner; it is never selected by configuration.
+
+**Implementation choice (agent, within PD-016):** the launcher is Python `ctypes` inside the
+service rather than the small Rust launcher suggested when the options were presented. Same
+mechanism and properties; it keeps the boundary in the one component that owns uploads, avoids a
+third binary in packaging, and lets the containment harness run in the existing pytest jobs
+(including the Windows runner). In the frozen build the service executable doubles as the worker
+(`--parse-worker`), which imports only the parsers.
+
+**Evidence (containment harness, `service/tests/test_containment.py`):** a hostile probe running
+inside the sandbox is denied reading another stored file, listing the evidence or data directory,
+reading the database file or the user profile, writing anywhere but its scratch directory,
+connecting to a live loopback listener, connecting out, resolving DNS and starting a process; its
+environment carries no secrets. It is stopped at the memory, CPU, wall-clock and output bounds. The
+real worker parses all four formats inside the sandbox, from source and from the frozen executable.
+About 0.2-0.3 s of start-up per parse.
+
+**Consequences:** the first parse on a machine adds one inheritable ACE for the capability SID to
+the worker's program directories (development: also the developer's base Python installation).
+Parsing is Windows-only until another platform gets an equivalent boundary. Sprint 13 hardens and
+re-tests this boundary adversarially; it does not replace it.
+
+---
+
 *(Further decisions should be appended below as they are made during Sprint 1+ implementation.)*

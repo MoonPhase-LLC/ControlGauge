@@ -1082,7 +1082,8 @@ mod tests {
             ServiceCallError::ApiError { status: 415, ref code, .. } if code == "file_type_mismatch"
         ));
         let mut parsed = None;
-        for _ in 0..100 {
+        // Generous: a loaded CI runner may take a while to start the sandbox.
+        for _ in 0..300 {
             let a = service_api::get_artifact(&connection, &uploaded.artifact.id)
                 .await
                 .unwrap();
@@ -1092,7 +1093,7 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        let parsed = parsed.expect("artifact parsed within 10 s");
+        let parsed = parsed.expect("artifact parsed within 30 s");
         let expected_status = if cfg!(windows) { "parsed" } else { "failed" };
         assert_eq!(parsed.parse_status, expected_status, "{parsed:?}");
         let listing = service_api::list_artifacts(&connection, &created.id, 50, 0)

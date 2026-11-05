@@ -113,7 +113,14 @@ resolution inline and mark Resolved) or as new ones surface during implementatio
 - S-1: Which mechanism will satisfy D-022's required parser permission and resource restrictions
   against T-01/T-02/T-03, and what are its performance/complexity tradeoffs? The required properties
   are fixed; only mechanism selection remains open. Decide and demonstrate it in Sprint 4 (D-010).
+  **Resolved (owner, 2026-11-05, PD-016):** per-parse less-privileged AppContainer in a Job
+  Object, demonstrated by the Sprint 4 containment harness (`DECISIONS.md` D-027).
 - S-2: What are the concrete maximum file size and file count limits for evidence upload? (T-04)
+  **Resolved (owner, 2026-11-05, PD-016):** 50 MB per file; 50 files per upload batch; 1,000
+  artifacts and 2 GB per assessment; DOCX inflated size 200 MB total, ratio 100:1, 10,000 zip
+  entries; 2,000 PDF pages; 200,000 CSV rows and 500 columns; 10 MB extracted text per file;
+  worker 1 GB memory, 60 s CPU, 120 s wall clock. Source of truth:
+  `service/src/controlgauge_service/evidence/limits.py`.
 - S-3: Is at-rest encryption of the SQLite database required for V0.1 given the sensitivity of
   the data it may contain, or explicitly deferred with that risk accepted for V0.1? (T-12)
 - S-4: What is the exact model checksum/manifest verification mechanism, and who maintains and
