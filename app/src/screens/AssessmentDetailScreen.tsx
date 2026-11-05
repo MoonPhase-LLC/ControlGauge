@@ -1,13 +1,14 @@
-import { ArrowLeft, FileUp } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
+import { EvidencePanel } from "@/components/evidence/EvidencePanel";
 import { ErrorNotice, LoadingNotice, ScreenHeading, ServiceNotReady, formatDateTime } from "@/components/screen";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getAssessment } from "@/service/commands";
 import { isNotFound } from "@/service/errors";
 import type { SupervisorState } from "@/service/types";
 import { useServiceQuery } from "@/service/useServiceQuery";
 
-/** One assessment's stored details. Evidence features arrive in later sprints. */
+/** One assessment's stored details and its evidence (Sprint 4). */
 export function AssessmentDetailScreen({
   id,
   status,
@@ -101,18 +102,7 @@ export function AssessmentDetailScreen({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="justify-items-start gap-2">
-              <FileUp aria-hidden="true" className="size-5 text-muted-foreground" />
-              <CardTitle>
-                <h2>Evidence</h2>
-              </CardTitle>
-              <CardDescription className="max-w-prose">
-                Uploading evidence and reviewing suggested control mappings are not available yet.
-                They will be added to this assessment in a later release.
-              </CardDescription>
-            </CardHeader>
-          </Card>
+          <EvidencePanel assessmentId={assessment.id} />
         </>
       ) : null}
     </div>

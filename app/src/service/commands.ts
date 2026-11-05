@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  Artifact,
+  ArtifactList,
   Assessment,
   AssessmentList,
   CatalogRelease,
@@ -9,7 +11,9 @@ import type {
   FrameworkSummary,
   HealthResponse,
   NewAssessment,
+  SectionList,
   SupervisorState,
+  UploadResult,
 } from "./types";
 
 // Typed wrappers around the Tauri commands the frontend uses (registered in
@@ -57,4 +61,30 @@ export function listCatalogControls(releaseId: string, query: ControlQuery): Pro
 
 export function getControl(id: string): Promise<ControlDetail> {
   return invoke<ControlDetail>("get_control", { id });
+}
+
+// --- Sprint 4 evidence ---------------------------------------------------------
+
+/**
+ * Sends one user-selected file to Rust as a raw IPC body (never a path). The
+ * display name travels percent-encoded in an IPC header; Rust validates both
+ * and the service stores the file by hash and parses it in its sandbox.
+ */
+export async function uploadEvidence(assessmentId: string, file: File): Promise<UploadResult> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return invoke<UploadResult>("upload_evidence", bytes, {
+    headers: { "x-assessment-id": assessmentId, "x-filename": encodeURIComponent(file.name) },
+  });
+}
+
+export function listArtifacts(assessmentId: string, limit: number, offset: number): Promise<ArtifactList> {
+  return invoke<ArtifactList>("list_artifacts", { assessmentId, limit, offset });
+}
+
+export function getArtifact(id: string): Promise<Artifact> {
+  return invoke<Artifact>("get_artifact", { id });
+}
+
+export function listArtifactSections(id: string, limit: number, offset: number): Promise<SectionList> {
+  return invoke<SectionList>("list_artifact_sections", { id, limit, offset });
 }

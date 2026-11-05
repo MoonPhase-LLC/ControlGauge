@@ -40,6 +40,19 @@ pub const LIST_LIMIT_MAX: u32 = 100;
 pub const CONTROL_LIMIT_MAX: u32 = 500;
 pub const SEARCH_MAX_CHARS: usize = 100;
 pub const LIST_OFFSET_MAX: u64 = 1_000_000;
+/// Sprint 4 (PD-016): the per-file upload limit, checked here before the
+/// bytes are sent; the service enforces it again.
+pub const MAX_UPLOAD_BYTES: usize = 50 * 1024 * 1024;
+/// Display names longer than this are refused (the service's limit).
+pub const MAX_FILENAME_CHARS: usize = 255;
+pub const ARTIFACT_LIMIT_MAX: u32 = 200;
+/// Sections can be up to 16k characters each; 20 per page keeps a worst-
+/// case page under [`MAX_API_RESPONSE_BYTES`].
+pub const SECTION_LIMIT_MAX: u32 = 20;
+/// An upload is hashed and written durably by the service before it
+/// answers; allow more than the default request deadline.
+pub const UPLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+const FILENAME_HEADER: &str = "X-ControlGauge-Filename";
 
 const MAX_ERROR_FIELDS: usize = 32;
 const MAX_ERROR_TEXT: usize = 300;
@@ -402,6 +415,43 @@ async fn call<T: DeserializeOwned>(
     body: Option<Vec<u8>>,
     expected: StatusCode,
 ) -> Result<T, ServiceCallError> {
+    let body = body.map(|bytes| RequestBody {
+        bytes,
+        content_type: "application/json",
+        max_bytes: MAX_API_REQUEST_BYTES,
+        filename_header: None,
+    });
+    call_with(
+        connection,
+        method,
+        path,
+        body,
+        &[expected],
+        HTTP_REQUEST_TIMEOUT,
+    )
+    .await
+    .map(|(value, _)| value)
+}
+
+/// A request body and how it is sent.
+struct RequestBody {
+    bytes: Vec<u8>,
+    content_type: &'static str,
+    max_bytes: usize,
+    /// Already percent-encoded (see [`encode_query_value`]).
+    filename_header: Option<String>,
+}
+
+/// The one request path every call takes. Returns the parsed body and the
+/// status that matched one of `expected`.
+async fn call_with<T: DeserializeOwned>(
+    connection: &ReadyConnection,
+    method: Method,
+    path: &str,
+    body: Option<RequestBody>,
+    expected: &[StatusCode],
+    timeout: std::time::Duration,
+) -> Result<(T, StatusCode), ServiceCallError> {
     if !connection.is_alive() {
         return Err(ServiceCallError::ServiceNoLongerAlive);
     }
@@ -412,12 +462,15 @@ async fn call<T: DeserializeOwned>(
         .header("Authorization", format!("Bearer {}", connection.token))
         .header("Accept", "application/json");
     let payload = match body {
-        Some(bytes) => {
-            if bytes.len() > MAX_API_REQUEST_BYTES {
+        Some(body) => {
+            if body.bytes.len() > body.max_bytes {
                 return Err(ServiceCallError::InvalidArgument);
             }
-            builder = builder.header("Content-Type", "application/json");
-            Bytes::from(bytes)
+            builder = builder.header("Content-Type", body.content_type);
+            if let Some(name) = body.filename_header {
+                builder = builder.header(FILENAME_HEADER, name);
+            }
+            Bytes::from(body.bytes)
         }
         None => Bytes::new(),
     };
@@ -427,7 +480,7 @@ async fn call<T: DeserializeOwned>(
 
     let response = connection
         .pinned
-        .send(request, MAX_API_RESPONSE_BYTES, HTTP_REQUEST_TIMEOUT)
+        .send(request, MAX_API_RESPONSE_BYTES, timeout)
         .await
         .map_err(|e| {
             debug_log("service api request failed", &e);
@@ -441,8 +494,9 @@ async fn call<T: DeserializeOwned>(
         return Err(ServiceCallError::ServiceNoLongerAlive);
     }
 
-    if response.status == expected {
+    if expected.contains(&response.status) {
         return serde_json::from_slice(&response.body)
+            .map(|value| (value, response.status))
             .map_err(|_| ServiceCallError::ResponseMalformed);
     }
     if response.status == StatusCode::UNAUTHORIZED {
@@ -512,6 +566,171 @@ pub async fn get_catalog_release(
         return Err(ServiceCallError::InvalidArgument);
     }
     let path = format!("/catalog-releases/{id}");
+    call(connection, Method::GET, &path, None, StatusCode::OK).await
+}
+
+// --- Sprint 4: evidence ------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Artifact {
+    pub id: String,
+    pub assessment_id: String,
+    pub filename: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+    pub format: String,
+    pub mime_type: String,
+    pub parse_status: String,
+    pub parse_detail: Option<String>,
+    pub parser_version: Option<String>,
+    pub section_count: u64,
+    pub uploaded_at: String,
+    pub parsed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct UploadResult {
+    pub artifact: Artifact,
+    pub duplicate: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct UploadLimits {
+    pub max_file_bytes: u64,
+    pub max_files_per_batch: u32,
+    pub max_artifacts_per_assessment: u32,
+    pub max_assessment_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactList {
+    pub artifacts: Vec<Artifact>,
+    pub total: u64,
+    pub total_bytes: u64,
+    pub limit: u32,
+    pub offset: u64,
+    pub limits: UploadLimits,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Section {
+    pub id: String,
+    pub sequence_index: u64,
+    pub locator: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SectionList {
+    pub artifact_id: String,
+    pub sections: Vec<Section>,
+    pub total: u64,
+    pub limit: u32,
+    pub offset: u64,
+}
+
+/// A display name the frontend may send: 1..=255 characters, no control
+/// or line-separator characters, no path separators. The service applies
+/// its own, stricter cleaning; this only keeps junk from being sent.
+pub fn is_valid_filename(name: &str) -> bool {
+    let count = name.chars().count();
+    (1..=MAX_FILENAME_CHARS).contains(&count)
+        && !name.trim().is_empty()
+        && !name
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '/' | '\\' | '\u{2028}' | '\u{2029}'))
+}
+
+/// Builds the upload request after validating every caller-supplied part.
+fn upload_request(
+    assessment_id: &str,
+    filename: &str,
+    bytes: Vec<u8>,
+) -> Result<(String, RequestBody), ServiceCallError> {
+    if !is_canonical_uuid(assessment_id)
+        || !is_valid_filename(filename)
+        || bytes.len() > MAX_UPLOAD_BYTES
+    {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    Ok((
+        format!("/assessments/{assessment_id}/artifacts"),
+        RequestBody {
+            bytes,
+            content_type: "application/octet-stream",
+            max_bytes: MAX_UPLOAD_BYTES,
+            filename_header: Some(encode_query_value(filename)),
+        },
+    ))
+}
+
+/// Uploads one file. A duplicate (same content already in the assessment)
+/// is not an error: the service answers 200 with `duplicate: true`.
+pub async fn upload_artifact(
+    connection: &ReadyConnection,
+    assessment_id: &str,
+    filename: &str,
+    bytes: Vec<u8>,
+) -> Result<UploadResult, ServiceCallError> {
+    let (path, body) = upload_request(assessment_id, filename, bytes)?;
+    call_with(
+        connection,
+        Method::POST,
+        &path,
+        Some(body),
+        &[StatusCode::CREATED, StatusCode::OK],
+        UPLOAD_TIMEOUT,
+    )
+    .await
+    .map(|(result, _)| result)
+}
+
+pub async fn list_artifacts(
+    connection: &ReadyConnection,
+    assessment_id: &str,
+    limit: u32,
+    offset: u64,
+) -> Result<ArtifactList, ServiceCallError> {
+    if !is_canonical_uuid(assessment_id)
+        || !(1..=ARTIFACT_LIMIT_MAX).contains(&limit)
+        || offset > LIST_OFFSET_MAX
+    {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    let path = format!("/assessments/{assessment_id}/artifacts?limit={limit}&offset={offset}");
+    call(connection, Method::GET, &path, None, StatusCode::OK).await
+}
+
+pub async fn get_artifact(
+    connection: &ReadyConnection,
+    id: &str,
+) -> Result<Artifact, ServiceCallError> {
+    if !is_canonical_uuid(id) {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    let path = format!("/artifacts/{id}");
+    call(connection, Method::GET, &path, None, StatusCode::OK).await
+}
+
+pub async fn list_artifact_sections(
+    connection: &ReadyConnection,
+    id: &str,
+    limit: u32,
+    offset: u64,
+) -> Result<SectionList, ServiceCallError> {
+    if !is_canonical_uuid(id)
+        || !(1..=SECTION_LIMIT_MAX).contains(&limit)
+        || offset > LIST_OFFSET_MAX
+    {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    let path = format!("/artifacts/{id}/sections?limit={limit}&offset={offset}");
     call(connection, Method::GET, &path, None, StatusCode::OK).await
 }
 
@@ -598,6 +817,61 @@ pub async fn get_control(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ASSESSMENT: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
+
+    #[test]
+    fn upload_request_validates_and_encodes() {
+        let (path, body) = upload_request(ASSESSMENT, "Política de acceso.pdf", vec![1, 2, 3])
+            .expect("valid upload");
+        assert_eq!(path, format!("/assessments/{ASSESSMENT}/artifacts"));
+        assert_eq!(body.content_type, "application/octet-stream");
+        assert_eq!(
+            body.filename_header.as_deref(),
+            Some("Pol%C3%ADtica%20de%20acceso.pdf")
+        );
+        assert_eq!(body.bytes, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn upload_request_rejects_bad_input() {
+        let long = "x".repeat(MAX_FILENAME_CHARS + 1);
+        for (assessment, name) in [
+            ("not-a-uuid", "a.pdf"),
+            (ASSESSMENT, ""),
+            (ASSESSMENT, "   "),
+            (ASSESSMENT, "a/b.pdf"),
+            (ASSESSMENT, "a\\b.pdf"),
+            (ASSESSMENT, "a\nb.pdf"),
+            (ASSESSMENT, "a\u{2028}.pdf"),
+            (ASSESSMENT, long.as_str()),
+        ] {
+            assert_eq!(
+                upload_request(assessment, name, vec![])
+                    .err()
+                    .map(|e| format!("{e:?}")),
+                Some(format!("{:?}", ServiceCallError::InvalidArgument)),
+                "{name:?}"
+            );
+        }
+        assert!(upload_request(ASSESSMENT, "a.pdf", vec![0; MAX_UPLOAD_BYTES + 1]).is_err());
+        assert!(upload_request(ASSESSMENT, "a.pdf", vec![0; MAX_UPLOAD_BYTES]).is_ok());
+    }
+
+    #[test]
+    fn artifact_responses_are_closed_schemas() {
+        let good = serde_json::json!({
+            "id": ASSESSMENT, "assessment_id": ASSESSMENT, "filename": "a.txt",
+            "sha256": "0".repeat(64), "size_bytes": 3, "format": "txt",
+            "mime_type": "text/plain", "parse_status": "parsed", "parse_detail": null,
+            "parser_version": "cg-parsers/1", "section_count": 1,
+            "uploaded_at": "2026-11-05T00:00:00", "parsed_at": null
+        });
+        assert!(serde_json::from_value::<Artifact>(good.clone()).is_ok());
+        let mut extra = good;
+        extra["unexpected"] = serde_json::json!("x");
+        assert!(serde_json::from_value::<Artifact>(extra).is_err());
+    }
 
     #[test]
     fn canonical_uuid_check() {

@@ -1055,6 +1055,63 @@ mod tests {
             .unwrap();
         assert_eq!(fetched, created);
 
+        // Sprint 4: upload over the same connection; the service parses it
+        // in its sandbox (on Windows, the real contained worker).
+        let text = b"Accounts are reviewed quarterly.\nMFA is required.".to_vec();
+        let uploaded =
+            service_api::upload_artifact(&connection, &created.id, "Política.txt", text.clone())
+                .await
+                .unwrap();
+        assert!(!uploaded.duplicate);
+        assert_eq!(uploaded.artifact.filename, "Política.txt");
+        let again = service_api::upload_artifact(&connection, &created.id, "copy.txt", text)
+            .await
+            .unwrap();
+        assert!(again.duplicate);
+        assert_eq!(again.artifact.id, uploaded.artifact.id);
+        let mismatch = service_api::upload_artifact(
+            &connection,
+            &created.id,
+            "fake.pdf",
+            b"not a pdf".to_vec(),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            mismatch,
+            ServiceCallError::ApiError { status: 415, ref code, .. } if code == "file_type_mismatch"
+        ));
+        let mut parsed = None;
+        for _ in 0..100 {
+            let a = service_api::get_artifact(&connection, &uploaded.artifact.id)
+                .await
+                .unwrap();
+            if a.parse_status != "pending" && a.parse_status != "parsing" {
+                parsed = Some(a);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let parsed = parsed.expect("artifact parsed within 10 s");
+        let expected_status = if cfg!(windows) { "parsed" } else { "failed" };
+        assert_eq!(parsed.parse_status, expected_status, "{parsed:?}");
+        let listing = service_api::list_artifacts(&connection, &created.id, 50, 0)
+            .await
+            .unwrap();
+        assert_eq!(listing.total, 1);
+        assert_eq!(listing.limits.max_file_bytes, 50 * 1024 * 1024);
+        if cfg!(windows) {
+            let sections = service_api::list_artifact_sections(
+                &connection,
+                &uploaded.artifact.id,
+                service_api::SECTION_LIMIT_MAX,
+                0,
+            )
+            .await
+            .unwrap();
+            assert!(sections.sections[0].content.contains("MFA is required."));
+        }
+
         let listed = service_api::list_assessments(&connection, 100, 0)
             .await
             .unwrap();
