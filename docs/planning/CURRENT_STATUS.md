@@ -11,12 +11,12 @@ Last updated: 2026-11-05 (Sprint 4 S4-01..S4-06 implemented/verified; PR opened 
 
 | Item | Value |
 |---|---|
-| Current sprint | Sprint 4 implemented on `claude/sprint-4-evidence-ingestion`; PR in review |
+| Current sprint | Sprint 4 implemented on `claude/sprint-4-evidence-ingestion`; PR #19 in review |
 | Active batch | None in progress |
 | Next action | Owner: review/merge the Sprint 4 PR, incl. `DATABASE.md` §9 and the PD-016 implementation choices (ctypes launcher, frozen exe as worker, raw IPC upload). After merge: Sprint 5 prep (owner approves a development model) |
 | Baseline | `origin/main` @ `9ae472d` (PR #18 merge) |
 | Sprint 4 commits | S4-02..S4-04 `97aa67f`, S4-05 `9946ee6`, S4-01/S4-06 docs (final branch commit) |
-| Open PRs | Sprint 4 (see `BATCH_JOBS.md` S4-06 once numbered) |
+| Open PRs | #19 (Sprint 4) |
 
 ## Verified facts (2026-11-05, this session)
 
@@ -61,12 +61,12 @@ Last updated: 2026-11-05 (Sprint 4 S4-01..S4-06 implemented/verified; PR opened 
 - `app/src-tauri`: `cargo fmt --check`, `cargo clippy -D warnings` clean; `cargo test` → 112 passed.
 - `app`: `npm run lint`, `typecheck:test`, `build` exit 0; Vitest → 61 passed; Playwright
   browser → 2 passed; native Windows smoke (`test:e2e:native`) → 5 passed.
-- CI: pending on the Sprint 4 PR.
-- Graphify: refreshed at the end of this session (see update log).
+- CI: pending on PR #19.
+- Graphify: `graphify update .` (AST only, local) → 2,518 nodes, 6,130 edges.
 
 ## Update log (newest first; keep to one line each)
 
-- 2026-11-05 — Sprint 4 S4-01..S4-06 implemented/verified on one branch; PR opened.
+- 2026-11-05 — Sprint 4 S4-01..S4-06 implemented/verified on one branch; graph refreshed; PR #19 opened.
 - 2026-11-05 — PR #18 merged by owner instruction (PD-017); S-1/S-2 resolved (PD-016, D-027).
 - 2026-11-03 — Sprint 3 S3-01..S3-06 implemented/verified on one branch; graph refreshed; PR #18 opened.
 - 2026-11-03 — PD-014 (housekeeping, R-04 passed) and PD-015 (Sprint 3 defaults) recorded.

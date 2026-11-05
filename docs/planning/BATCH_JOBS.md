@@ -339,7 +339,7 @@ Spec: `docs/SPRINTS.md` Sprint 4; gates S-1/S-2 resolved by PD-016; mechanism D-
   real app, parsed in the sandbox, duplicate flagged). Screens reviewed from native screenshots.
 
 ### S4-06 — Sprint 4 exit validation
-- **Depends:** S4-05. **Status:** Implemented/verified; **owner acceptance pending** (PR review,
+- **Depends:** S4-05. **Status:** Implemented/verified; **owner acceptance pending** (PR #19 review,
   incl. `DATABASE.md` §9 and PD-016 implementation choices).
 - **Exit criteria (`SPRINTS.md` Sprint 4), agent-verified locally on Windows 11, 2026-11-05:**
   - *PDF/DOCX/TXT/CSV upload works:* API tests, Rust round trip, native test.
