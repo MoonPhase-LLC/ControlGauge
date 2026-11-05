@@ -31,7 +31,7 @@ information lives.
 | 1 | Desktop foundation | 0 | Done (S1-08 accepted, PD-009) | `SPRINT_1_BACKLOG.md`, `PACKAGING.md`, D-001, D-009, D-018, D-025, D-026 |
 | 2 | Assessment and database layer | 1 | Done (PR #17) | `DATABASE.md` §7, `BATCH_JOBS.md` S2-* |
 | 3 | NIST 800-53 framework engine | 2 | Done (PR #18, merged 2026-11-05) | `DATABASE.md` §8, `BATCH_JOBS.md` S3-*, PD-012/013/015 |
-| 4 | Evidence ingestion + parser containment | 2 | Implemented on `claude/sprint-4-evidence-ingestion`, PR in review (S4-01..S4-06) | `DATABASE.md` §9, `BATCH_JOBS.md` S4-*, PD-016, D-027 |
+| 4 | Evidence ingestion + parser containment | 2 | Done (PR #19, merged 2026-11-05) | `DATABASE.md` §9, `BATCH_JOBS.md` S4-*, PD-016, D-027 |
 | 5 | Local model runtime | 1 | Future | `MODEL_RUNTIME.md`, D-011, D-017, D-023 |
 | 6 | Hardware detection + model recommendations | 5 | Future | `MODEL_RUNTIME.md`, OQ P-3, S-4 |
 | 7 | Artifact classification | 4, 5 | Future | `AI_PIPELINE.md` §4, OQ AI-2 |

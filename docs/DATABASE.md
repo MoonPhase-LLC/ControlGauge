@@ -416,10 +416,10 @@ A new catalog version is imported **beside** existing releases, never over them;
 refuses a source whose hash differs from an already-imported release of the same version
 (`release_conflict`). See `service/README.md` "Framework catalogs".
 
-## 9. Sprint 4 implementation notes and deviations (owner review pending)
+## 9. Sprint 4 implementation notes and deviations (accepted with PR #19, PD-018)
 
-Migration `0004_artifacts` creates `artifact` and `artifact_section`. Differences from §1, for
-owner review in the Sprint 4 PR:
+Migration `0004_artifacts` creates `artifact` and `artifact_section`. Differences from §1
+(accepted with PR #19):
 
 - **`artifact` additions:** `size_bytes`, `format` (`pdf`/`docx`/`txt`/`csv`, from the extension
   and content sniff), `parse_detail` (a fixed category explaining a non-`parsed` outcome, e.g.
