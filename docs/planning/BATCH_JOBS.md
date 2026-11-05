@@ -285,7 +285,7 @@ assessments). Genericity rule: `ARCHITECTURE.md` §8 (no NIST-specific code). On
 
 Spec: `docs/SPRINTS.md` Sprint 4; gates S-1/S-2 resolved by PD-016; mechanism D-027. One branch,
 `claude/sprint-4-evidence-ingestion`, one PR (same pattern as PD-007). Batches are
-"Implemented/verified" until the owner merges.
+"Implemented/verified" until the owner merges (merged: PR #19).
 
 ### S4-01 — Decisions and limits
 - **Depends:** PR #18 merged. **Status:** Implemented/verified.
@@ -339,8 +339,8 @@ Spec: `docs/SPRINTS.md` Sprint 4; gates S-1/S-2 resolved by PD-016; mechanism D-
   real app, parsed in the sandbox, duplicate flagged). Screens reviewed from native screenshots.
 
 ### S4-06 — Sprint 4 exit validation
-- **Depends:** S4-05. **Status:** Implemented/verified; **owner acceptance pending** (PR #19 review,
-  incl. `DATABASE.md` §9 and PD-016 implementation choices).
+- **Depends:** S4-05. **Status:** Done — PR #19 merged by owner instruction 2026-11-05 (PD-018),
+  accepting `DATABASE.md` §9 and the PD-016 implementation choices.
 - **Exit criteria (`SPRINTS.md` Sprint 4), agent-verified locally on Windows 11, 2026-11-05:**
   - *PDF/DOCX/TXT/CSV upload works:* API tests, Rust round trip, native test.
   - *Malicious/oversized/malformed files rejected safely and contained by the decided boundary:*

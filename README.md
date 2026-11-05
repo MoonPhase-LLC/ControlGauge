@@ -63,7 +63,7 @@ migrations, an authenticated assessment API, and create/list/view assessment scr
 5.2.0 catalog (OSCAL) is imported verbatim, hash-verified, and browsable; each assessment is pinned
 to a catalog release.
 
-**Sprint 4 — Evidence Ingestion (implemented on a branch, in review).** PDF, DOCX, TXT and CSV
+**Sprint 4 — Evidence Ingestion (complete).** PDF, DOCX, TXT and CSV
 evidence can be uploaded to an assessment. Text is extracted inside a per-parse Windows sandbox
 (AppContainer + Job Object, no network or file access beyond the one input) and shown per file
 with its outcome; duplicates are flagged. See
@@ -82,7 +82,7 @@ and `docs/OPEN_QUESTIONS.md` for decisions still pending product-owner input.
 | Authenticated service with challenge-based identity verification | Implemented (Sprint 1) |
 | Assessments (create/list/view) with local SQLite persistence | Implemented (Sprint 2) |
 | NIST SP 800-53 Rev. 5 catalog import and browsing | Implemented (Sprint 3) |
-| Evidence ingestion and sandboxed document parsing | Implemented (Sprint 4, in review) |
+| Evidence ingestion and sandboxed document parsing | Implemented (Sprint 4) |
 | Local LLM runtime (llama.cpp + GGUF) and embedding/retrieval pipeline | Planned |
 | AI-suggested evidence ↔ control mappings with human review workflow | Planned |
 | SQLite persistence for artifacts, controls, findings | Frameworks, catalog and artifacts in place; findings planned |
