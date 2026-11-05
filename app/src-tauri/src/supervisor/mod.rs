@@ -983,7 +983,12 @@ mod tests {
             .first()
             .expect("framework metadata is registered at startup")
             .clone();
-        assert_eq!(framework.control_count, 0);
+        // Sprint 3: the shipped catalog is imported at startup.
+        assert!(framework.control_count > 0);
+        let release = framework
+            .current_release
+            .clone()
+            .expect("the shipped catalog has a current release");
 
         let created = service_api::create_assessment(
             &connection,
@@ -997,6 +1002,53 @@ mod tests {
         .unwrap();
         assert_eq!(created.name, "Rust round trip");
         assert_eq!(created.framework.id, framework.id);
+        // New assessments are pinned to the current catalog release.
+        assert_eq!(created.catalog_release.as_ref(), Some(&release));
+
+        // Catalog browsing (S3-05) over the same pinned connection.
+        let detail = service_api::get_catalog_release(&connection, &release.id)
+            .await
+            .unwrap();
+        assert_eq!(detail.control_count, framework.control_count);
+        assert!(!detail.families.is_empty());
+        let all = service_api::list_catalog_controls(
+            &connection,
+            &release.id,
+            &service_api::ControlQuery {
+                limit: service_api::CONTROL_LIMIT_MAX,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(all.total, detail.control_count);
+        // Free text with spaces, parentheses and `&` is encoded, not injected.
+        let searched = service_api::list_catalog_controls(
+            &connection,
+            &release.id,
+            &service_api::ControlQuery {
+                search: Some("account & (".into()),
+                limit: 10,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(searched.total, 0);
+        assert_eq!(searched.limit, 10);
+        // Every control detail parses into the closed schema and fits the
+        // response bound.
+        for summary in &all.controls {
+            let control = service_api::get_control(&connection, &summary.id)
+                .await
+                .unwrap();
+            assert_eq!(control.id, summary.id);
+            assert_eq!(control.release.id, release.id);
+        }
+        assert_eq!(
+            service_api::get_control(&connection, "AC-2").await,
+            Err(ServiceCallError::InvalidArgument)
+        );
 
         let fetched = service_api::get_assessment(&connection, &created.id)
             .await

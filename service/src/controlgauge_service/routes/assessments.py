@@ -1,7 +1,9 @@
 """Assessment create/list/get (S2-03).
 
 Authenticated like every route (`auth.py` middleware; there is no opt-out).
-An assessment must reference an existing framework. Explicit control
+An assessment must reference an existing framework, and is pinned at
+creation to that framework's current catalog release (if one is imported);
+the pin never changes (PD-013/PD-015). Explicit control
 scoping (baseline/subset, `OPEN_QUESTIONS.md` P-1) and cloning (P-2) are
 deferred by owner decision PD-006, so creation takes only a name, an
 optional description, and the framework.
@@ -22,11 +24,13 @@ from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
 from pydantic_core import PydanticCustomError
 from sqlalchemy import func, select
 
+from ..catalog_import import current_release_id
 from ..db import Database
 from ..db.models import (
     ASSESSMENT_DESCRIPTION_MAX,
     ASSESSMENT_NAME_MAX,
     Assessment,
+    CatalogRelease,
     Framework,
 )
 from .deps import get_database
@@ -97,11 +101,20 @@ class FrameworkRef(BaseModel):
     version: str
 
 
+class CatalogReleaseRef(BaseModel):
+    id: str
+    version: str
+    title: str
+
+
 class AssessmentOut(BaseModel):
     id: str
     name: str
     description: str | None
     framework: FrameworkRef
+    #: The pinned catalog release; null only if the framework had no
+    #: imported catalog when the assessment was created and still has none.
+    catalog_release: CatalogReleaseRef | None
     created_at: datetime
 
 
@@ -112,13 +125,28 @@ class AssessmentList(BaseModel):
     offset: int
 
 
-def _to_out(assessment: Assessment, framework: Framework) -> AssessmentOut:
+def _to_out(
+    assessment: Assessment, framework: Framework, release: CatalogRelease | None
+) -> AssessmentOut:
     return AssessmentOut(
         id=assessment.id,
         name=assessment.name,
         description=assessment.description,
         framework=FrameworkRef(id=framework.id, name=framework.name, version=framework.version),
+        catalog_release=(
+            CatalogReleaseRef(id=release.id, version=release.version, title=release.title)
+            if release is not None
+            else None
+        ),
         created_at=assessment.created_at,
+    )
+
+
+def _with_framework_and_release() -> Any:
+    return (
+        select(Assessment, Framework, CatalogRelease)
+        .join(Framework, Assessment.framework_id == Framework.id)
+        .outerjoin(CatalogRelease, Assessment.catalog_release_id == CatalogRelease.id)
     )
 
 
@@ -146,15 +174,18 @@ def create_assessment(body: AssessmentCreate, database: DatabaseDep) -> Assessme
                     }
                 ],
             )
+        release_id = current_release_id(session, framework.id)
         assessment = Assessment(
             id=str(uuid.uuid4()),
             framework_id=framework.id,
+            catalog_release_id=release_id,
             name=body.name,
             description=body.description,
         )
         session.add(assessment)
         session.flush()
-        return _to_out(assessment, framework)
+        release = session.get(CatalogRelease, release_id) if release_id is not None else None
+        return _to_out(assessment, framework, release)
 
 
 @router.get("/assessments")
@@ -166,14 +197,13 @@ def list_assessments(
     with database.session() as session:
         total = session.scalar(select(func.count()).select_from(Assessment)) or 0
         rows: Any = session.execute(
-            select(Assessment, Framework)
-            .join(Framework, Assessment.framework_id == Framework.id)
+            _with_framework_and_release()
             .order_by(Assessment.created_at.desc(), Assessment.id.desc())
             .limit(limit)
             .offset(offset)
         ).all()
         return AssessmentList(
-            assessments=[_to_out(a, f) for a, f in rows],
+            assessments=[_to_out(a, f, r) for a, f, r in rows],
             total=total,
             limit=limit,
             offset=offset,
@@ -190,10 +220,8 @@ def get_assessment(assessment_id: str, database: DatabaseDep) -> AssessmentOut:
         raise _not_found()
     with database.session() as session:
         row = session.execute(
-            select(Assessment, Framework)
-            .join(Framework, Assessment.framework_id == Framework.id)
-            .where(Assessment.id == canonical)
+            _with_framework_and_release().where(Assessment.id == canonical)
         ).first()
         if row is None:
             raise _not_found()
-        return _to_out(row[0], row[1])
+        return _to_out(row[0], row[1], row[2])

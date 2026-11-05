@@ -207,6 +207,10 @@ Not recorded for this run: the exact Windows edition and build, the install dura
 the installer that was used, and a `validate-installed-windows.ps1` report. If a later run needs
 check-by-check evidence, run the validator and attach its report.
 
+**R-04 retest of the rebranded (ControlGauge) installer (2026-11-03, owner).** Passed. The
+owner ran the rebranded executable on a clean machine and reported that it worked well (PD-014).
+Not recorded: Windows edition/build, install duration, installer SHA-256, validator report.
+
 **Automated CI (separate from the manual test).** The **Packaged service (Windows, PyInstaller)**
 job freezes the service with `scripts/package-windows.ps1 -ServiceOnly` and runs the supervised
 end-to-end suite against the frozen executable on `windows-latest`. CI does not build the NSIS

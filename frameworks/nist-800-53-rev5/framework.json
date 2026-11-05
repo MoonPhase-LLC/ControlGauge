@@ -2,5 +2,50 @@
   "id": "nist-800-53-rev5",
   "name": "NIST SP 800-53",
   "version": "Revision 5",
-  "source_reference": "NIST Special Publication 800-53 Revision 5, Security and Privacy Controls for Information Systems and Organizations. https://doi.org/10.6028/NIST.SP.800-53r5"
+  "source_reference": "NIST Special Publication 800-53 Revision 5, Security and Privacy Controls for Information Systems and Organizations. https://doi.org/10.6028/NIST.SP.800-53r5",
+  "catalog": {
+    "format": "oscal-catalog-json",
+    "path": "oscal/NIST_SP-800-53_rev5_catalog-min.json",
+    "sha256": "d820835aa54aeb2265bdacdf8e678af7530443a59556563df898addf012024cb",
+    "release_version": "5.2.0",
+    "source": {
+      "repository_url": "https://github.com/usnistgov/oscal-content",
+      "release_url": "https://github.com/usnistgov/oscal-content/releases/tag/v1.5.0",
+      "tag": "v1.5.0",
+      "commit": "78650f02ad9321bb7b817846f8fbd4f2bcd620de",
+      "file_url": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.5.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_catalog-min.json"
+    },
+    "license_notice": "This content is a work of the United States Government and is in the public domain within the United States. Copyright and related rights are waived worldwide through the CC0 1.0 Universal public domain dedication (https://creativecommons.org/publicdomain/zero/1.0/). See oscal/UPSTREAM_LICENSE.md.",
+    "attribution": "Control text: National Institute of Standards and Technology (NIST), SP 800-53 Release 5.2.0, published in OSCAL by NIST in usnistgov/oscal-content v1.5.0. Displayed verbatim. NIST does not endorse this product."
+  },
+  "profiles": [
+    {
+      "id": "low",
+      "format": "oscal-profile-json",
+      "path": "oscal/NIST_SP-800-53_rev5_LOW-baseline_profile-min.json",
+      "sha256": "09928e76e21f70455818e6acfd785a87cb6fae500f2342a38fd8cbcc44227102",
+      "file_url": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.5.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_LOW-baseline_profile-min.json"
+    },
+    {
+      "id": "moderate",
+      "format": "oscal-profile-json",
+      "path": "oscal/NIST_SP-800-53_rev5_MODERATE-baseline_profile-min.json",
+      "sha256": "117d5c5392126f6f4107809858e30086edf903df01d99aebf2b0543d6caf581f",
+      "file_url": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.5.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_MODERATE-baseline_profile-min.json"
+    },
+    {
+      "id": "high",
+      "format": "oscal-profile-json",
+      "path": "oscal/NIST_SP-800-53_rev5_HIGH-baseline_profile-min.json",
+      "sha256": "602b2f705e840faba552f86f89d848a5ae66b776e244f04667bd24cec7554bff",
+      "file_url": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.5.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_HIGH-baseline_profile-min.json"
+    },
+    {
+      "id": "privacy",
+      "format": "oscal-profile-json",
+      "path": "oscal/NIST_SP-800-53_rev5_PRIVACY-baseline_profile-min.json",
+      "sha256": "dc834de94de407dad6a281edffc466125281459d37525a54e3a853258b5e08d7",
+      "file_url": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.5.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_PRIVACY-baseline_profile-min.json"
+    }
+  ]
 }

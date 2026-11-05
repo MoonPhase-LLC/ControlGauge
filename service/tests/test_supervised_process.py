@@ -37,6 +37,8 @@ import pytest
 from controlgauge_service import b64url, protocol
 from controlgauge_service.challenge import DOMAIN_SEPARATOR
 
+from .conftest import SeedDataDir
+
 _READY_TIMEOUT_SECONDS = 15.0
 _SHORT_TIMEOUT_SECONDS = 5.0
 
@@ -201,8 +203,10 @@ class _FakeTauri:
 
 
 @pytest.fixture
-def tauri(service_argv: list[str], tmp_path: Path) -> Iterator[_FakeTauri]:
-    fake = _FakeTauri(process=_spawn(service_argv, tmp_path))
+def tauri(
+    service_argv: list[str], tmp_path: Path, seed_data_dir: SeedDataDir
+) -> Iterator[_FakeTauri]:
+    fake = _FakeTauri(process=_spawn(service_argv, seed_data_dir(tmp_path)))
     try:
         yield fake
     finally:
@@ -274,7 +278,11 @@ def test_assessment_persists_across_a_real_service_restart(
 ) -> None:
     """Sprint 2 exit criterion, against the real (or `--service-exe` frozen)
     process: create over the authenticated channel, stop the process, start
-    a new one on the same data directory, and read the assessment back."""
+    a new one on the same data directory, and read the assessment back.
+
+    Sprint 3: the data directory starts empty, so this also proves the
+    process (including the frozen one) imports the shipped catalog on first
+    start, pins the new assessment to it, and keeps that pin on restart."""
     auth = {"Authorization": f"Bearer {VALID_TOKEN}"}
 
     first = _FakeTauri(process=_spawn(service_argv, tmp_path))
@@ -284,6 +292,8 @@ def test_assessment_persists_across_a_real_service_restart(
             f"{first.base_url()}/frameworks", headers=auth, timeout=_SHORT_TIMEOUT_SECONDS
         ).json()["frameworks"]
         assert [f["id"] for f in frameworks] == ["nist-800-53-rev5"]
+        release = frameworks[0]["current_release"]
+        assert release is not None and frameworks[0]["control_count"] > 0
         created = httpx.post(
             f"{first.base_url()}/assessments",
             json={"name": "Restart check", "framework_id": "nist-800-53-rev5"},
@@ -291,6 +301,7 @@ def test_assessment_persists_across_a_real_service_restart(
             timeout=_SHORT_TIMEOUT_SECONDS,
         )
         assert created.status_code == 201
+        assert created.json()["catalog_release"] == release
         unauthenticated = httpx.get(
             f"{first.base_url()}/assessments", timeout=_SHORT_TIMEOUT_SECONDS
         )
@@ -306,6 +317,13 @@ def test_assessment_persists_across_a_real_service_restart(
             f"{second.base_url()}/assessments", headers=auth, timeout=_SHORT_TIMEOUT_SECONDS
         ).json()
         assert [a["id"] for a in listed["assessments"]] == [created.json()["id"]]
+        assert listed["assessments"][0]["catalog_release"] == release
+        controls = httpx.get(
+            f"{second.base_url()}/catalog-releases/{release['id']}/controls",
+            headers=auth,
+            timeout=_SHORT_TIMEOUT_SECONDS,
+        ).json()
+        assert controls["total"] == frameworks[0]["control_count"]
         _shutdown_cleanly(second)
     finally:
         second.terminate_and_capture()

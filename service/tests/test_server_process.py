@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from .conftest import VALID_TOKEN
+from .conftest import VALID_TOKEN, SeedDataDir
 
 WRONG_TOKEN = "wrong-token-entirely-different-value12"
 
@@ -165,9 +165,9 @@ def _spawn_service(
 
 
 @pytest.fixture
-def running_service(tmp_path: Path) -> Iterator[_RunningService]:
+def running_service(tmp_path: Path, seed_data_dir: SeedDataDir) -> Iterator[_RunningService]:
     """A real subprocess with a valid session credential configured."""
-    port, process = _spawn_service(session_token=VALID_TOKEN, data_dir=tmp_path)
+    port, process = _spawn_service(session_token=VALID_TOKEN, data_dir=seed_data_dir(tmp_path))
     service = _RunningService(port=port, process=process)
     try:
         yield service
@@ -176,9 +176,11 @@ def running_service(tmp_path: Path) -> Iterator[_RunningService]:
 
 
 @pytest.fixture
-def running_service_without_credential(tmp_path: Path) -> Iterator[_RunningService]:
+def running_service_without_credential(
+    tmp_path: Path, seed_data_dir: SeedDataDir
+) -> Iterator[_RunningService]:
     """A real subprocess with no session credential configured at all."""
-    port, process = _spawn_service(session_token=None, data_dir=tmp_path)
+    port, process = _spawn_service(session_token=None, data_dir=seed_data_dir(tmp_path))
     service = _RunningService(port=port, process=process)
     try:
         yield service

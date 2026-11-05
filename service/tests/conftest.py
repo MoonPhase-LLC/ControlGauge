@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import shutil
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -94,3 +96,34 @@ def client(make_client: Callable[..., TestClient]) -> TestClient:
 @pytest.fixture
 def auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {VALID_TOKEN}"}
+
+
+SeedDataDir = Callable[[Path], Path]
+
+
+@pytest.fixture(scope="session")
+def catalog_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A database migrated to head with the shipped framework catalogs
+    imported, built once per test session. Importing a full catalog takes
+    about a second, so tests that only need *a* ready database start from a
+    copy of this one; tests about migration and import themselves
+    (`test_db_foundation.py`, `test_catalog_import.py`, the restart test in
+    `test_supervised_process.py`) still start from an empty directory."""
+    from controlgauge_service import storage
+    from controlgauge_service.db import initialize_database
+
+    directory = tmp_path_factory.mktemp("catalog-template")
+    initialize_database(directory).dispose()
+    return storage.database_path(directory)
+
+
+@pytest.fixture
+def seed_data_dir(catalog_template: Path) -> SeedDataDir:
+    """Copies the template database into `data_dir` (created if needed)."""
+
+    def _seed(data_dir: Path) -> Path:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(catalog_template, data_dir / catalog_template.name)
+        return data_dir
+
+    return _seed

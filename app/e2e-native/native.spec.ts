@@ -203,6 +203,35 @@ test("real app: an assessment created in the UI persists across an app restart",
   }
 });
 
+test("real app: the shipped catalog is browsable and official text is labeled", async () => {
+  const launched = await launch();
+  try {
+    const { page } = launched;
+    await expect(page.getByRole("region", { name: "Local service" }).getByText("Service ready")).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Framework catalog" }).click();
+    await expect(page.getByText(/Showing 100 of \d+/)).toBeVisible({ timeout: 10_000 });
+
+    // Search goes through Rust (percent-encoded) to the real service.
+    await page.getByRole("searchbox", { name: "Search identifiers and titles" }).fill("account management");
+    await page.getByRole("button", { name: "Search" }).click();
+    const item = page.getByRole("list", { name: "Controls" }).getByRole("button", { name: /Account Management/ });
+    await expect(item.first()).toBeVisible({ timeout: 10_000 });
+    await item.first().click();
+
+    await expect(page.getByRole("heading", { level: 1, name: "Account Management" })).toBeVisible({ timeout: 10_000 });
+    const official = page.getByRole("region", { name: "Official text" }).first();
+    await expect(official).toContainText("does not endorse");
+    await expect(official).toContainText("Define and document the types of accounts allowed");
+    await expect(page.getByRole("heading", { name: /^Enhancements \(\d+\)$/ })).toBeVisible();
+
+    expect(await closeGracefully(launched)).toBe(0);
+  } finally {
+    if (launched.app.exitCode === null) launched.app.kill();
+  }
+});
+
 test("real app: service crash revokes readiness and clears health", async () => {
   const launched = await launch();
   try {

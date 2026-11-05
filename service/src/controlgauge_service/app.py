@@ -34,6 +34,7 @@ from .config import Settings
 from .credentials import CredentialStore
 from .db import Database
 from .routes.assessments import router as assessments_router
+from .routes.catalog import router as catalog_router
 from .routes.challenge import CHALLENGE_PATH
 from .routes.challenge import router as challenge_router
 from .routes.errors import install_error_handlers
@@ -103,6 +104,7 @@ def create_app(
     install_error_handlers(app)
     app.include_router(frameworks_router)
     app.include_router(assessments_router)
+    app.include_router(catalog_router)
     if startup_challenge is not None:
         app.include_router(challenge_router)
 

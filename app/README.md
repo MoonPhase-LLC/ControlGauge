@@ -42,6 +42,12 @@ architecture it implements. In brief:
   closed schemas. Failures reach the frontend as a `kind`-tagged
   `ServiceCallError`; only the service's documented, bounded error shape is
   relayed (`api_error`). A transport failure fails closed like `/health`.
+- Sprint 3 adds `get_catalog_release(id)`, `list_catalog_controls(releaseId, query)` and
+  `get_control(id)` with the same guarantees. The one free-text value, the catalog search, is
+  limited to 100 characters, refused if it holds control characters, and percent-encoded in Rust
+  before it becomes part of a request. The Framework catalog screens render official text only as
+  text nodes, inside a region labeled "Official text" with the source attribution
+  (`src/components/catalog/`).
 
 ## Frontend conventions (S1-05)
 

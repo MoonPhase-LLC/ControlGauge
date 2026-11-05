@@ -4,10 +4,12 @@ import { vi } from "vitest";
 import type {
   ApiFieldError,
   Assessment,
+  ControlQuery,
   FrameworkSummary,
   HealthResponse,
   SupervisorState,
 } from "@/service/types";
+import { CONTROLS, RELEASE, RELEASE_SUMMARY } from "./catalogFixture";
 
 // Test-only helpers for the frontend's IPC boundary. Uses Tauri's official
 // `mockIPC`, so the real `invoke` path in `src/service/commands.ts` runs
@@ -40,10 +42,19 @@ export const FRAMEWORK: FrameworkSummary = {
   name: "Test Framework",
   version: "Revision 1",
   source_reference: null,
-  control_count: 0,
+  control_count: 3,
+  current_release: RELEASE_SUMMARY,
 };
 
-const DATA_COMMANDS = ["list_frameworks", "list_assessments", "get_assessment", "create_assessment"] as const;
+const DATA_COMMANDS = [
+  "list_frameworks",
+  "list_assessments",
+  "get_assessment",
+  "create_assessment",
+  "get_catalog_release",
+  "list_catalog_controls",
+  "get_control",
+] as const;
 type DataCommand = (typeof DATA_COMMANDS)[number];
 
 export function apiError(status: number, code: string, message: string, fields: ApiFieldError[] = []) {
@@ -105,10 +116,53 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
           name: input.name.trim(),
           description: input.description,
           framework: { id: framework.id, name: framework.name, version: framework.version },
+          catalog_release: framework.current_release,
           created_at: `2026-11-02T12:00:${String(seq).padStart(2, "0")}Z`,
         };
         assessments.unshift(created);
         return created;
+      }
+      case "get_catalog_release": {
+        if (args.id !== RELEASE.id) throw apiError(404, "catalog_release_not_found", "The catalog release was not found.");
+        return RELEASE;
+      }
+      case "list_catalog_controls": {
+        if (args.releaseId !== RELEASE.id) {
+          throw apiError(404, "catalog_release_not_found", "The catalog release was not found.");
+        }
+        const q = args.query as ControlQuery;
+        const baseline = RELEASE.baselines.find((b) => b.id === q.baselineId);
+        const term = q.search?.trim().toLowerCase() ?? "";
+        const matching = CONTROLS.filter(
+          (c) =>
+            (!q.familyId || c.family?.id === q.familyId) &&
+            (!baseline ||
+              c.baselines.includes(baseline.identifier) ||
+              c.enhancements.some((e) => e.baselines.includes(baseline.identifier))) &&
+            (!term ||
+              [c.identifier, c.title, ...c.enhancements.flatMap((e) => [e.identifier, e.title])].some((v) =>
+                v.toLowerCase().includes(term),
+              )),
+        );
+        return {
+          controls: matching.slice(q.offset, q.offset + q.limit).map((c) => ({
+            id: c.id,
+            identifier: c.identifier,
+            title: c.title,
+            status: c.status,
+            family_id: c.family?.id ?? null,
+            enhancement_count: c.enhancements.length,
+            baselines: c.baselines,
+          })),
+          total: matching.length,
+          limit: q.limit,
+          offset: q.offset,
+        };
+      }
+      case "get_control": {
+        const found = CONTROLS.find((c) => c.id === args.id);
+        if (!found) throw apiError(404, "control_not_found", "The control was not found.");
+        return found;
       }
     }
   }

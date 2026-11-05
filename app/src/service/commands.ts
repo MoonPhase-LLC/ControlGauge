@@ -2,6 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   Assessment,
   AssessmentList,
+  CatalogRelease,
+  ControlDetail,
+  ControlList,
+  ControlQuery,
   FrameworkSummary,
   HealthResponse,
   NewAssessment,
@@ -41,4 +45,16 @@ export function getAssessment(id: string): Promise<Assessment> {
 
 export function createAssessment(input: NewAssessment): Promise<Assessment> {
   return invoke<Assessment>("create_assessment", { input });
+}
+
+export function getCatalogRelease(id: string): Promise<CatalogRelease> {
+  return invoke<CatalogRelease>("get_catalog_release", { id });
+}
+
+export function listCatalogControls(releaseId: string, query: ControlQuery): Promise<ControlList> {
+  return invoke<ControlList>("list_catalog_controls", { releaseId, query });
+}
+
+export function getControl(id: string): Promise<ControlDetail> {
+  return invoke<ControlDetail>("get_control", { id });
 }

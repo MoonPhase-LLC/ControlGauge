@@ -26,6 +26,7 @@ const FRAMEWORK = {
   version: "Revision 1",
   source_reference: null,
   control_count: 0,
+  current_release: null,
 };
 const assessments: Assessment[] = [];
 

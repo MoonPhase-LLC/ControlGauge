@@ -110,6 +110,33 @@ async fn create_assessment(
     service_api::create_assessment(&ready(&state).await?, &input).await
 }
 
+// --- Sprint 3 (S3-05): catalog browsing commands (same shape as above) ---
+
+#[tauri::command]
+async fn get_catalog_release(
+    state: tauri::State<'_, SupervisorHandle>,
+    id: String,
+) -> Result<service_api::CatalogRelease, ServiceCallError> {
+    service_api::get_catalog_release(&ready(&state).await?, &id).await
+}
+
+#[tauri::command]
+async fn list_catalog_controls(
+    state: tauri::State<'_, SupervisorHandle>,
+    release_id: String,
+    query: service_api::ControlQuery,
+) -> Result<service_api::ControlList, ServiceCallError> {
+    service_api::list_catalog_controls(&ready(&state).await?, &release_id, &query).await
+}
+
+#[tauri::command]
+async fn get_control(
+    state: tauri::State<'_, SupervisorHandle>,
+    id: String,
+) -> Result<service_api::ControlDetail, ServiceCallError> {
+    service_api::get_control(&ready(&state).await?, &id).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let supervisor_handle = SupervisorHandle::new();
@@ -131,7 +158,10 @@ pub fn run() {
             list_frameworks,
             list_assessments,
             get_assessment,
-            create_assessment
+            create_assessment,
+            get_catalog_release,
+            list_catalog_controls,
+            get_control
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();
