@@ -53,5 +53,6 @@ def initialize_database(data_dir: Path | None = None) -> Database:
         logger.error("framework_sync_failed", extra={"exc_type": type(exc).__name__})
         raise DatabaseInitError("framework_sync_failed") from None
 
+    database.data_dir = resolved
     logger.info("database_ready", extra={"schema_revision": revision})
     return database
