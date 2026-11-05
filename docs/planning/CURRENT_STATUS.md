@@ -61,7 +61,7 @@ Last updated: 2026-11-05 (Sprint 4 S4-01..S4-06 implemented/verified; PR opened 
 - `app/src-tauri`: `cargo fmt --check`, `cargo clippy -D warnings` clean; `cargo test` → 112 passed.
 - `app`: `npm run lint`, `typecheck:test`, `build` exit 0; Vitest → 61 passed; Playwright
   browser → 2 passed; native Windows smoke (`test:e2e:native`) → 5 passed.
-- CI: pending on PR #19.
+- CI on PR #19 (run 42120874860): all checks pass; Windows service job 576 passed, 5 skipped (containment harness ran, not skipped); frozen worker in the sandbox 4 passed; supervised frozen suite 13 passed.
 - Graphify: `graphify update .` (AST only, local) → 2,518 nodes, 6,130 edges.
 
 ## Update log (newest first; keep to one line each)
