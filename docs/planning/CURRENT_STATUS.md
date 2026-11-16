@@ -45,11 +45,14 @@ Last updated: 2026-11-05 (Sprint 4 merged, PR #19).
 - Flaky test to watch: one `cargo test` run in seven had one failure (run took 28 s instead of
   14 s) that did not reproduce in six later runs, including under load; the failing test's name
   was not captured. The new round-trip parse wait was raised from 10 s to 30 s as a precaution.
-- Housekeeping for the owner (blocked for the agent by the permission classifier): delete merged
-  branches `claude/sprint-2-assessment-db`, `claude/sprint-3-framework-engine` (local and
-  `origin`). Left for the owner: `Codex/sprint-0-final-corrections`, `origin/chore/controlgauge-rebrand`
-  (merged, other authors), local `claude/sprint-0-review-fixes` (one unmerged commit adding the old
-  `AGENTS.md`). The untracked `AGENTS.md` (a current Codex copy of `CLAUDE.md`) is untouched.
+- Housekeeping (owner-instructed 2026-11-16, PD-019): delete the five merged branches
+  `claude/sprint-2-assessment-db`, `claude/sprint-3-framework-engine`, `claude/sprint-4-evidence-ingestion`,
+  `Codex/sprint-0-final-corrections`, `chore/controlgauge-rebrand` (local and `origin`). Merge status
+  was verified via `git branch --merged origin/main` first. Blocked on this machine: the owner's
+  fine-grained PAT (Xirro9) lacks push scope for this repo (HTTP 403), so remote deletion awaits owner
+  execution or a PAT scope update. `origin/claude/record-sprint-4-merge` is kept (unmerged docs).
+  `claude/sprint-0-review-fixes` (one unmerged commit, old `AGENTS.md`) exists only on the owner's
+  Windows machine.
 - Follow-up candidates: OSCAL part properties (S3-05); re-parse, DOCX headers/footers, OCR (S4-06).
 
 ## Last verified test results (local, Windows 11, 2026-11-05)
@@ -57,6 +60,16 @@ Last updated: 2026-11-05 (Sprint 4 merged, PR #19).
 - `service`: `uv lock --check`, `ruff check`, `ruff format --check`, `mypy` (75 files, also
   `--platform linux`) clean; `pytest` → 575 passed, 6 skipped; frozen exe supervised suite +
   frozen worker → 17 passed.
+
+## Last verified on Linux (2026-11-16, compatibility audit)
+
+- `service`: `uv sync --frozen` + `uv run pytest -q` on Linux (CPython 3.12.3) → **561 passed,
+  20 skipped** in 41 s; every skip is a Windows-only test (parser sandbox containment,
+  `GetDriveTypeW` probe). No Linux failures.
+- `app/src-tauri`: `cargo check --all-targets` on Linux → **Finished**, zero errors; one benign
+  dead-code warning (`JobObjectCreateFailed`/`JobObjectAssignFailed` never constructed off Windows).
+  The supervisor already has non-Windows dev/production resolution paths (`bin/python`,
+  `controlgauge-service` without `.exe`).
 - `app/src-tauri`: `cargo fmt --check`, `cargo clippy -D warnings` clean; `cargo test` → 112 passed.
 - `app`: `npm run lint`, `typecheck:test`, `build` exit 0; Vitest → 61 passed; Playwright
   browser → 2 passed; native Windows smoke (`test:e2e:native`) → 5 passed.
@@ -65,6 +78,7 @@ Last updated: 2026-11-05 (Sprint 4 merged, PR #19).
 
 ## Update log (newest first; keep to one line each)
 
+- 2026-11-16 — Owner-instructed branch cleanup recorded (PD-019; remote deletion blocked by PAT scope, 403). Linux compatibility audit: service pytest 561 passed/20 skipped on Linux; `cargo check` clean on Linux.
 - 2026-11-05 — PR #19 merged by owner instruction (PD-018), accepting `DATABASE.md` §9 and PD-016 implementation choices.
 - 2026-11-05 — Sprint 4 S4-01..S4-06 implemented/verified on one branch; graph refreshed; PR #19 opened.
 - 2026-11-05 — PR #18 merged by owner instruction (PD-017); S-1/S-2 resolved (PD-016, D-027).
