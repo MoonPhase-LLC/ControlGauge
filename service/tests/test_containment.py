@@ -6,9 +6,12 @@ is observably denied or terminated. These tests run `containment_probe.py`
 -- a hostile stand-in for an exploited parser -- inside the real sandbox
 and assert exactly that, then run the real parser worker end to end.
 
-Windows only: the sandbox is Windows-specific, and other platforms refuse
-to parse at all (`test_non_windows_refuses_to_parse`). CI runs this file on
-its Windows runner.
+The harness runs the real sandbox of the current platform: the LPAC
+AppContainer + Job Object boundary on Windows (D-027) and the bubblewrap
+sandbox on Linux (D-028) -- `_probe` and `ContainedRunner` dispatch per
+platform, with the win32 path byte-identical to the Sprint 4 harness.
+Platforms without a working sandbox skip with that reason, and
+`test_non_windows_refuses_to_parse` asserts the fail-closed contract there.
 """
 
 from __future__ import annotations
@@ -36,6 +39,19 @@ from .evidence_fixtures import docx_body, make_docx, make_pdf
 
 windows_only = pytest.mark.skipif(sys.platform != "win32", reason="Windows parser sandbox")
 
+
+def _sandbox_available() -> bool:
+    if sys.platform == "win32":
+        return True
+    if sys.platform != "linux":
+        return False
+    return ContainedRunner.available()
+
+
+sandboxed = pytest.mark.skipif(
+    not _sandbox_available(), reason="parser sandbox unavailable on this platform"
+)
+
 PROBE = Path(__file__).resolve().parent / "containment_probe.py"
 LIMITS = SandboxLimits(
     memory_bytes=256 * 1024 * 1024, cpu_seconds=3, wall_seconds=6, output_bytes=1024 * 1024
@@ -43,8 +59,6 @@ LIMITS = SandboxLimits(
 
 
 def _probe(*actions: str, limits_: SandboxLimits = LIMITS, input_path: Path) -> SandboxResult:
-    from controlgauge_service.evidence import sandbox_windows
-
     base = Path(getattr(sys, "_base_executable", sys.executable)).resolve()
     command = WorkerCommand(
         base,
@@ -53,7 +67,13 @@ def _probe(*actions: str, limits_: SandboxLimits = LIMITS, input_path: Path) -> 
     )
     scratch_root = input_path.parent / "parser-scratch"
     scratch_root.mkdir(exist_ok=True)
-    return sandbox_windows.run_contained(command, input_path, scratch_root, limits_)
+    if sys.platform == "win32":
+        from controlgauge_service.evidence import sandbox_windows
+
+        return sandbox_windows.run_contained(command, input_path, scratch_root, limits_)
+    from controlgauge_service.evidence import sandbox_linux
+
+    return sandbox_linux.run_contained(command, input_path, scratch_root, limits_)
 
 
 def _results(result: SandboxResult) -> dict[str, str]:
@@ -97,8 +117,13 @@ def loopback_listener() -> Iterator[int]:
     assert not accepted, "the sandboxed worker reached the loopback listener"
 
 
-@windows_only
+@sandboxed
 def test_worker_reads_only_its_own_input(data_dir: Path) -> None:
+    # A home file that exists on the current platform (the win32 literal is
+    # byte-identical to the Sprint 4 harness).
+    home_file = Path.home() / "NTUSER.DAT"
+    if sys.platform != "win32":
+        home_file = Path.home() / ".profile"
     results = _results(
         _probe(
             "stdin",
@@ -107,7 +132,7 @@ def test_worker_reads_only_its_own_input(data_dir: Path) -> None:
             f"list={data_dir}",
             f"read={data_dir / 'controlgauge.db'}",
             f"read={data_dir / 'input.bin'}",  # by path: not granted either
-            f"read={Path.home() / 'NTUSER.DAT'}",
+            f"read={home_file}",
             input_path=data_dir / "input.bin",
         )
     )
@@ -115,13 +140,18 @@ def test_worker_reads_only_its_own_input(data_dir: Path) -> None:
     assert results and all(v.startswith("denied") for v in results.values()), results
 
 
-@windows_only
+@sandboxed
 def test_worker_cannot_write_outside_its_scratch(data_dir: Path) -> None:
+    # A system-temp path per platform (the win32 literal is byte-identical
+    # to the Sprint 4 harness; inside the Linux sandbox /tmp does not exist).
+    outside_temp = r"write=C:\Windows\Temp\controlgauge-planted.txt"
+    if sys.platform != "win32":
+        outside_temp = "write=/tmp/controlgauge-planted.txt"
     results = _probe(
         f"write={data_dir / 'evidence' / 'planted.bin'}",
         f"write={data_dir / 'controlgauge.db'}",
         f"write={Path.home() / 'planted.txt'}",
-        r"write=C:\Windows\Temp\controlgauge-planted.txt",
+        outside_temp,
         "write=planted-in-scratch.txt",  # the working directory is the scratch dir
         input_path=data_dir / "input.bin",
     )
@@ -130,11 +160,12 @@ def test_worker_cannot_write_outside_its_scratch(data_dir: Path) -> None:
     assert all(v.startswith("denied") for v in out.values()), out
     assert (data_dir / "controlgauge.db").read_bytes().startswith(b"SQLite format 3")
     assert not (data_dir / "evidence" / "planted.bin").exists()
-    # The scratch directory is deleted after the parse.
+    # The scratch directory is deleted after the parse (on Linux the tmpfs
+    # scratch never touched the host disk, so there is nothing to delete).
     assert list((data_dir / "parser-scratch").iterdir()) == []
 
 
-@windows_only
+@sandboxed
 def test_worker_has_no_network(data_dir: Path, loopback_listener: int) -> None:
     out = _results(
         _probe(
@@ -148,7 +179,7 @@ def test_worker_has_no_network(data_dir: Path, loopback_listener: int) -> None:
     assert all(v.startswith("denied") for v in out.values()), out
 
 
-@windows_only
+@sandboxed
 def test_worker_environment_carries_no_secrets(
     data_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -156,25 +187,39 @@ def test_worker_environment_carries_no_secrets(
     monkeypatch.setenv("CONTROLGAUGE_DATA_DIR", str(data_dir))
     out = _results(_probe("env", input_path=data_dir / "input.bin"))
     names = set(out["env"].removeprefix("allowed:").split(","))
-    assert names <= {
-        "LOCALAPPDATA",
-        "PYTHONDONTWRITEBYTECODE",
-        "PYTHONIOENCODING",
-        "PYTHONUTF8",
-        "SYSTEMROOT",
-        "TEMP",
-        "TMP",
-        "USERPROFILE",
-    }, names
+    if sys.platform == "win32":
+        assert names <= {
+            "LOCALAPPDATA",
+            "PYTHONDONTWRITEBYTECODE",
+            "PYTHONIOENCODING",
+            "PYTHONUTF8",
+            "SYSTEMROOT",
+            "TEMP",
+            "TMP",
+            "USERPROFILE",
+        }, names
+    else:
+        # The bubblewrap worker env is --clearenv plus exactly the four
+        # --setenv variables. bwrap itself adds PWD (its chdir target) and
+        # the interpreter's C-locale coercion adds LC_CTYPE: fixed values,
+        # nothing inherited, no CONTROLGAUGE_* or token-bearing variable.
+        assert names <= {
+            "LC_CTYPE",
+            "PWD",
+            "PYTHONDONTWRITEBYTECODE",
+            "PYTHONIOENCODING",
+            "PYTHONUTF8",
+            "TMPDIR",
+        }, names
 
 
-@windows_only
+@sandboxed
 def test_worker_cannot_start_processes(data_dir: Path) -> None:
     out = _results(_probe("spawn", input_path=data_dir / "input.bin"))
     assert out["spawn"].startswith("denied")
 
 
-@windows_only
+@sandboxed
 def test_memory_bound(data_dir: Path) -> None:
     result = _probe("alloc", input_path=data_dir / "input.bin")
     # Either the allocation fails inside the worker or the job kills it.
@@ -184,7 +229,7 @@ def test_memory_bound(data_dir: Path) -> None:
         assert result.outcome == "memory_limit"
 
 
-@windows_only
+@sandboxed
 def test_cpu_bound(data_dir: Path) -> None:
     # A wide wall-clock margin so a loaded machine still reaches the CPU
     # bound first (the CPU limit counts only time actually scheduled).
@@ -196,14 +241,14 @@ def test_cpu_bound(data_dir: Path) -> None:
     assert interpret(result).detail == "cpu_limit"
 
 
-@windows_only
+@sandboxed
 def test_wall_clock_bound(data_dir: Path) -> None:
     result = _probe("sleep", input_path=data_dir / "input.bin")
     assert result.outcome == "timeout"
     assert interpret(result).status == "failed"
 
 
-@windows_only
+@sandboxed
 def test_output_bound(data_dir: Path) -> None:
     result = _probe("flood", input_path=data_dir / "input.bin")
     assert result.outcome == "output_limit"
@@ -221,7 +266,7 @@ def test_no_sandbox_profiles_are_left_behind(data_dir: Path) -> None:
 # --- the real worker, contained ----------------------------------------------------------
 
 
-@windows_only
+@sandboxed
 @pytest.mark.parametrize(
     ("fmt", "data", "needle"),
     [
@@ -242,7 +287,7 @@ def test_real_worker_parses_inside_the_sandbox(
     assert needle in outcome.sections[0][0]
 
 
-@windows_only
+@sandboxed
 def test_hostile_document_is_contained_end_to_end(tmp_path: Path) -> None:
     """A decompression bomb through the real worker: refused, bounded, and
     the service gets a fixed category back."""

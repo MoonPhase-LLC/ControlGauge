@@ -31,8 +31,10 @@ Each parse runs in a fresh bubblewrap sandbox that is:
 - **Bounded by rlimits the worker cannot raise.** bwrap >= 0.6 removed its
   rlimit options, so a fixed, trusted bootstrap sets RLIMIT_AS / RLIMIT_CPU /
   RLIMIT_NPROC=1 / RLIMIT_CORE=0 / RLIMIT_NOFILE before `execv`-ing the real
-  worker command (soft=hard, and the sandbox user namespace has no
-  CAP_SYS_RESOURCE in the initial namespace, so the worker cannot raise them).
+  worker command (soft=hard, except RLIMIT_CPU where hard = soft + 1 so the
+  kernel sends SIGXCPU at the soft limit rather than skipping straight to
+  SIGKILL, and the sandbox user namespace has no CAP_SYS_RESOURCE in the
+  initial namespace, so the worker cannot raise them).
   RLIMIT_NPROC=1 means the worker itself occupies the only process slot:
   fork() fails with EAGAIN -- the analogue of the Job Object's
   ActiveProcessLimit=1. RLIMIT_CORE=0 keeps evidence-bearing core dumps off
@@ -98,23 +100,29 @@ def _limits_bootstrap(command: WorkerCommand, limits: SandboxLimits) -> str:
 
     bwrap >= 0.6 has no rlimit options, so the limits are set from inside.
     The bootstrap is fixed code; the untrusted worker only starts after the
-    limits are in force. soft == hard for every limit, and raising a hard
-    limit requires CAP_SYS_RESOURCE in the *initial* user namespace, which
-    the sandboxed process does not have (its capabilities are confined to
-    the new one) -- the worker cannot undo the bounds. `execv` preserves
-    rlimits, env and cwd and creates no extra process, so the one-process
-    property (RLIMIT_NPROC=1) survives: the worker itself occupies the only
-    process slot and fork() fails with EAGAIN. `Popen(preexec_fn=...)` was
-    rejected as the alternative: it is documented unsafe in multithreaded
-    parents and the service is multithreaded; this bootstrap runs
-    single-threaded inside the sandbox child instead.
+    limits are in force. soft == hard for every limit except RLIMIT_CPU,
+    where soft = cpu_seconds and hard = cpu_seconds + 1: with soft == hard
+    this kernel delivers SIGKILL at the (equal) hard limit and the worker
+    never sees SIGXCPU, while a separate hard limit makes the kernel send
+    SIGXCPU at the soft limit first (default disposition: terminate) -- the
+    spec'd signal -- and SIGKILL only if the worker installs a handler and
+    keeps running. Raising a hard limit requires CAP_SYS_RESOURCE in the
+    *initial* user namespace, which the sandboxed process does not have
+    (its capabilities are confined to the new one) -- the worker cannot
+    undo the bounds. `execv` preserves rlimits, env and cwd and creates no
+    extra process, so the one-process property (RLIMIT_NPROC=1) survives:
+    the worker itself occupies the only process slot and fork() fails with
+    EAGAIN. `Popen(preexec_fn=...)` was rejected as the alternative: it is
+    documented unsafe in multithreaded parents and the service is
+    multithreaded; this bootstrap runs single-threaded inside the sandbox
+    child instead.
     """
     argv = [str(command.executable), *command.args]
     cpu = int(limits.cpu_seconds)
     return (
         "import os,resource;"
         f"resource.setrlimit(resource.RLIMIT_AS,({limits.memory_bytes},{limits.memory_bytes}));"
-        f"resource.setrlimit(resource.RLIMIT_CPU,({cpu},{cpu}));"
+        f"resource.setrlimit(resource.RLIMIT_CPU,({cpu},{cpu + 1}));"
         "resource.setrlimit(resource.RLIMIT_NPROC,(1,1));"
         "resource.setrlimit(resource.RLIMIT_CORE,(0,0));"
         "resource.setrlimit(resource.RLIMIT_NOFILE,(64,64));"
@@ -334,7 +342,21 @@ def _collect(proc: subprocess.Popen[bytes], limits: SandboxLimits) -> SandboxRes
         return SandboxResult("output_limit", exit_code, b"")
     if timed_out:
         return SandboxResult("timeout", exit_code, b"")
-    if _signaled(status, signal.SIGXCPU) or exit_code == 128 + signal.SIGXCPU:
+    if (
+        _signaled(status, signal.SIGXCPU)
+        or exit_code == 128 + signal.SIGXCPU
+        or exit_code == 128 + signal.SIGKILL
+    ):
+        # Crossing the CPU budget surfaces as SIGXCPU (soft limit, default
+        # disposition: terminate) -- detected either as bwrap dying to the
+        # same signal or, since bwrap's signal propagation is
+        # version-dependent, as its 128+SIGXCPU exit code. The
+        # 128+SIGKILL exit code covers a worker that handles SIGXCPU and
+        # keeps running until the hard limit SIGKILLs it (bwrap reports a
+        # signal-killed child by exiting 128+sig), plus kernels that skip
+        # SIGXCPU when the limits were set equal. The service's own kills
+        # (timeout, output overflow) were handled above, so a surviving
+        # SIGKILL form is the kernel's, not ours.
         return SandboxResult("cpu_limit", exit_code, b"")
     if (
         _signaled(status, signal.SIGKILL)
