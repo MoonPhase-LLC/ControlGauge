@@ -291,7 +291,9 @@ def test_frozen_worker_parses_inside_the_sandbox(
     assert "Frozen worker text." in outcome.sections[0][0]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="non-Windows behavior")
+@pytest.mark.skipif(
+    ContainedRunner.available(), reason="a parser sandbox is available on this platform"
+)
 def test_non_windows_refuses_to_parse(tmp_path: Path) -> None:
     path = tmp_path / "in.txt"
     path.write_bytes(b"text")

@@ -145,6 +145,8 @@ class IngestionService:
     def start(self) -> None:
         self.store.reset_scratch()
         if sys.platform == "win32":
+            # Linux needs no equivalent: bubblewrap leaves no persistent
+            # per-parse state (tmpfs scratch; reset_scratch() covers the rest).
             try:
                 from .sandbox_windows import remove_stale_containers
 
