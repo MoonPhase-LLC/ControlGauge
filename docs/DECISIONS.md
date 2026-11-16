@@ -1016,6 +1016,89 @@ the worker's program directories (development: also the developer's base Python 
 Parsing is Windows-only until another platform gets an equivalent boundary. Sprint 13 hardens and
 re-tests this boundary adversarially; it does not replace it.
 
+*Note (added by D-028):* Linux parity is provided by a bubblewrap sandbox with the same D-022
+properties; parsing is no longer Windows-only.
+
+---
+
+## D-028: Linux parser containment: bubblewrap sandbox with equivalent D-022 properties
+
+**Status:** Accepted (owner, 2026-11-16, PD-021). Implements D-022 on Linux; the Windows mechanism
+remains D-027.
+
+**Context:** the 2026-11-16 Linux compatibility audit confirmed the service runs on Linux but
+parsing fails closed (D-027's "no other platform parses"). Owner approved bubblewrap as the
+mechanism ("Sprint 4.5"). Options weighed: bubblewrap (kernel-enforced namespaces, no new Python
+deps, no daemon); Docker (daemon with real privileges — contradicts the local-first posture);
+plain chroot (no network/process isolation); seccomp-only (no filesystem confinement). bwrap 0.9.0
+fact: the `--rlimit-*` options were removed upstream in bubblewrap 0.6.0, so the PD-016 limits are
+set by an in-sandbox trusted `setrlimit` → `execv` bootstrap instead.
+
+**Decision:** every parse runs in a fresh bubblewrap sandbox
+(`service/src/controlgauge_service/evidence/sandbox_linux.py`):
+
+- **Namespaced away from the host.** `--unshare-all` (pid, network, user, ipc, uts, cgroup, mount).
+  The network namespace has no interfaces (loopback down, unconfigured) and no resolver
+  configuration, so sockets cannot connect and DNS cannot resolve; `/proc` shows only the sandbox's
+  own processes.
+- **Given only what parsing needs.** Read-only binds expose the worker's program directories plus
+  the system code trees `/usr`, `/lib`, `/lib64` (the Linux analogue of D-027's system-DLL read
+  grant). The data directory, evidence store, database, home directory and `/etc` are **not bound
+  at all**: denial is enforced by the mount namespace (ENOENT), not by convention. bwrap-created
+  mountpoint directories (bind ancestors such as `$HOME`, the sandbox root, `/dev`, `/dev/shm`)
+  are pre-created or chmod'ed read-only (0555), so they accept no writes.
+- **Fed its input by read-only handle.** The trusted service opens the stored file O_RDONLY and
+  passes the fd as the sandbox's stdin; the worker never receives a path (`--file`/`--ro-bind` of
+  the input were rejected: both would hand the worker a path).
+- **Write-confined to a per-parse tmpfs.** The only writable location is `/scratch`, a 128 MiB,
+  mode-0700 tmpfs that exists only inside the mount namespace: worker writes never touch the disk
+  and vanish with the sandbox.
+- **Clean environment.** `--clearenv` plus exactly `TMPDIR`, `PYTHONDONTWRITEBYTECODE`,
+  `PYTHONIOENCODING`, `PYTHONUTF8`; bwrap is itself spawned with an empty environment. bwrap adds
+  `PWD` (its chdir target) and the interpreter's C-locale coercion adds `LC_CTYPE` — fixed values,
+  nothing inherited, no `CONTROLGAUGE_*` or token-bearing variable.
+- **Bounded by rlimits the worker cannot raise.** The fixed trusted bootstrap sets `RLIMIT_AS`
+  1 GiB (soft=hard), `RLIMIT_CPU` 60 s (soft=60, hard=61: with soft == hard this kernel delivers
+  SIGKILL at the equal hard limit and the worker never sees SIGXCPU, so the hard limit sits one
+  second above the soft limit to make SIGXCPU fire as intended; a worker that handles SIGXCPU is
+  SIGKILLed at the hard limit and still classified `cpu_limit`), `RLIMIT_NPROC` 1 (the worker
+  occupies the only process slot; fork() fails with EAGAIN — the ActiveProcessLimit analogue),
+  `RLIMIT_CORE` 0 (no evidence-bearing core dumps) and `RLIMIT_NOFILE` 64, then `execv`s the real
+  worker command. Raising a hard limit requires CAP_SYS_RESOURCE in the *initial* user namespace,
+  which the sandboxed process does not have. The service adds the 120 s wall-clock deadline and
+  the 48 MiB output cap, killing the sandbox on any breach, as on Windows.
+- **Short-lived and tied to the service.** `--die-with-parent` SIGKILLs the worker when bwrap or
+  the service dies; `--new-session` detaches it from any controlling terminal; a `finally` block
+  kills it on every error path.
+- **Output is untrusted:** validated by the same `evidence/ingest.py` path as on Windows.
+- **Availability is proven, not assumed.** `available()` is a cached end-to-end capability probe
+  (one contained empty-txt parse); any failure stays failed until restart and parsing fails closed
+  with `containment_unavailable`. Frozen Linux builds are refused
+  (`linux_frozen_bounds_unimplemented`) pending a bounded frozen packaging mechanism.
+
+**Deployment prerequisite (Linux):** Ubuntu 24.04 restricts unprivileged user namespaces
+(`kernel.apparmor_restrict_unprivileged_userns=1`); a per-binary AppArmor profile for
+`/usr/bin/bwrap` allowing userns is required (sample profile lives in `service/README.md`). Without
+it the probe fails and parsing fails closed **by design**; restart the service after installing
+the profile (the probe result is cached per process).
+
+**Evidence (containment harness, 2026-11-16, bwrap 0.9.0):** the D-022 harness runs on Linux: a
+hostile probe inside the sandbox is denied other evidence, the database, the data-dir listing,
+home files, writes outside scratch, a live loopback listener, outbound connect, DNS and process
+spawn; its environment carries the fixed variable set above. It is stopped at the memory bound
+(MemoryError under `RLIMIT_AS`), the CPU bound (SIGXCPU → `cpu_limit`), the wall-clock deadline
+and the output cap; the tmpfs scratch is size-bounded and leaves nothing on disk. The real worker
+parses all four formats contained and the 300 MB DOCX bomb is refused end to end. bwrap-missing
+and probe-failure paths return `containment_unavailable`. Linux suite: **578 passed, 7 skipped**
+(ruff, ruff format, mypy clean). Windows suite unchanged: **575 passed, 6 skipped**.
+
+**Consequences:** parsing is no longer Windows-only. Linux adds no persistent per-parse state — no
+`remove_stale_containers` equivalent (the scratch is a tmpfs inside an ephemeral mount namespace,
+and `store.reset_scratch()` still wipes the host-side `parser-scratch/` at startup). bwrap ≥ 0.9.0
+assumed (tested 0.9.0; no runtime version check — an older bwrap fails the probe and the app fails
+closed). `RLIMIT_AS` bounds virtual address space, not resident set — cgroup-v2 accuracy deferred.
+Sprint 13 adversarial hardening covers the Linux boundary alongside the Windows one.
+
 ---
 
 *(Further decisions should be appended below as they are made during Sprint 1+ implementation.)*

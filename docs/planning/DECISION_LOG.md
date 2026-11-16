@@ -1,7 +1,7 @@
 # Continuum Decision Log
 
 Execution and planning decisions only. Architectural decisions live in
-[`docs/DECISIONS.md`](../DECISIONS.md) (D-001..D-027) and are not duplicated or overridden here;
+[`docs/DECISIONS.md`](../DECISIONS.md) (D-001..D-028) and are not duplicated or overridden here;
 product/security questions awaiting the owner live in [`docs/OPEN_QUESTIONS.md`](../OPEN_QUESTIONS.md).
 Navigation: [CURRENT_STATUS](CURRENT_STATUS.md) · [MASTER_PLAN](MASTER_PLAN.md) ·
 [BATCH_JOBS](BATCH_JOBS.md) · [EXECUTION_RULES](EXECUTION_RULES.md)
@@ -29,6 +29,7 @@ Format: `PD-NNN — date — decision — rationale — who decided`. Append onl
 | PD-018 | 2026-11-05 | PR #19 (Sprint 4) merged by owner instruction, which accepts `DATABASE.md` §9 and the PD-016 implementation choices | Owner instruction ("merge the new branch") | Owner |
 | PD-019 | 2026-11-16 | Owner-instructed branch cleanup: delete merged branches `claude/sprint-2-assessment-db`, `claude/sprint-3-framework-engine`, `claude/sprint-4-evidence-ingestion`, `Codex/sprint-0-final-corrections`, `chore/controlgauge-rebrand` (local + `origin`). Merge status verified via `git branch --merged origin/main` before deletion. Execution note: deletions were executed on `origin` 2026-11-16 via an owner-provided PAT with push scope (the stored fine-grained PAT lacked this repo and returned HTTP 403), then verified with `git fetch --prune`. `claude/sprint-0-review-fixes` (one unmerged commit, old `AGENTS.md`) exists only on the owner's Windows machine | Owner instruction ("clean up the repo and the trees") | Owner |
 | PD-020 | 2026-11-16 | Owner-instructed landing of pending docs ("merge anything available and fix any issues"): PR #20 (PD-018 Sprint 4 doc sync) merged via API at `b442033`; the PD-019 cleanup + Linux-audit commits landed on `main` via a direct docs-only push after PR creation was blocked by the token's missing Pull-requests write permission; merged origin branches (`claude/record-sprint-4-merge`, `claude/housekeeping-branch-cleanup`) deleted post-merge. Future PRs need the token's Pull-requests permission restored or manual PR creation | Owner instruction; docs-only commits, no source/CI impact | Owner |
+| PD-021 | 2026-11-16 | Sprint 4.5 Linux parity batch approved: Linux parser containment = per-parse bubblewrap sandbox satisfying D-022's properties (D-028); per-binary AppArmor userns profile for /usr/bin/bwrap is a documented deployment prerequisite; Windows mechanism unchanged (D-027); frozen-Linux worker stays refused until a bounded packaging mechanism exists | Closes the "parser containment fails closed off-Windows" blocker from the 2026-11-16 Linux audit | Owner |
 | PD-004 | 2026-11-02 | Batch branches use `claude/<short-description>` per `CLAUDE.md`; Continuum bookkeeping updates ship in the same PR as the batch work | Keeps status in step with merged code | Existing rule applied |
 
 ## Not decided here
