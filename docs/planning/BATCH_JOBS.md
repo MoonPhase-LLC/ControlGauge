@@ -367,7 +367,7 @@ one PR. Deployment prerequisite on Linux: bwrap ≥ 0.9.0 and a per-binary AppAr
 profile for /usr/bin/bwrap (documented in service/README.md); without it parsing fails closed.
 
 ### S4.5-01 — sandbox_linux.py and platform guarding
-- **Depends:** owner approval (PD-021). **Status:** Ready.
+- **Depends:** owner approval (PD-021). **Status:** Implemented/verified (commit `3ae2b0a`).
 - **Result:** `evidence/sandbox_linux.py` (namespaced bwrap sandbox, trusted rlimit bootstrap,
   cached fail-closed capability probe, frozen-Linux refused); `ContainedRunner.available()/run()`
   platform dispatch with the Windows path unchanged.
@@ -375,14 +375,14 @@ profile for /usr/bin/bwrap (documented in service/README.md); without it parsing
   575 passed / 6 skipped; ruff + ruff format + mypy clean.
 
 ### S4.5-02 — Harness port and Linux-specific tests
-- **Depends:** S4.5-01. **Status:** Ready.
+- **Depends:** S4.5-01. **Status:** Implemented/verified (commit `d3b5f8f`).
 - **Result:** `test_containment.py` probes dispatch per platform (Windows bodies unchanged);
   `tests/conftest.py` collects `test_containment_linux.py` on Linux only; new fail-closed,
   cache, leftover-state and scratch-bound tests; `containment_probe.py` gains `floodscratch`.
 - **Acceptance:** Windows suite count invariant proven; Linux counts recorded.
 
 ### S4.5-03 — Docs and deployment prerequisite
-- **Depends:** S4.5-02. **Status:** Ready.
+- **Depends:** S4.5-02. **Status:** Implemented/verified (this commit).
 - **Result:** D-028 (+ D-027 amendment note), SECURITY.md T-01/T-11, service/README.md
   (prerequisites + AppArmor profile), DECISION_LOG.md PD-021, CURRENT_STATUS.md.
 

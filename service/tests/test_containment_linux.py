@@ -21,7 +21,8 @@ from controlgauge_service.evidence import limits
 from controlgauge_service.evidence.ingest import interpret
 from controlgauge_service.evidence.sandbox import ContainedRunner, WorkerCommand
 
-from .test_containment import LIMITS, PROBE
+# sandboxed: ContainedRunner.available() at pytest collection on Linux, a cached (~0.3 s) probe.
+from .test_containment import LIMITS, PROBE, sandboxed
 
 
 def _linux_command(*actions: str) -> WorkerCommand:
@@ -55,6 +56,7 @@ def test_bwrap_missing_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert interpret(result).detail == "containment_unavailable"
 
 
+@sandboxed
 def test_probe_result_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     from controlgauge_service.evidence import sandbox_linux
 
@@ -76,6 +78,7 @@ def test_probe_result_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     assert first is second is True
 
 
+@sandboxed
 def test_no_sandbox_state_is_left_behind(tmp_path: Path) -> None:
     """Linux counterpart of the Windows registry-profile test: the per-parse
     scratch is a tmpfs inside an ephemeral mount namespace and bwrap
@@ -93,6 +96,7 @@ def test_no_sandbox_state_is_left_behind(tmp_path: Path) -> None:
     assert list(scratch_root.iterdir()) == []
 
 
+@sandboxed
 def test_scratch_size_is_bounded(tmp_path: Path) -> None:
     """The only writable location is itself size-bounded: flooding the tmpfs
     scratch fails with ENOSPC instead of consuming unbounded memory or ever

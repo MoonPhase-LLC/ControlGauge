@@ -158,16 +158,16 @@ Interrupted parses are re-queued at startup.
   `containment_unavailable` (fail closed).
 
   ```apparmor
-  # /etc/apparmor.d/bwrap-controlgauge — allow bubblewrap to create user namespaces
+  # /etc/apparmor.d/bwrap — allow bubblewrap to create user namespaces
   abi <abi/4.0>,
   include <tunables/global>
-  profile bwrap-controlgauge /usr/bin/bwrap flags=(attach_disconnected,mediate_deleted) {
+  profile bwrap /usr/bin/bwrap flags=(unconfined) {
     userns,
-    include if exists <local/bwrap-controlgauge>
+    include if exists <local/bwrap>
   }
   ```
 
-  Load with `sudo apparmor_parser -r /etc/apparmor.d/bwrap-controlgauge`; restart the service
+  Load with `sudo apparmor_parser -r /etc/apparmor.d/bwrap`; restart the service
   afterwards (the probe result is cached for the process lifetime). *(Profile follows the
   Ubuntu 24.04 userns-restriction pattern; verify with the availability probe.)*
 - First parse on a machine: Windows grants the `controlGaugeParserRuntime` capability ACE once;
