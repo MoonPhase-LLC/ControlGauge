@@ -5,18 +5,18 @@ documents describe plans or decisions; none of them track progress. Navigation:
 [MASTER_PLAN](MASTER_PLAN.md) · [BATCH_JOBS](BATCH_JOBS.md) · [EXECUTION_RULES](EXECUTION_RULES.md) ·
 [DECISION_LOG](DECISION_LOG.md)
 
-Last updated: 2026-11-05 (Sprint 4 S4-01..S4-06 implemented/verified; PR opened for owner review).
+Last updated: 2026-11-05 (Sprint 4 merged, PR #19).
 
 ## Position
 
 | Item | Value |
 |---|---|
-| Current sprint | Sprint 4 implemented on `claude/sprint-4-evidence-ingestion`; PR #19 in review |
+| Current sprint | Sprint 4 complete (PR #19 merged); Sprint 5 not started |
 | Active batch | None in progress |
-| Next action | Owner: review/merge the Sprint 4 PR, incl. `DATABASE.md` §9 and the PD-016 implementation choices (ctypes launcher, frozen exe as worker, raw IPC upload). After merge: Sprint 5 prep (owner approves a development model) |
-| Baseline | `origin/main` @ `9ae472d` (PR #18 merge) |
+| Next action | Sprint 5 prep: owner approves a development model (`BATCH_JOBS.md` later-sprints table), then batch Sprint 5 |
+| Baseline | `origin/main` @ `0e60e48` (PR #19 merge) |
 | Sprint 4 commits | S4-02..S4-04 `97aa67f`, S4-05 `9946ee6`, S4-01/S4-06 docs (final branch commit) |
-| Open PRs | #19 (Sprint 4) |
+| Open PRs | This status update only |
 
 ## Verified facts (2026-11-05, this session)
 
@@ -35,12 +35,11 @@ Last updated: 2026-11-05 (Sprint 4 S4-01..S4-06 implemented/verified; PR opened 
 | 1 Desktop foundation | Complete; S1-08 accepted by owner (PD-009) |
 | 2 Assessment and database layer | Complete (PR #17) |
 | 3 NIST 800-53 framework engine | Complete (PR #18, merged 2026-11-05, PD-017) |
-| 4 Evidence ingestion + parser containment | Implemented/verified; PR in review |
+| 4 Evidence ingestion + parser containment | Complete (PR #19, merged 2026-11-05, PD-018) |
 | 5–16 | Not started |
 
 ## Blockers and pending decisions
 
-- Owner review: Sprint 4 PR and `DATABASE.md` §9.
 - Open: A-2 configurable path / model location, P-1, P-2, C-2; Sprint 5 needs an owner-approved
   development model (`BATCH_JOBS.md` later-sprints table).
 - Flaky test to watch: one `cargo test` run in seven had one failure (run took 28 s instead of
@@ -66,6 +65,7 @@ Last updated: 2026-11-05 (Sprint 4 S4-01..S4-06 implemented/verified; PR opened 
 
 ## Update log (newest first; keep to one line each)
 
+- 2026-11-05 — PR #19 merged by owner instruction (PD-018), accepting `DATABASE.md` §9 and PD-016 implementation choices.
 - 2026-11-05 — Sprint 4 S4-01..S4-06 implemented/verified on one branch; graph refreshed; PR #19 opened.
 - 2026-11-05 — PR #18 merged by owner instruction (PD-017); S-1/S-2 resolved (PD-016, D-027).
 - 2026-11-03 — Sprint 3 S3-01..S3-06 implemented/verified on one branch; graph refreshed; PR #18 opened.
