@@ -14,9 +14,9 @@ Last updated: 2026-11-16 (PD-019 branch cleanup + Linux compatibility audit).
 | Current sprint | Sprint 4 complete (PR #19 merged); Sprint 5 not started |
 | Active batch | None in progress |
 | Next action | Sprint 5 prep: owner approves a development model (`BATCH_JOBS.md` later-sprints table), then batch Sprint 5 |
-| Baseline | `origin/main` @ `0e60e48` (PR #19 merge) |
+| Baseline | `origin/main` @ `b442033` (PR #20 merge, PD-018 doc sync) |
 | Sprint 4 commits | S4-02..S4-04 `97aa67f`, S4-05 `9946ee6`, S4-01/S4-06 docs (final branch commit) |
-| Open PRs | This status update only |
+| Open PRs | None |
 
 ## Verified facts (2026-11-05, this session)
 
@@ -77,7 +77,7 @@ Last updated: 2026-11-16 (PD-019 branch cleanup + Linux compatibility audit).
 
 ## Update log (newest first; keep to one line each)
 
-- 2026-11-16 — Owner-instructed branch cleanup executed on `origin` via owner-provided PAT (PD-019). Linux compatibility audit: service pytest 561 passed/20 skipped on Linux; `cargo check` clean on Linux.
+- 2026-11-16 — Pending docs landed on `main` by owner instruction: PR #20 merged (`b442033`), PD-019 commits pushed direct (PD-020); merged branches deleted. Linux audit: service pytest 561 passed/20 skipped on Linux; `cargo check` clean on Linux.
 - 2026-11-05 — PR #19 merged by owner instruction (PD-018), accepting `DATABASE.md` §9 and PD-016 implementation choices.
 - 2026-11-05 — Sprint 4 S4-01..S4-06 implemented/verified on one branch; graph refreshed; PR #19 opened.
 - 2026-11-05 — PR #18 merged by owner instruction (PD-017); S-1/S-2 resolved (PD-016, D-027).
