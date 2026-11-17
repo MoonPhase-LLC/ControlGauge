@@ -11,9 +11,9 @@ Last updated: 2026-11-17 (Sprint 4.5 merged; Sprint 5 starting).
 
 | Item | Value |
 |---|---|
-| Current sprint | Sprint 4.5 merged to `main` (PD-022); Sprint 5 (local model runtime) starting |
-| Active batch | Sprint 5 gate: owner approves the development model (initial GGUF model(s) for development/testing, `SPRINTS.md` Sprint 5 "Human responsibilities") |
-| Next action | Owner approves the Sprint 5 dev model → batch breakdown into `BATCH_JOBS.md` → pipeline (architect → developer → reviewer) on `claude/sprint-5-model-runtime` |
+| Current sprint | Sprint 5 (local model runtime) — executing on `claude/sprint-5-model-runtime` |
+| Active batch | S5-01..S5-07 (see `BATCH_JOBS.md`); architect spec phase |
+| Next action | Architect spec → developer implementation batch by batch → reviewer gate → §7 merge |
 | Baseline | `origin/main` @ merge of `bce647f` (Sprint 4.5, PD-022, standing owner instruction §7) |
 | Sprint 4 commits | S4-02..S4-04 `97aa67f`, S4-05 `9946ee6`, S4-01/S4-06 docs (final branch commit) |
 | Open PRs | None |
@@ -44,9 +44,10 @@ Last updated: 2026-11-17 (Sprint 4.5 merged; Sprint 5 starting).
 
 ## Blockers and pending decisions
 
-- Open: A-2 configurable path / model location, P-1, P-2, C-2; Sprint 5 gate: owner approves the
-  development model — the initial GGUF model(s) used for development/testing
-  (`SPRINTS.md` Sprint 5 "Human responsibilities"; options proposed by the coordinator).
+- Open: A-2 configurable path / model location, P-1, P-2, C-2.
+- Resolved 2026-11-17 (PD-023): Sprint 5 dev models — Qwen2.5-7B-Instruct Q4_K_M (generation) +
+  nomic-embed-text-v1.5 Q4_K_M (embedding), development/validation only; Sprint 6 curates
+  production options independently. Mechanism default PD-024 (llama-server subprocess + HTTP).
 - Flaky test to watch: one `cargo test` run in seven had one failure (run took 28 s instead of
   14 s) that did not reproduce in six later runs, including under load; the failing test's name
   was not captured. The new round-trip parse wait was raised from 10 s to 30 s as a precaution.
