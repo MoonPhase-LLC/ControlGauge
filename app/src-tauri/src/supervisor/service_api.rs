@@ -1299,7 +1299,7 @@ mod tests {
     fn model_fixture() -> serde_json::Value {
         serde_json::json!({
             "id": MODEL, "role": "generation",
-            "display_name": "qwen2.5-7b-instruct.gguf", "sha256": "a".repeat(64),
+            "display_name": "generation-model.gguf", "sha256": "a".repeat(64),
             "size_bytes": 3_993_201_344u64, "imported_at": "2026-11-17T12:00:00Z",
             "last_verified_at": null, "embedding_dimensions": null,
             "embedding_normalization": null, "embedding_similarity_metric": null

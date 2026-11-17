@@ -1,4 +1,4 @@
-"""S5-02 (b) + S5-03 (b): real-model integration against the dev
+"""S5-02..S5-07 (b): real-model integration against the dev
 llama-server and the two PD-023 dev models. Skips cleanly everywhere the
 dev environment is not configured (Windows CI never sets it); collected
 everywhere. Every test runs under the ``offline_guard`` fixture
@@ -7,7 +7,8 @@ the test, so a passing run is itself the offline evidence.
 
 Evidence produced here feeds ``docs/DEV_MODELS.md`` (auth matrix,
 split-GGUF verification, credential/argv contract, hung-child detection,
-response_format nesting, sampler-enforcement vs semantic quality).
+response_format nesting, sampler-enforcement vs semantic quality, and the
+S5-07 exit-flow performance baselines).
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ from controlgauge_service.model_runtime.config import (
 )
 from controlgauge_service.model_runtime.errors import ModelRuntimeError
 from controlgauge_service.model_runtime.manager import ModelRuntimeManager
+from controlgauge_service.model_runtime.protocols import GenerationUsage
 from controlgauge_service.model_runtime.provider import LlamaCppProvider
 from controlgauge_service.model_runtime.schemas import (
     ENUM_SCHEMA,
@@ -733,3 +735,273 @@ def test_integration_dimension_pinned_to_record(models_api: _ModelsApi) -> None:
     assert len(vector) == EXPECTED_EMBEDDING_DIMENSIONS
 
     models_api.client.post(f"/models/{model_id}/stop", headers=models_api.headers)
+
+
+# --- S5-07: the sprint exit flow, offline --------------------------------------
+
+_EXIT_FLOW_PROMPT = (
+    'Produce the JSON object described by the schema for control "AC-6", '
+    "with exactly these two observation notes: "
+    '"privilege review current" and "exceptions logged".'
+)
+_EXIT_FLOW_EMBED_TEXT = "sprint 5 exit-flow determinism probe"
+_EXIT_FLOW_TIMEOUT_S = 180.0
+_BASELINE_GENERATION_RUNS = 5
+_BASELINE_EMBEDDING_RUNS = 10
+
+
+def _vm_rss_mib(pid: int | None) -> float | None:
+    """Child resident memory (``VmRSS``) in MiB from
+    ``/proc/<pid>/status`` after load -- Linux only; the baselines record
+    "not captured" elsewhere."""
+    if pid is None or sys.platform != "linux":
+        return None
+    try:
+        status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in status.splitlines():
+        if line.startswith("VmRSS:"):
+            fields = line.split()
+            if len(fields) >= 2:
+                try:
+                    return int(fields[1]) / 1024.0
+                except ValueError:
+                    return None
+    return None
+
+
+def _cpu_model_name() -> str:
+    """One-line CPU identity for the baselines header (the Linux
+    ``/proc/cpuinfo`` model name; "n/a" elsewhere)."""
+    if sys.platform != "linux":
+        return "n/a"
+    try:
+        for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return "n/a"
+
+
+def _baseline_generation_row(run: int, wall_ms: float, usage: GenerationUsage | None) -> str:
+    """One aligned table row: client wall ms, usage tokens, server
+    timings (b12480 exposes ``timings`` on the chat endpoint), and the
+    derived output tokens/s both ways."""
+
+    def tokens(value: int | None) -> str:
+        return str(value) if value is not None else "-"
+
+    def millis(value: float | None) -> str:
+        return f"{value:.1f}" if value is not None else "-"
+
+    output_tokens = usage.output_tokens if usage is not None else None
+    predicted_ms = usage.predicted_ms if usage is not None else None
+    server_rate = "-"
+    if output_tokens is not None and predicted_ms is not None and predicted_ms > 0:
+        server_rate = f"{output_tokens / (predicted_ms / 1000.0):.1f}"
+    client_rate = "-"
+    if output_tokens is not None:
+        client_rate = f"{output_tokens / (wall_ms / 1000.0):.1f}"
+    prompt_tokens = usage.prompt_tokens if usage is not None else None
+    prompt_ms = usage.prompt_ms if usage is not None else None
+    return (
+        f"{run:>3}  {wall_ms:>8.1f}  {tokens(prompt_tokens):>13}  {tokens(output_tokens):>13}  "
+        f"{millis(prompt_ms):>9}  {millis(predicted_ms):>12}  {server_rate:>13}  {client_rate:>13}"
+    )
+
+
+def _format_baselines(
+    generation_runs: list[tuple[float, GenerationUsage | None]],
+    embed_wall_ms: list[float],
+    generation_rss_mib: float | None,
+    embedding_rss_mib: float | None,
+) -> str:
+    """The S5-07 baselines table printed to the test log (visible with
+    ``pytest -s``) and recorded in ``docs/DEV_MODELS.md`` §8."""
+
+    def mib(value: float | None) -> str:
+        return "n/a" if value is None else f"{value:.1f} MiB"
+
+    lines = [
+        "=== Sprint 5 performance baselines (development, NOT acceptance thresholds) ===",
+        f"runtime: llama.cpp b12480 (commit 7f106b545) | cpu: {_cpu_model_name()} (CPU-only)",
+        f"generation child VmRSS after load: {mib(generation_rss_mib)} | "
+        f"embedding child VmRSS after load: {mib(embedding_rss_mib)}",
+        "",
+        "structured generation (NESTED_SCHEMA, fixed prompt; warm-up excluded; ",
+        "prompt cache warm):",
+        f"{'run':>3}  {'wall_ms':>8}  {'prompt_tokens':>13}  {'output_tokens':>13}  "
+        f"{'prompt_ms':>9}  {'predicted_ms':>12}  {'tok/s(server)':>13}  {'tok/s(client)':>13}",
+    ]
+    lines.extend(
+        _baseline_generation_row(index, wall_ms, usage)
+        for index, (wall_ms, usage) in enumerate(generation_runs, start=1)
+    )
+    lines.extend(
+        [
+            "",
+            "embedding (fixed short input; b12480's embeddings endpoint exposes no timings "
+            "-- client-side wall ms):",
+            f"runs (n={len(embed_wall_ms)}): "
+            + "  ".join(f"{value:.1f}" for value in embed_wall_ms),
+            f"mean wall_ms: {sum(embed_wall_ms) / len(embed_wall_ms):.1f}",
+        ]
+    )
+    return "\n".join(lines)
+
+
+class _ExitFlow:
+    """Dedicated harness for the S5-07 exit flow: a real app (fresh
+    database + real per-capability manager + the real dev binary) whose
+    import → start → health → generate/embed → stop sequence runs
+    entirely through the D-009-authenticated routes, independent of the
+    other tests' fixtures."""
+
+    def __init__(
+        self,
+        client: TestClient,
+        manager: ModelRuntimeManager,
+        headers: dict[str, str],
+    ) -> None:
+        self.client = client
+        self.manager = manager
+        self.headers = headers
+
+
+@pytest.fixture(scope="module")
+def exit_flow(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_ExitFlow]:
+    database = initialize_database(tmp_path_factory.mktemp("sprint5-exit-flow"))
+    manager = ModelRuntimeManager(MODEL_ENV.server)
+    client = TestClient(
+        create_app(
+            Settings(session_token=VALID_TOKEN, llama_server=MODEL_ENV.server),
+            database=database,
+            model_runtime=manager,
+        )
+    )
+    try:
+        yield _ExitFlow(client, manager, {"Authorization": f"Bearer {VALID_TOKEN}"})
+    finally:
+        # No llama-server child may outlive the module, whatever a test
+        # left running on the way out.
+        manager.stop_all()
+        client.close()
+        database.dispose()
+
+
+def test_integration_sprint5_exit_flow_offline(exit_flow: _ExitFlow) -> None:
+    """The Sprint 5 exit criteria, demonstrated end to end while the
+    module-wide ``offline_guard`` is active (a passing run IS the offline
+    evidence): import both dev models through the D-009-authenticated
+    route, start each, health-check ``ready``, one structured JSON
+    generation round-trip (nested schema), embeddings with
+    finiteness/dimension/determinism, then stop both and assert both
+    roles report ``stopped``. Prints the S5-07 performance baselines to
+    the test log (development baselines, NOT acceptance thresholds --
+    recorded in ``docs/DEV_MODELS.md`` §8)."""
+    harness = exit_flow
+    client = harness.client
+
+    # 1) Import + start + health-check the generation model via the routes.
+    imported = client.post(
+        "/models/import",
+        json={"path": str(MODEL_ENV.generation), "role": "generation"},
+        headers=harness.headers,
+    )
+    assert imported.status_code == 201, imported.text
+    assert imported.json()["provenance"] == "unverified_import"
+    generation_id: str = imported.json()["model"]["id"]
+
+    started = client.post(f"/models/{generation_id}/start", json={}, headers=harness.headers)
+    assert started.status_code == 200, started.text
+    assert started.json()["state"] == "ready"
+    health = client.post(f"/models/{generation_id}/health", headers=harness.headers)
+    assert health.status_code == 200, health.text
+    assert health.json()["state"] == "ready"
+
+    generation_provider = harness.manager.get("generation")
+    assert generation_provider is not None
+    generation_handle = generation_provider._handle
+    generation_pid = generation_handle.pid if generation_handle is not None else None
+    generation_rss_mib = _vm_rss_mib(generation_pid)
+
+    # 2) Structured JSON generation round-trip (nested schema).
+    generation = generation_provider.generate(
+        _EXIT_FLOW_PROMPT, NESTED_SCHEMA, timeout_s=_EXIT_FLOW_TIMEOUT_S
+    )
+    assessment = generation.data["assessment"]
+    assert assessment["control_id"] == "AC-6"
+    assert {o["note"] for o in assessment["observations"]} == {
+        "privilege review current",
+        "exceptions logged",
+    }
+
+    # 3) Performance baselines (the spec's capture method): one warm-up,
+    # then five measured runs of the same fixed prompt. The measured
+    # runs ride a warm prompt cache (b12480 prompt caching, cache_n > 0)
+    # -- that is the recorded basis of these numbers (DEV_MODELS.md §8).
+    warm_up = generation_provider.generate(
+        _EXIT_FLOW_PROMPT, NESTED_SCHEMA, timeout_s=_EXIT_FLOW_TIMEOUT_S
+    )
+    assert warm_up.data["assessment"]["control_id"] == "AC-6"
+    generation_runs: list[tuple[float, GenerationUsage | None]] = []
+    for _ in range(_BASELINE_GENERATION_RUNS):
+        begun = time.perf_counter()
+        run = generation_provider.generate(
+            _EXIT_FLOW_PROMPT, NESTED_SCHEMA, timeout_s=_EXIT_FLOW_TIMEOUT_S
+        )
+        wall_ms = (time.perf_counter() - begun) * 1000.0
+        assert run.data["assessment"]["control_id"] == "AC-6"
+        generation_runs.append((wall_ms, run.usage))
+
+    # 4) Import + start the embedding model via the routes.
+    imported = client.post(
+        "/models/import",
+        json={"path": str(MODEL_ENV.embedding), "role": "embedding"},
+        headers=harness.headers,
+    )
+    assert imported.status_code == 201, imported.text
+    embedding_id: str = imported.json()["model"]["id"]
+
+    started = client.post(f"/models/{embedding_id}/start", json={}, headers=harness.headers)
+    assert started.status_code == 200, started.text
+    assert started.json()["state"] == "ready"
+
+    embedding_provider = harness.manager.get("embedding")
+    assert embedding_provider is not None
+    embedding_handle = embedding_provider._handle
+    embedding_pid = embedding_handle.pid if embedding_handle is not None else None
+    embedding_rss_mib = _vm_rss_mib(embedding_pid)
+
+    # 5) Embeddings: finiteness + dimension + determinism (S5-04 criteria).
+    first = embedding_provider.embed(_EXIT_FLOW_EMBED_TEXT)
+    assert len(first) == EXPECTED_EMBEDDING_DIMENSIONS
+    assert all(math.isfinite(value) for value in first)
+    second = embedding_provider.embed(_EXIT_FLOW_EMBED_TEXT)
+    assert first == second
+
+    embed_wall_ms: list[float] = []
+    for _ in range(_BASELINE_EMBEDDING_RUNS):
+        begun = time.perf_counter()
+        vector = embedding_provider.embed(_EXIT_FLOW_EMBED_TEXT)
+        embed_wall_ms.append((time.perf_counter() - begun) * 1000.0)
+        assert len(vector) == EXPECTED_EMBEDDING_DIMENSIONS
+
+    # 6) Stop both via the routes; both roles must report ``stopped``.
+    for model_id in (generation_id, embedding_id):
+        stopped = client.post(f"/models/{model_id}/stop", headers=harness.headers)
+        assert stopped.status_code == 200, stopped.text
+        assert stopped.json()["state"] == "stopped"
+        assert stopped.json()["model_id"] is None
+    inventory = client.get("/models", headers=harness.headers)
+    assert inventory.status_code == 200, inventory.text
+    runtime = inventory.json()["runtime"]
+    assert runtime["generation"]["state"] == "stopped"
+    assert runtime["generation"]["model_id"] is None
+    assert runtime["embedding"]["state"] == "stopped"
+    assert runtime["embedding"]["model_id"] is None
+
+    # 7) The baselines ride the test log (visible with ``pytest -s``).
+    print(_format_baselines(generation_runs, embed_wall_ms, generation_rss_mib, embedding_rss_mib))

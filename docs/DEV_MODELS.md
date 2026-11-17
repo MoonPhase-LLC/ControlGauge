@@ -1,6 +1,6 @@
 # ControlGauge — Sprint 5 Development Models
 
-Status: Sprint 5 (S5-01, S5-02). Reproducibility doc for the two **development/validation
+Status: Sprint 5 (S5-01..S5-07). Reproducibility doc for the two **development/validation
 models** approved for Sprint 5 by the owner (`docs/planning/DECISION_LOG.md`
 PD-023). Both are **development/validation only — not a production decision**
 (Sprint 6 curates the production catalog independently).
@@ -182,6 +182,14 @@ Further verified response shapes on this build (S5-02):
   unshare -rn sh -c 'ip link set lo up && pytest service/tests/test_model_integration.py'
   ```
 
+  Dev-box outcome (2026-11-17, S5-07): the hard form is **not obtainable
+  here** — this machine blocks unprivileged user namespaces via AppArmor
+  (`kernel.apparmor_restrict_unprivileged_userns = 1`; `unshare -rn` fails
+  with `write failed /proc/self/uid_map: Operation not permitted`). Enabling
+  it would be a per-machine system change, so the `offline_guard` run remains
+  the offline evidence of record (all 20 integration tests pass under it,
+  including a real structured generation and the full exit flow).
+
 ### 5.2 Embeddings (S5-04 evidence, 2026-11-17)
 
 - **Dimension verified from the server**: real nomic-embed-text-v1.5 Q4_K_M
@@ -241,9 +249,66 @@ export CONTROLGAUGE_TEST_MODEL_EMBEDDING="$CONTROLGAUGE_MODELS_ROOT/nomic-embed-
 
 ## 8. Performance baselines
 
-**Placeholder — filled in S5-07.** Development baselines on this dev box
-only; **NOT acceptance thresholds** (they exist to inform Sprint 6's
-hardware-recommendation thresholds). Will record: per-run
-`prompt_tokens`/`output_tokens`/`prompt_ms`/`predicted_ms` for 5 fixed
-structured generations, wall-ms for 10 fixed embeds, and child `VmRSS` after
-load, with binary build, model hashes and CPU info.
+Recorded 2026-11-17 by
+`service/tests/test_model_integration.py::test_integration_sprint5_exit_flow_offline`,
+which prints this table to the test log on every run (`pytest -s`).
+**Development baselines on this dev box only — NOT acceptance thresholds**
+(they exist to inform Sprint 6's hardware-recommendation thresholds, never to
+gate anything). **GPU deployments are untested here** — CPU-only box, `-ngl`
+unset (§6).
+
+Environment:
+
+- Binary: llama.cpp **b12480**, commit `7f106b545` (ubuntu-x64 CPU build, §2).
+- Models (SHA-256 from §1): generation
+  `qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf`
+  `dfce12e3862a5283ccfb88221b48480e58745165de856439950d0f22590580db` with
+  shard 2 `539cf93f78e887edea1c04e2d7d8cdaca9d01dae9c9025bcb8accbe29df3d72a`;
+  embedding `nomic-embed-text-v1.5.Q4_K_M.gguf`
+  `d4e388894e09cf3816e8b0896d81d265b55e7a9fff9ab03fe8bf4ef5e11295ac`.
+- CPU: `AMD Ryzen Threadripper PRO 7985WX 64-Cores` — x86_64, 128 logical
+  CPUs, max clock 5367 MHz (`lscpu`), CPU-only inference.
+
+Method (Sprint 5 spec, adapted to what b12480 actually exposes): one warm-up
+generation excluded, then 5 measured runs of one fixed prompt under
+`NESTED_SCHEMA`, then 10 measured embeds of one fixed short input. The
+measured runs ride a **warm prompt cache** (b12480 reports `cache_n > 0` on
+repeats), so these are warm-cache numbers. Generation rows read b12480's
+`timings` block (`prompt_ms`/`predicted_ms`) — verified present on
+`/v1/chat/completions` — plus client-side wall ms; the **embeddings endpoint
+exposes no `timings`** (its usage carries only `prompt_tokens`/`total_tokens`),
+so embedding latency is client-side wall ms. Memory is the child's `VmRSS`
+from `/proc/<pid>/status` right after load (Linux; **not captured on Windows**
+— no Windows dev box in Sprint 5).
+
+Structured generation (7B Q4_K_M, ctx 8192, defaults of §S5-01):
+
+| run | wall_ms | prompt_tokens | output_tokens | prompt_ms | predicted_ms | tok/s (server) | tok/s (client) |
+|---|---|---|---|---|---|---|---|
+| 1 | 1273.8 | 63 | 58 | 33.8 | 1238.1 | 46.8 | 45.5 |
+| 2 | 1273.2 | 63 | 58 | 33.9 | 1237.4 | 46.9 | 45.6 |
+| 3 | 1293.2 | 63 | 58 | 36.8 | 1254.4 | 46.2 | 44.9 |
+| 4 | 1273.9 | 63 | 58 | 34.2 | 1237.8 | 46.9 | 45.5 |
+| 5 | 1283.2 | 63 | 58 | 34.1 | 1247.2 | 46.5 | 45.2 |
+
+`tok/s (server)` = `output_tokens / (predicted_ms / 1000)` (server-side
+decode timing); `tok/s (client)` = `output_tokens / wall` — what the service
+actually waits for, HTTP overhead included; use that one when budgeting UI
+timeouts.
+
+Embedding latency (nomic-embed-text-v1.5 Q4_K_M, client-side wall ms, n=10):
+3.9, 4.0, 3.9, 3.9, 3.9, 3.9, 3.9, 3.8, 3.9, 3.8 — **mean 3.9 ms**.
+
+Child memory (`VmRSS` after load, from `/proc/<pid>/status`, Linux):
+
+| child | VmRSS after load |
+|---|---|
+| generation (Qwen2.5-7B Q4_K_M, ctx 8192) | 7928.7 MiB |
+| embedding (nomic-embed-text-v1.5 Q4_K_M, ctx 2048) | 158.2 MiB |
+
+Reading notes for Sprint 6 (context, not thresholds): warm structured answers
+of ~60 output tokens cost ~1.3 s end-to-end on this CPU (~46 tok/s decode);
+the generation child's ~7.9 GiB resident set (mapped weights + preallocated
+8192-token KV cache) is the per-instance RAM number to budget; restart
+determinism of these numbers is not guaranteed (fresh box, cold page cache,
+or a binary re-pin all shift them).

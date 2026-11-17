@@ -49,7 +49,7 @@ function seedModel(ipc: ServiceIpcMock, overrides: Partial<ModelFile> = {}): Mod
   const model: ModelFile = {
     id: MODEL_ID,
     role: "generation",
-    display_name: "qwen2.5-7b-instruct.gguf",
+    display_name: "generation-model.gguf",
     sha256: "a".repeat(64),
     size_bytes: 3_993_201_344,
     imported_at: "2026-11-02T12:00:00Z",
@@ -77,7 +77,7 @@ describe("model management", () => {
   it("opens the dialog and imports the picked file for the chosen role", async () => {
     const { ipc, user } = await openModels();
     await user.selectOptions(screen.getByRole("combobox", { name: "Role" }), "embedding");
-    openDialog.mockResolvedValue("/home/user/models/nomic-embed.gguf");
+    openDialog.mockResolvedValue("/home/user/models/embedding-model.gguf");
     await user.click(screen.getByRole("button", { name: "Choose GGUF file…" }));
     await settle();
     await settle();
@@ -88,11 +88,11 @@ describe("model management", () => {
     });
     expect(ipc.calls.data).toContainEqual({
       cmd: "import_model",
-      args: { path: "/home/user/models/nomic-embed.gguf", role: "embedding" },
+      args: { path: "/home/user/models/embedding-model.gguf", role: "embedding" },
     });
     const list = screen.getByRole("list", { name: "Imported models" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(1);
-    expect(within(list).getByText("nomic-embed.gguf")).toBeVisible();
+    expect(within(list).getByText("embedding-model.gguf")).toBeVisible();
   });
 
   it("renders the fixed provenance warning on every imported model entry", async () => {
@@ -101,7 +101,7 @@ describe("model management", () => {
       seedModel(mock, {
         id: "00000000-0000-4000-8000-000000000002",
         role: "embedding",
-        display_name: "nomic-embed.gguf",
+        display_name: "embedding-model.gguf",
         size_bytes: 67_108_864,
         embedding_dimensions: 768,
       });
