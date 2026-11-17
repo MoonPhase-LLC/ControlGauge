@@ -44,6 +44,14 @@ mechanism (subprocess + HTTP vs. Python bindings) is an implementation decision 
 fixed here; either is acceptable as long as it stays local-only and fits the `ModelProvider`
 interface.
 
+**Mechanism (PD-024, decided for Sprint 5):** the official `llama-server` binary runs as a
+**supervised subprocess** bound to `127.0.0.1` on an OS-allocated port, authenticated per D-017
+(fresh per-launch credential delivered in the child-scoped environment variable `LLAMA_API_KEY` —
+never argv, never logged, never sent to the frontend; see `SECURITY.md` T-23). Structured output
+uses llama-server's JSON-schema-constrained sampling via `/v1/chat/completions`
+`response_format` — the pipeline's deterministic validation (`AI_PIPELINE.md` §8) remains
+mandatory regardless. Dev binary/models: `DEV_MODELS.md`.
+
 Structured output: rely on llama.cpp's grammar/JSON-schema-constrained sampling where available,
 to increase the odds that `generate()` returns schema-conformant output. Even so, the pipeline's
 deterministic validation (`AI_PIPELINE.md` §8) is mandatory — constrained sampling reduces but

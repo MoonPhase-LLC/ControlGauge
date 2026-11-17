@@ -15,12 +15,13 @@ only the standalone/test entry point.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from . import b64url
+from . import b64url, storage
 
 #: Below this length, a configured token is treated as invalid/absent
 #: configuration (fail closed) rather than a usable credential -- guards
@@ -87,6 +88,30 @@ class Settings(BaseSettings):
     port: int = Field(default=DEFAULT_PORT, ge=1, le=65535)
     environment: Literal["development", "production"] = "production"
     session_token: SecretStr | None = None
+    #: Sprint 5 (S5-01): absolute path of the pinned ``llama-server`` binary
+    #: (env ``CONTROLGAUGE_LLAMA_SERVER``). Required to start any model
+    #: runtime capability: absent -> every start is rejected
+    #: (``runtime_binary_missing``), fail closed. Packaged-app provisioning
+    #: of the binary is Sprint 16's concern. Never logged (it is a
+    #: machine-local path).
+    llama_server: Path | None = None
+    #: Sprint 5 (S5-01): absolute default browse root for the model-import
+    #: dialog (and future Sprint 6 downloads; env
+    #: ``CONTROLGAUGE_MODEL_DIR``). Import itself accepts any absolute
+    #: path; this only seeds the UI default. Never logged.
+    model_dir: Path | None = None
+
+    @field_validator("llama_server", "model_dir")
+    @classmethod
+    def _require_absolute_model_paths(cls, value: Path | None) -> Path | None:
+        if value is not None and not value.is_absolute():
+            raise ValueError(
+                "model runtime paths must be absolute -- a relative "
+                "CONTROLGAUGE_LLAMA_SERVER / CONTROLGAUGE_MODEL_DIR would depend "
+                "on the service process's current working directory, which is "
+                "not a defined contract (fail closed instead)."
+            )
+        return value
 
     @field_validator("host")
     @classmethod
@@ -117,3 +142,18 @@ class Settings(BaseSettings):
         if self.session_token is None:
             return False
         return is_valid_session_token_format(self.session_token.get_secret_value())
+
+
+def resolve_model_dir(settings: Settings) -> Path:
+    """The directory model files are browsed from / downloaded into.
+
+    An explicit ``Settings.model_dir`` (``CONTROLGAUGE_MODEL_DIR``) wins;
+    otherwise the app's default per-user data directory gains a
+    ``models`` subdirectory (mirrors ``storage.default_data_dir`` --
+    same per-user, machine-local base the database lives under, so the
+    same OS ACLs protect it). The resolved path is never logged (it
+    contains the OS user name).
+    """
+    if settings.model_dir is not None:
+        return settings.model_dir
+    return storage.default_data_dir() / "models"
