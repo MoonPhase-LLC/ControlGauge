@@ -814,11 +814,229 @@ pub async fn get_control(
     call(connection, Method::GET, &path, None, StatusCode::OK).await
 }
 
+// --- Sprint 5: model management (mirrors routes/models.py) --------------------
+
+/// Longest accepted model path, mirrored from the service
+/// (`routes/models.py` MAX_MODEL_PATH_CHARS); longer never becomes a
+/// request body.
+pub const MODEL_PATH_MAX_CHARS: usize = 4096;
+/// A start runs the model load -- the service's own start timeout goes up
+/// to `DEFAULT_START_TIMEOUT_GENERATION_S` (600 s) for a 7B model on CPU,
+/// plus slack. Pattern: [`UPLOAD_TIMEOUT`].
+pub const MODEL_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(900);
+/// A health check is one bounded real capability call (the service's
+/// generation health timeout is 60 s) plus slack.
+pub const MODEL_HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+/// An import hashes the whole file before answering (seconds for a
+/// multi-GB GGUF); the same bound class as [`UPLOAD_TIMEOUT`] with more
+/// slack, since model files are an order of magnitude larger.
+pub const MODEL_IMPORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// One imported model file. The machine-local `path` is deliberately
+/// absent: it is stored in the service's database only and never travels
+/// to the frontend (SECURITY T-10).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelFile {
+    pub id: String,
+    pub role: String,
+    pub display_name: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+    pub imported_at: String,
+    pub last_verified_at: Option<String>,
+    pub embedding_dimensions: Option<u64>,
+    pub embedding_normalization: Option<String>,
+    pub embedding_similarity_metric: Option<String>,
+}
+
+/// The live per-role runtime status. Never a pid, port, path, or
+/// credential.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeStatus {
+    pub state: String,
+    pub detail_code: Option<String>,
+    pub checked_at: Option<String>,
+    pub model_id: Option<String>,
+}
+
+/// The `/models/{id}/health` answer (the service's `HealthStatusOut` has
+/// the same closed shape as its per-role status).
+pub type ModelHealthStatus = RuntimeStatus;
+
+/// The `GET /models/{id}` answer (same closed shape as a list entry).
+pub type ModelSummary = ModelFile;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeStates {
+    pub generation: Option<RuntimeStatus>,
+    pub embedding: Option<RuntimeStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelInventory {
+    pub models: Vec<ModelFile>,
+    pub runtime: RuntimeStates,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelImportResult {
+    pub model: ModelFile,
+    pub duplicate: bool,
+    pub provenance: String,
+    pub warning: String,
+}
+
+#[derive(Serialize)]
+struct ImportModelBody<'a> {
+    path: &'a str,
+    role: &'a str,
+}
+
+/// Builds the import request after validating every caller-supplied part:
+/// an absolute `.gguf` path of bounded length and a known role. The
+/// service re-validates everything (one source of truth for the rules);
+/// this only keeps junk from being sent.
+fn import_request(path: &str, role: &str) -> Result<(String, RequestBody), ServiceCallError> {
+    let parsed = std::path::Path::new(path);
+    let valid_path = path.len() <= MODEL_PATH_MAX_CHARS
+        && parsed.is_absolute()
+        && parsed
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("gguf"));
+    if !valid_path || !matches!(role, "generation" | "embedding") {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    let bytes = serde_json::to_vec(&ImportModelBody { path, role })
+        .map_err(|_| ServiceCallError::InvalidArgument)?;
+    Ok((
+        "/models/import".to_string(),
+        RequestBody {
+            bytes,
+            content_type: "application/json",
+            max_bytes: MAX_API_REQUEST_BYTES,
+            filename_header: None,
+        },
+    ))
+}
+
+/// `/models/{id}` for a canonical model id, or `InvalidArgument`.
+fn model_path(id: &str) -> Result<String, ServiceCallError> {
+    if !is_canonical_uuid(id) {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    Ok(format!("/models/{id}"))
+}
+
+/// `/models/{id}/{action}` for a canonical model id, or `InvalidArgument`.
+fn model_action_path(id: &str, action: &str) -> Result<String, ServiceCallError> {
+    Ok(format!("{}/{}", model_path(id)?, action))
+}
+
+/// The empty `StartRequest` body the service's closed schema expects
+/// (start options are a reserved surface with no Sprint 5 UI exposure).
+fn empty_start_body() -> RequestBody {
+    RequestBody {
+        bytes: b"{}".to_vec(),
+        content_type: "application/json",
+        max_bytes: MAX_API_REQUEST_BYTES,
+        filename_header: None,
+    }
+}
+
+/// Imports a local GGUF file by absolute path. The service sniff-validates
+/// the container and hashes the whole file before answering (multi-second
+/// for a multi-GB model); a duplicate (same content, same role) answers
+/// 200 with `duplicate: true` instead of 201.
+pub async fn import_model(
+    connection: &ReadyConnection,
+    path: &str,
+    role: &str,
+) -> Result<ModelImportResult, ServiceCallError> {
+    let (path, body) = import_request(path, role)?;
+    call_with(
+        connection,
+        Method::POST,
+        &path,
+        Some(body),
+        &[StatusCode::CREATED, StatusCode::OK],
+        MODEL_IMPORT_TIMEOUT,
+    )
+    .await
+    .map(|(result, _)| result)
+}
+
+pub async fn list_models(connection: &ReadyConnection) -> Result<ModelInventory, ServiceCallError> {
+    call(connection, Method::GET, "/models", None, StatusCode::OK).await
+}
+
+pub async fn get_model(
+    connection: &ReadyConnection,
+    id: &str,
+) -> Result<ModelSummary, ServiceCallError> {
+    let path = model_path(id)?;
+    call(connection, Method::GET, &path, None, StatusCode::OK).await
+}
+
+/// Runs the model for its recorded role (supervised stop-then-start). The
+/// service answers only after the child is ready, hence the dedicated
+/// [`MODEL_START_TIMEOUT`].
+pub async fn start_model(
+    connection: &ReadyConnection,
+    id: &str,
+) -> Result<RuntimeStatus, ServiceCallError> {
+    let path = model_action_path(id, "start")?;
+    call_with(
+        connection,
+        Method::POST,
+        &path,
+        Some(empty_start_body()),
+        &[StatusCode::OK],
+        MODEL_START_TIMEOUT,
+    )
+    .await
+    .map(|(status, _)| status)
+}
+
+pub async fn stop_model(
+    connection: &ReadyConnection,
+    id: &str,
+) -> Result<RuntimeStatus, ServiceCallError> {
+    let path = model_action_path(id, "stop")?;
+    call(connection, Method::POST, &path, None, StatusCode::OK).await
+}
+
+/// Bounded real capability check for the model (a real generation or
+/// embed), hence the dedicated [`MODEL_HEALTH_TIMEOUT`] -- the service's
+/// own generation health budget is 60 s, wider than
+/// [`HTTP_REQUEST_TIMEOUT`]. `unhealthy` is a status, not an error.
+pub async fn check_model_health(
+    connection: &ReadyConnection,
+    id: &str,
+) -> Result<ModelHealthStatus, ServiceCallError> {
+    let path = model_action_path(id, "health")?;
+    call_with(
+        connection,
+        Method::POST,
+        &path,
+        None,
+        &[StatusCode::OK],
+        MODEL_HEALTH_TIMEOUT,
+    )
+    .await
+    .map(|(status, _)| status)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const ASSESSMENT: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const MODEL: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
     #[test]
     fn upload_request_validates_and_encodes() {
@@ -1074,5 +1292,158 @@ mod tests {
             serde_json::to_value(ServiceCallError::UnexpectedStatus { status: 500 }).unwrap(),
             serde_json::json!({"kind": "unexpected_status", "status": 500})
         );
+    }
+
+    // --- Sprint 5: model management -------------------------------------------
+
+    fn model_fixture() -> serde_json::Value {
+        serde_json::json!({
+            "id": MODEL, "role": "generation",
+            "display_name": "qwen2.5-7b-instruct.gguf", "sha256": "a".repeat(64),
+            "size_bytes": 3_993_201_344u64, "imported_at": "2026-11-17T12:00:00Z",
+            "last_verified_at": null, "embedding_dimensions": null,
+            "embedding_normalization": null, "embedding_similarity_metric": null
+        })
+    }
+
+    #[test]
+    fn model_response_schemas_reject_unknown_fields() {
+        let inventory = serde_json::json!({
+            "models": [model_fixture()],
+            "runtime": {
+                "generation": {
+                    "state": "ready", "detail_code": null,
+                    "checked_at": "2026-11-17T12:01:00Z", "model_id": MODEL
+                },
+                "embedding": null
+            }
+        });
+        assert!(serde_json::from_value::<ModelInventory>(inventory).is_ok());
+        assert!(serde_json::from_value::<ModelFile>(model_fixture()).is_ok());
+
+        // T-10: the machine-local `path` must never appear on a response.
+        let mut with_path = model_fixture();
+        with_path["path"] = serde_json::json!("/home/user/models/x.gguf");
+        assert!(serde_json::from_value::<ModelFile>(with_path).is_err());
+
+        let mut extra_inventory = serde_json::json!({
+            "models": [], "runtime": {"generation": null, "embedding": null}
+        });
+        extra_inventory["unexpected"] = serde_json::json!("x");
+        assert!(serde_json::from_value::<ModelInventory>(extra_inventory).is_err());
+
+        let status = serde_json::json!({
+            "state": "unhealthy", "detail_code": "request_timeout",
+            "checked_at": "2026-11-17T12:02:00Z", "model_id": MODEL
+        });
+        assert!(serde_json::from_value::<ModelHealthStatus>(status).is_ok());
+        let mut extra_status = serde_json::json!({
+            "state": "ready", "detail_code": null, "checked_at": null, "model_id": null
+        });
+        extra_status["pid"] = serde_json::json!(1234);
+        assert!(serde_json::from_value::<ModelHealthStatus>(extra_status).is_err());
+
+        let import = serde_json::json!({
+            "model": model_fixture(), "duplicate": false,
+            "provenance": "unverified_import", "warning": "w"
+        });
+        assert!(serde_json::from_value::<ModelImportResult>(import).is_ok());
+        let mut extra_import = serde_json::json!({
+            "model": model_fixture(), "duplicate": true,
+            "provenance": "unverified_import", "warning": "w"
+        });
+        extra_import["path"] = serde_json::json!("/home/user/models/x.gguf");
+        assert!(serde_json::from_value::<ModelImportResult>(extra_import).is_err());
+    }
+
+    #[test]
+    fn import_model_argument_validation() {
+        let absolute = std::env::temp_dir().join("model.gguf");
+        let (path, body) = import_request(absolute.to_str().unwrap(), "generation")
+            .expect("a valid absolute gguf path and known role");
+        assert_eq!(path, "/models/import");
+        assert_eq!(body.content_type, "application/json");
+        let parsed: serde_json::Value = serde_json::from_slice(&body.bytes).unwrap();
+        assert_eq!(
+            parsed,
+            serde_json::json!({"path": absolute.to_str().unwrap(), "role": "generation"})
+        );
+
+        // Case-insensitive extension is accepted.
+        let upper = std::env::temp_dir().join("MODEL.GGUF");
+        assert!(import_request(upper.to_str().unwrap(), "embedding").is_ok());
+
+        let relative = std::env::temp_dir().join("relative").join("model.gguf");
+        let relative = relative
+            .to_str()
+            .unwrap()
+            .strip_prefix(std::path::MAIN_SEPARATOR_STR)
+            .unwrap_or(relative.to_str().unwrap())
+            .to_string();
+        let wrong_extension = std::env::temp_dir().join("model.bin");
+        let dotfile = std::env::temp_dir().join(".gguf");
+        let bad = [
+            // Not absolute (never a path segment or body from free text).
+            (relative.as_str(), "generation"),
+            // Wrong extension.
+            (wrong_extension.to_str().unwrap(), "generation"),
+            // Hidden dotfile with no real extension.
+            (dotfile.to_str().unwrap(), "generation"),
+            // Unknown role.
+            (absolute.to_str().unwrap(), "sampler"),
+            (absolute.to_str().unwrap(), ""),
+            // Empty path (not absolute; the length bound is checked below).
+            ("", "generation"),
+        ];
+        for (path, role) in bad {
+            assert_eq!(
+                import_request(path, role).err().map(|e| format!("{e:?}")),
+                Some(format!("{:?}", ServiceCallError::InvalidArgument)),
+                "{path:?} {role:?}"
+            );
+        }
+        let long = std::env::temp_dir().join(format!("{}.gguf", "x".repeat(MODEL_PATH_MAX_CHARS)));
+        assert!(import_request(long.to_str().unwrap(), "generation").is_err());
+    }
+
+    #[test]
+    fn uuid_canonical_check_applies_to_model_ids() {
+        assert_eq!(model_path(MODEL).unwrap(), format!("/models/{MODEL}"));
+        assert_eq!(
+            model_action_path(MODEL, "start").unwrap(),
+            format!("/models/{MODEL}/start")
+        );
+        for id in [
+            "0F8FAD5B-D9CB-469F-A165-70867728950E",
+            "not-a-uuid",
+            "../../../health?x=00000000-0000-0000-0000-000000000000",
+            "",
+        ] {
+            assert_eq!(
+                model_path(id).err().map(|e| format!("{e:?}")),
+                Some(format!("{:?}", ServiceCallError::InvalidArgument)),
+                "{id:?}"
+            );
+            assert_eq!(
+                model_action_path(id, "stop")
+                    .err()
+                    .map(|e| format!("{e:?}")),
+                Some(format!("{:?}", ServiceCallError::InvalidArgument)),
+                "{id:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn model_timeout_constants_cover_the_service_budgets() {
+        // The service's own start timeout tops out at
+        // DEFAULT_START_TIMEOUT_GENERATION_S = 600 s; the Rust deadline
+        // must exceed it or a slow-but-successful load would trip the
+        // request deadline and fail closed the pinned connection.
+        assert!(MODEL_START_TIMEOUT.as_secs() >= 600 + 60);
+        // Health: generation health timeout is 60 s + slack.
+        assert!(MODEL_HEALTH_TIMEOUT.as_secs() >= 60 + 30);
+        // Import: hashing a multi-GB file; bounded but generous.
+        assert!(MODEL_IMPORT_TIMEOUT.as_secs() >= 120);
     }
 }

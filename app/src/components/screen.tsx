@@ -22,8 +22,17 @@ export function ScreenHeading({ children, focusOnMount }: { children: ReactNode;
   );
 }
 
-/** Shown in place of data while the local service is not `ready`. */
-export function ServiceNotReady({ status }: { status: SupervisorState }) {
+/** Shown in place of data while the local service is not `ready`. The copy
+ * mentions assessments by default; screens whose subject differs override it. */
+export function ServiceNotReady({
+  status,
+  waitingDescription,
+  failedDescription,
+}: {
+  status: SupervisorState;
+  waitingDescription?: string;
+  failedDescription?: string;
+}) {
   const failed = status.state === "failed" || status.state === "stopped";
   return (
     <Card>
@@ -31,8 +40,9 @@ export function ServiceNotReady({ status }: { status: SupervisorState }) {
         <CardTitle>{failed ? "The local service is unavailable" : "Waiting for the local service"}</CardTitle>
         <CardDescription className="max-w-prose">
           {failed
-            ? "Assessments are stored by the local service, which is not running. Restart ControlGauge to try again."
-            : "Assessments will appear as soon as the local service has started."}
+            ? (failedDescription ??
+              "Assessments are stored by the local service, which is not running. Restart ControlGauge to try again.")
+            : (waitingDescription ?? "Assessments will appear as soon as the local service has started.")}
         </CardDescription>
       </CardHeader>
     </Card>

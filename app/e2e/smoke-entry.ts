@@ -74,6 +74,10 @@ mockIPC((cmd, payload) => {
       assessments.unshift(created);
       return created;
     }
+    case "list_models":
+      // Sprint 5: the smoke test only visits the empty models screen;
+      // import/start/stop flows are covered by the component tests.
+      return { models: [], runtime: { generation: null, embedding: null } };
   }
   throw new Error(`unexpected IPC command: ${cmd}`);
 });

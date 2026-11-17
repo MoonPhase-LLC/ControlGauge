@@ -89,3 +89,22 @@ test("assessment create, view and list with mocked service commands", async ({ p
 
   expect(problems).toEqual([]);
 });
+
+test("models screen renders with mocked service", async ({ page }) => {
+  const problems: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") problems.push(`console: ${msg.text()}`);
+  });
+  page.on("pageerror", (err) => problems.push(`pageerror: ${err.message}`));
+
+  await page.goto("/e2e/smoke.html");
+  const nav = page.getByRole("navigation", { name: "Main" });
+  await nav.getByRole("button", { name: "Models", exact: true }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: "Models" })).toBeFocused();
+  await expect(page.getByText("No models imported")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Choose GGUF file…" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Role" })).toHaveValue("generation");
+
+  expect(problems).toEqual([]);
+});

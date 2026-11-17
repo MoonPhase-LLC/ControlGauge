@@ -24,7 +24,15 @@ pub enum FailureReason {
     ExecutableNotFound,
     ResourceDirUnavailable,
     SpawnFailed,
+    // The JobObject containment that constructs these runs only on
+    // Windows (supervisor/process.rs); the variants stay in the fixed
+    // reason contract on every platform so `as_str` arms and any
+    // frontend mapping never fork. The cfg_attr only keeps the
+    // non-Windows `clippy -D warnings` gate clean (CI runs clippy on
+    // windows-latest).
+    #[cfg_attr(not(windows), allow(dead_code))]
     JobObjectCreateFailed,
+    #[cfg_attr(not(windows), allow(dead_code))]
     JobObjectAssignFailed,
     ChildStdinUnavailable,
     ChildStdoutUnavailable,
