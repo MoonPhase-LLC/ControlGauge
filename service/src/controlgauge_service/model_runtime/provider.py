@@ -141,6 +141,12 @@ class LlamaCppProvider:
 
     # --- lifecycle ------------------------------------------------------------
 
+    @property
+    def model_id(self) -> str:
+        """The model_file record id this provider was started for (S5-05
+        closed reporting). Never a model name, path, or credential."""
+        return self._config.model_id
+
     def start(self) -> None:
         """Spawn the child and wait synchronously for readiness. Raises
         ``ModelRuntimeError`` (fail closed) with no partial state left

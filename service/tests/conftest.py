@@ -19,7 +19,14 @@ from controlgauge_service.config import Settings
 #: D-028: the Linux-only containment tests are not collected at all off
 #: Linux (not even as skips), so the Windows suite counts stay exactly as
 #: they were before the Linux sandbox existed.
-collect_ignore_glob = [] if sys.platform == "linux" else ["test_containment_linux.py"]
+collect_ignore_glob = (
+    []
+    if sys.platform == "linux"
+    else [
+        "test_containment_linux.py",
+        "test_model_childproc_linux.py",
+    ]
+)
 
 #: Sprint 5 (PD-023): real-model integration tests skip cleanly unless
 #: the dev binary AND both dev models are configured AND their sizes

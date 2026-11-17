@@ -12,26 +12,34 @@ response_format nesting, sampler-enforcement vs semantic quality).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
 import os
+import re
 import signal
 import sys
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
-from controlgauge_service.config import is_valid_session_token_format
+from controlgauge_service.app import create_app
+from controlgauge_service.config import Settings, is_valid_session_token_format
+from controlgauge_service.db import initialize_database
 from controlgauge_service.model_runtime.args import build_server_args
 from controlgauge_service.model_runtime.config import (
+    MIN_MODEL_FILE_BYTES,
     EmbeddingServerConfig,
     GenerationServerConfig,
 )
 from controlgauge_service.model_runtime.errors import ModelRuntimeError
+from controlgauge_service.model_runtime.manager import ModelRuntimeManager
 from controlgauge_service.model_runtime.provider import LlamaCppProvider
 from controlgauge_service.model_runtime.schemas import (
     ENUM_SCHEMA,
@@ -39,7 +47,8 @@ from controlgauge_service.model_runtime.schemas import (
     NESTED_SCHEMA,
     SIMPLE_FLAT_SCHEMA,
 )
-from tests.conftest import EXPECTED_EMBEDDING_DIMENSIONS, MODEL_ENV
+from controlgauge_service.routes.models import IMPORT_PROVENANCE_WARNING
+from tests.conftest import EXPECTED_EMBEDDING_DIMENSIONS, MODEL_ENV, VALID_TOKEN
 
 pytestmark = [
     pytest.mark.skipif(
@@ -501,3 +510,226 @@ def test_integration_embedding_health_check_capability_specific(
     assert response.status_code != 401, "auth failure would make this evidence inconclusive"
 
     assert embedding_provider.health_check().state == "ready"
+
+
+# --- S5-05: the import API against the real models -----------------------------
+
+
+class _ModelsApi:
+    """Module-scope harness for the S5-05 route tests: a real app (real
+    database + real per-capability manager + the real dev binary) with
+    both dev models imported through the import route exactly once --
+    the multi-GB generation shard is streamed and hashed a single time
+    per module. The two import responses are kept for the contract
+    assertions in the lifecycle test."""
+
+    def __init__(
+        self,
+        client: TestClient,
+        manager: ModelRuntimeManager,
+        headers: dict[str, str],
+        generation_import: dict[str, Any],
+        embedding_import: dict[str, Any],
+    ) -> None:
+        self.client = client
+        self.manager = manager
+        self.headers = headers
+        self.generation_import = generation_import
+        self.embedding_import = embedding_import
+
+    @property
+    def generation_id(self) -> str:
+        identifier: str = self.generation_import["model"]["id"]
+        return identifier
+
+    @property
+    def embedding_id(self) -> str:
+        identifier: str = self.embedding_import["model"]["id"]
+        return identifier
+
+
+def _sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        while chunk := fh.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+@pytest.fixture(scope="module")
+def models_api(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_ModelsApi]:
+    """The S5-05 app on the real binary: fresh database, real manager, both
+    dev models imported through the route. Module-scoped so the expensive
+    imports happen once; every child is stopped on the way out."""
+    database = initialize_database(tmp_path_factory.mktemp("models-api"))
+    manager = ModelRuntimeManager(MODEL_ENV.server)
+    client = TestClient(
+        create_app(
+            Settings(session_token=VALID_TOKEN, llama_server=MODEL_ENV.server),
+            database=database,
+            model_runtime=manager,
+        )
+    )
+    headers = {"Authorization": f"Bearer {VALID_TOKEN}"}
+    try:
+        generation = client.post(
+            "/models/import",
+            json={"path": str(MODEL_ENV.generation), "role": "generation"},
+            headers=headers,
+        )
+        assert generation.status_code == 201, generation.text
+        embedding = client.post(
+            "/models/import",
+            json={"path": str(MODEL_ENV.embedding), "role": "embedding"},
+            headers=headers,
+        )
+        assert embedding.status_code == 201, embedding.text
+        yield _ModelsApi(client, manager, headers, generation.json(), embedding.json())
+    finally:
+        # No llama-server child may outlive the module, whatever a test
+        # left running on the way out.
+        manager.stop_all()
+        client.close()
+        database.dispose()
+
+
+def test_integration_imported_gguf_starts_via_provider(models_api: _ModelsApi) -> None:
+    """The full S5-05 round trip on the real dev binary: both dev models
+    import through the route with structural-only responses (exact byte
+    sizes, hashed content, never the machine-local path -- T-10), the
+    generation model starts under the manager, answers its real
+    capability health check, occupies its role in ``GET /models``, and
+    stops cleanly."""
+    gen_body = models_api.generation_import
+    gen_model = gen_body["model"]
+    assert gen_body["duplicate"] is False
+    assert gen_body["provenance"] == "unverified_import"
+    assert gen_body["warning"] == IMPORT_PROVENANCE_WARNING
+    assert gen_model["display_name"] == MODEL_ENV.generation.name
+    assert re.fullmatch(r"[0-9a-f]{64}", gen_model["sha256"]) is not None
+    assert gen_model["size_bytes"] == MODEL_ENV.generation.stat().st_size
+    assert gen_model["embedding_dimensions"] is None
+    assert "path" not in gen_model
+
+    emb_body = models_api.embedding_import
+    emb_model = emb_body["model"]
+    assert emb_body["duplicate"] is False
+    assert emb_model["size_bytes"] == MODEL_ENV.embedding.stat().st_size
+    # Real-file hashing proven exactly on the (small) embedding model.
+    assert emb_model["sha256"] == _sha256_of(MODEL_ENV.embedding)
+    assert "path" not in emb_model
+
+    model_id = models_api.generation_id
+    started = models_api.client.post(
+        f"/models/{model_id}/start", json={}, headers=models_api.headers
+    )
+    assert started.status_code == 200, started.text
+    assert started.json()["state"] == "ready"
+    assert started.json()["model_id"] == model_id
+
+    inventory = models_api.client.get("/models", headers=models_api.headers)
+    assert inventory.status_code == 200
+    runtime = inventory.json()["runtime"]
+    assert runtime["generation"]["state"] == "ready"
+    assert runtime["generation"]["model_id"] == model_id
+    assert runtime["embedding"]["state"] == "stopped"
+    assert runtime["embedding"]["model_id"] is None
+    listed = inventory.json()["models"]
+    assert {m["id"] for m in listed} == {model_id, models_api.embedding_id}
+    assert all("path" not in m for m in listed)
+
+    health = models_api.client.post(f"/models/{model_id}/health", headers=models_api.headers)
+    assert health.status_code == 200
+    assert health.json()["state"] == "ready"
+    assert health.json()["detail_code"] is None
+
+    stopped = models_api.client.post(f"/models/{model_id}/stop", headers=models_api.headers)
+    assert stopped.status_code == 200
+    assert stopped.json()["state"] == "stopped"
+    assert stopped.json()["model_id"] is None
+
+    after_stop = models_api.client.post(f"/models/{model_id}/health", headers=models_api.headers)
+    assert after_stop.status_code == 200
+    assert after_stop.json()["state"] == "stopped"
+    assert after_stop.json()["model_id"] is None
+
+
+def test_integration_import_refuses_truncated_file(
+    models_api: _ModelsApi, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """A truncated-but-well-formed GGUF copy passes the import head sniff
+    (the sniff cannot see a missing tail) but fails closed at start: 502
+    ``start_failed`` from the real child dying mid-load, and the role is
+    left EMPTY -- never a half-started model pretending to serve."""
+    truncated = tmp_path_factory.mktemp("truncated-model") / "truncated-embedding.gguf"
+    with MODEL_ENV.embedding.open("rb") as src, truncated.open("wb") as dst:
+        dst.write(src.read(1024 * 1024))  # valid head; tensors/tail missing
+    assert truncated.stat().st_size >= MIN_MODEL_FILE_BYTES
+
+    imported = models_api.client.post(
+        "/models/import",
+        json={
+            "path": str(truncated),
+            "role": "embedding",
+            "display_name": "truncated-embedding-copy",
+        },
+        headers=models_api.headers,
+    )
+    assert imported.status_code == 201, imported.text
+    assert imported.json()["model"]["display_name"] == "truncated-embedding-copy"
+    truncated_id: str = imported.json()["model"]["id"]
+    assert truncated_id != models_api.embedding_id
+
+    started = models_api.client.post(
+        f"/models/{truncated_id}/start", json={}, headers=models_api.headers
+    )
+    assert started.status_code == 502, started.text
+    assert started.json()["error"]["code"] == "start_failed"
+
+    # Fail closed: the role stayed empty, so the truncated model reports
+    # ``stopped`` without being contacted (it is not the occupant).
+    after = models_api.client.post(f"/models/{truncated_id}/health", headers=models_api.headers)
+    assert after.status_code == 200
+    assert after.json()["state"] == "stopped"
+    assert after.json()["model_id"] is None
+
+
+def test_integration_dimension_pinned_to_record(models_api: _ModelsApi) -> None:
+    """The S5-04 learn-and-pin path, end to end through the routes: the
+    embedding capability's first real embed (its health check) pins the
+    observed dimensionality on the persisted record, ``GET /models/{id}``
+    reports it, and the NEXT start builds its config from the pinned
+    record -- ``expected_dimensions`` 768, which a drift would violate
+    inside ``embed()`` (S5-04)."""
+    model_id = models_api.embedding_id
+    started = models_api.client.post(
+        f"/models/{model_id}/start", json={}, headers=models_api.headers
+    )
+    assert started.status_code == 200, started.text
+
+    # The embedding health check IS a real embed (D-023): it fires the
+    # manager's learn-and-pin callback into the database.
+    health = models_api.client.post(f"/models/{model_id}/health", headers=models_api.headers)
+    assert health.status_code == 200
+    assert health.json()["state"] == "ready"
+
+    record = models_api.client.get(f"/models/{model_id}", headers=models_api.headers)
+    assert record.status_code == 200
+    assert record.json()["embedding_dimensions"] == EXPECTED_EMBEDDING_DIMENSIONS
+
+    models_api.client.post(f"/models/{model_id}/stop", headers=models_api.headers)
+    restarted = models_api.client.post(
+        f"/models/{model_id}/start", json={}, headers=models_api.headers
+    )
+    assert restarted.status_code == 200, restarted.text
+
+    provider = models_api.manager.get("embedding")
+    assert provider is not None
+    config = provider._config
+    assert isinstance(config, EmbeddingServerConfig)
+    # The pinned record value (not None) is the next start's expectation.
+    assert config.expected_dimensions == EXPECTED_EMBEDDING_DIMENSIONS
+    vector = provider.embed("post-restart dimension pin probe")
+    assert len(vector) == EXPECTED_EMBEDDING_DIMENSIONS
+
+    models_api.client.post(f"/models/{model_id}/stop", headers=models_api.headers)

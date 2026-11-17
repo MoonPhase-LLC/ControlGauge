@@ -80,6 +80,14 @@ class ModelRuntimeManager:
         with self._lock:
             return self._providers.get(role)
 
+    def loaded_model_id(self, role: RoleLiteral) -> str | None:
+        """The ``model_file`` id of the model currently occupying the role,
+        or ``None``. Closed, contact-free reporting for the model routes
+        (S5-05): never a port, pid, path, or credential."""
+        with self._lock:
+            provider = self._providers.get(role)
+            return None if provider is None else provider.model_id
+
     def status(self, role: RoleLiteral) -> HealthStatus:
         """``stopped`` when absent; otherwise a real capability-specific
         health check -- never a dead-child trust (a stopped provider

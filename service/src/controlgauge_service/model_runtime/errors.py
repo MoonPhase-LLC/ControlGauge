@@ -28,6 +28,16 @@ MODEL_RUNTIME_ERROR_CODES = (
     "non_finite_embedding",
     "input_too_long",
     "not_loaded",
+    # S5-05 import-path codes: untrusted GGUF handling. All carry fixed
+    # messages -- never the path, the filename, or any file content (T-10).
+    "model_path_invalid",
+    "model_file_not_found",
+    "model_file_not_regular",
+    "unsupported_file_type",
+    "model_file_too_small",
+    "model_file_too_large",
+    "invalid_gguf_magic",
+    "invalid_gguf_version",
 )
 
 _MESSAGES: dict[str, str] = {
@@ -47,6 +57,14 @@ _MESSAGES: dict[str, str] = {
     "non_finite_embedding": "The embedding contains non-finite values.",
     "input_too_long": "The input exceeds the maximum supported length.",
     "not_loaded": "The model runtime is not loaded.",
+    "model_path_invalid": "The model file path is not valid.",
+    "model_file_not_found": "The model file was not found.",
+    "model_file_not_regular": "The model path is not a regular file.",
+    "unsupported_file_type": "Only GGUF model files can be imported.",
+    "model_file_too_small": "The file is too small to be a model file.",
+    "model_file_too_large": "The file is larger than the supported model size limit.",
+    "invalid_gguf_magic": "The file does not look like a GGUF model file.",
+    "invalid_gguf_version": "The GGUF file version is not supported.",
 }
 
 
