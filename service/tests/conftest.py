@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -16,6 +18,65 @@ from controlgauge_service.config import Settings
 #: Linux (not even as skips), so the Windows suite counts stay exactly as
 #: they were before the Linux sandbox existed.
 collect_ignore_glob = [] if sys.platform == "linux" else ["test_containment_linux.py"]
+
+#: Sprint 5 (PD-023): real-model integration tests skip cleanly unless
+#: the dev binary AND both dev models are configured AND their sizes
+#: match the pinned expectations below (a partially-downloaded file is
+#: refused, so a truncated download can't produce confusing failures).
+#: Dev-model byte sizes MAY live here per PD-023 (docs/tests are the only
+#: sanctioned homes for dev-model identity). Read at conftest import time
+#: -- before any test's `_isolated_environment` fixture strips ambient
+#: `CONTROLGAUGE_*` variables.
+_MODEL_ENV_VARS = SimpleNamespace(
+    server="CONTROLGAUGE_TEST_LLAMA_SERVER",
+    generation="CONTROLGAUGE_TEST_MODEL_GENERATION",
+    embedding="CONTROLGAUGE_TEST_MODEL_EMBEDDING",
+)
+
+#: Expected exact byte sizes: the generation env var points at the FIRST
+#: shard of the split GGUF; the embedding model is a single file.
+_EXPECTED_TEST_MODEL_SIZES = {
+    "generation": 3_993_201_344,
+    "embedding": 84_106_624,
+}
+
+
+def _load_model_env() -> SimpleNamespace:
+    """Resolve the integration-test environment once per session. Paths
+    must exist, be regular files, and match the pinned sizes."""
+
+    def resolved(name: str) -> Path | None:
+        raw = os.environ.get(name)
+        if not raw:
+            return None
+        path = Path(raw)
+        return path if path.is_file() else None
+
+    server = resolved(_MODEL_ENV_VARS.server)
+    generation = resolved(_MODEL_ENV_VARS.generation)
+    embedding = resolved(_MODEL_ENV_VARS.embedding)
+    ready = (
+        server is not None
+        and generation is not None
+        and embedding is not None
+        and generation.stat().st_size == _EXPECTED_TEST_MODEL_SIZES["generation"]
+        and embedding.stat().st_size == _EXPECTED_TEST_MODEL_SIZES["embedding"]
+    )
+    if not ready:
+        return SimpleNamespace(server=None, generation=None, embedding=None, ready=False)
+    return SimpleNamespace(server=server, generation=generation, embedding=embedding, ready=True)
+
+
+MODEL_ENV = _load_model_env()
+
+
+@pytest.fixture(scope="session")
+def model_env() -> SimpleNamespace:
+    """The resolved real-model test environment (paths + readiness); see
+    ``MODEL_ENV`` above. Integration modules gate themselves with
+    ``pytest.mark.skipif(not MODEL_ENV.ready, ...)``."""
+    return MODEL_ENV
+
 
 #: 32 chars -- comfortably above MIN_SESSION_TOKEN_LENGTH. Not a secret:
 #: this value is fixed only so tests are deterministic and never resembles

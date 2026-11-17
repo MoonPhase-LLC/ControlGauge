@@ -1,6 +1,6 @@
 # ControlGauge — Sprint 5 Development Models
 
-Status: Sprint 5 (S5-01). Reproducibility doc for the two **development/validation
+Status: Sprint 5 (S5-01, S5-02). Reproducibility doc for the two **development/validation
 models** approved for Sprint 5 by the owner (`docs/planning/DECISION_LOG.md`
 PD-023). Both are **development/validation only — not a production decision**
 (Sprint 6 curates the production catalog independently).
@@ -33,7 +33,9 @@ dev-model filenames and paths may appear only in `docs/` and `tests/`
 - Expected embedding dimensionality: **768**. This number comes from the model
   card — **verify it from the server, don't trust it**: Sprint 5's integration
   tests assert the server-reported dimension against this value and this
-  document is corrected if they disagree (S5-04).
+  document is corrected if they disagree (S5-04). Server-observed on this dev
+  box, 2026-11-17 (S5-02 evidence run): the embeddings response carried
+  **768 floats** per vector.
 
 ## 2. Runtime — llama.cpp b12480
 
@@ -102,22 +104,46 @@ llama-server loads split GGUFs when given the **first shard**
 (`*-00001-of-00002.gguf`); it locates the remaining shards automatically.
 Verified empirically at dev time by
 `service/tests/test_model_integration.py::test_integration_start_health_stop_generation_model`
-(S5-02) — until that test passes on your machine, treat loading as an
-assumption, per the Sprint 5 risk register.
+(S5-02) — **passing on this dev box, 2026-11-17**. On a fresh machine, until
+that test passes locally, treat loading as an assumption, per the Sprint 5
+risk register.
 
 ## 5. Server auth matrix
 
-Filled at dev time while a real server runs (D-017 documentation duty: which
-endpoints are exempt from the per-launch credential). `✓ auth` = request
-served (or a non-401 response such as 400/404/405); `✗ 401` = rejected with
-HTTP 401 `unauthorized: Invalid API Key`. The provider always sends
-`Authorization: Bearer <credential>` on every request it makes — if an
-endpoint is exempt, sending the credential is harmless; if not, it is
-required.
+Verified 2026-11-17 on this dev box against llama.cpp **b12480** with the real
+dev models (embedding server probed directly; the generation child is covered
+by `service/tests/test_model_integration.py::test_integration_unauthorized_local_request_rejected`).
+`✗ 401` = rejected with HTTP 401 and body
+`{"error":{"message":"Invalid API Key","type":"authentication_error",...}}`.
+The provider always sends `Authorization: Bearer <credential>` on every
+request it makes — harmless on the exempt endpoint, required everywhere else.
 
-| Endpoint | Without credential | With credential |
+| Endpoint | Without credential | With that child's own credential |
 |---|---|---|
-| (pending — filled during the Sprint 5 integration runs on this dev box) | — | — |
+| `GET /health` | **200 — auth-exempt** (`{"status":"ok"}`; readiness polling relies on this) | 200 |
+| `GET /props` | ✗ 401 | 200 |
+| `POST /v1/chat/completions` (generation child) | ✗ 401 | 200 |
+| `POST /v1/embeddings` (embedding child) | ✗ 401 | 200 |
+
+Per-launch credential isolation (D-017), same run: the two concurrently
+running children hold **different** credentials (asserted), and the
+generation launch's credential is **rejected by the embedding child with
+401** — one launch's credential never opens another child.
+
+Further verified response shapes on this build (S5-02):
+
+- `GET /props` (authenticated) carries `build_info` as a **flat string**,
+  e.g. `"b12480-7f106b545"`; `describe()` surfaces exactly that string,
+  bounded to 64 chars. The payload's `model_path` field is never read or
+  copied (asserted by `test_integration_props_metadata_is_closed`).
+- `POST /v1/embeddings` returns the OpenAI-style envelope
+  `{model, object, usage: {prompt_tokens, total_tokens},
+  data: [{embedding: [<768 floats>], index, object}]}` — no `timings` block
+  on this endpoint.
+- Flag drift check (args builder vs the §2 table): the S5-02 builder emits
+  exactly `--host 127.0.0.1 --port <port> --model <path> --ctx-size 2048
+  --parallel 1 --no-webui --no-slots --embedding` for the embedding config,
+  omitting `--threads`/`-ngl` while unset — **no drift**.
 
 ## 6. Hardware notes
 

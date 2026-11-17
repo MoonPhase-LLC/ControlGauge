@@ -21,6 +21,7 @@ from .config import Settings
 from .db import DatabaseInitError, initialize_database
 from .evidence.ingest import start_ingestion
 from .logging_config import configure_logging
+from .model_runtime.manager import ModelRuntimeManager
 
 logger = logging.getLogger("controlgauge_service")
 
@@ -46,7 +47,8 @@ def main() -> None:
         raise SystemExit(1) from None
 
     ingestion = start_ingestion(database)
-    app = create_app(settings, database=database, ingestion=ingestion)
+    model_runtime = ModelRuntimeManager(settings.llama_server)
+    app = create_app(settings, database=database, ingestion=ingestion, model_runtime=model_runtime)
 
     logger.info(
         "starting",
@@ -61,6 +63,7 @@ def main() -> None:
     try:
         uvicorn.run(app, host=settings.host, port=settings.port, log_level="warning")
     finally:
+        model_runtime.stop_all()
         if ingestion is not None:
             ingestion.stop()
         database.dispose()
