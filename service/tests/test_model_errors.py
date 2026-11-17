@@ -29,6 +29,7 @@ _OK_SCHEMA: dict[str, Any] = {
 def _provider(
     role: str = "generation",
     handler: Callable[[httpx.Request], httpx.Response] | None = None,
+    on_dimension_learned: Callable[[int], None] | None = None,
     **config_kwargs: Any,
 ) -> LlamaCppProvider:
     config: GenerationServerConfig | EmbeddingServerConfig
@@ -40,7 +41,12 @@ def _provider(
         config = EmbeddingServerConfig(
             model_path=Path("model.gguf"), model_id="test", **config_kwargs
         )
-    provider = LlamaCppProvider(config, runtime_binary=Path("llama-server"), role=role)  # type: ignore[arg-type]
+    provider = LlamaCppProvider(
+        config,
+        runtime_binary=Path("llama-server"),
+        role=role,  # type: ignore[arg-type]
+        on_dimension_learned=on_dimension_learned,
+    )
     if handler is not None:
         provider._client = httpx.Client(
             transport=httpx.MockTransport(handler),
@@ -203,6 +209,42 @@ def test_embed_maps_transport_failure_to_transport_error() -> None:
         provider.embed("hello")
 
     assert excinfo.value.code == "transport_error"
+
+
+def test_embed_dimension_learned_once() -> None:
+    """Learn-and-pin (S5-04): the first successful embed reports the
+    observed dimension via the callback exactly once; a later answer with
+    a different dimensionality is refused (``embedding_dimension_mismatch``)
+    and surfaces as an unhealthy capability check."""
+    learned: list[int] = []
+
+    def seven68_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"embedding": [0.5] * 768}]})
+
+    provider = _provider(
+        role="embedding",
+        handler=seven68_handler,
+        on_dimension_learned=learned.append,
+    )
+
+    provider.embed("first")
+    provider.embed("second")
+    assert learned == [768]  # learned once, not per call
+
+    def four_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"embedding": [0.1, 0.2, 0.3, 0.4]}]})
+
+    provider._client = httpx.Client(
+        transport=httpx.MockTransport(four_handler),
+        base_url="http://127.0.0.1:51997",
+        trust_env=False,
+        headers={"Authorization": "Bearer unit-test-credential"},
+    )
+
+    status = provider.health_check()
+
+    assert status.state == "unhealthy"
+    assert status.detail_code == "embedding_dimension_mismatch"
 
 
 def test_generate_invalid_json_is_invalid_output() -> None:

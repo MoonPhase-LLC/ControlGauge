@@ -42,6 +42,13 @@ _EXPECTED_TEST_MODEL_SIZES = {
     "embedding": 84_106_624,
 }
 
+#: Expected embedding dimensionality (nomic-embed-text-v1.5 model card).
+#: The integration tests assert the SERVER-observed dimension against this
+#: constant -- on mismatch the test fails and ``docs/DEV_MODELS.md`` is
+#: corrected (the "verify, don't assert blindly" loop, S5-04). Server-
+#: observed 768 on the dev box, 2026-11-17.
+EXPECTED_EMBEDDING_DIMENSIONS = 768
+
 
 def _load_model_env() -> SimpleNamespace:
     """Resolve the integration-test environment once per session. Paths

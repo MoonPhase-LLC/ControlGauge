@@ -158,10 +158,14 @@ Further verified response shapes on this build (S5-02):
   on the real model: a free-invented `confidence` of
   `0.9555555555555556E1000000000000000` passes the grammar (valid JSON
   number shape) and parses to `inf`, which deterministic validation then
-  rejects with `schema_validation_failed`. Division of labor is therefore:
-  **sampler enforces shape; deterministic validation (B2) enforces ranges
-  and every other semantic constraint.** Sprint 6's pipeline schemas
-  should not rely on grammar-level numeric ranges.
+  rejects with `schema_validation_failed`. Across repeated free-form
+  (unpinned-value) runs, overflowing-exponent answers showed up roughly
+  **1 in 5** — so ranged schemas on this binary should expect a
+  deterministic-validation rejection rate of that order and budget a
+  retry accordingly. Division of labor is therefore: **sampler enforces
+  shape; deterministic validation (B2) enforces ranges and every other
+  semantic constraint.** Sprint 6's pipeline schemas should not rely on
+  grammar-level numeric ranges.
 - **Sampler enforcement vs semantic quality (PD-023)**: N=5 runs of a
   deliberately nonsensical prompt ("how the number seven migrates for the
   winter, in iambic pentameter") under the enum grammar produced 5/5
@@ -177,6 +181,26 @@ Further verified response shapes on this build (S5-02):
   ```bash
   unshare -rn sh -c 'ip link set lo up && pytest service/tests/test_model_integration.py'
   ```
+
+### 5.2 Embeddings (S5-04 evidence, 2026-11-17)
+
+- **Dimension verified from the server**: real nomic-embed-text-v1.5 Q4_K_M
+  embeddings carry **768 floats** (matches the model card; asserted by
+  `test_integration_embedding_finite_and_dimensioned` against the
+  conftest-pinned `EXPECTED_EMBEDDING_DIMENSIONS = 768`). Same-process
+  determinism verified (identical input → identical vectors); restart
+  determinism is a baseline observation, not a guarantee.
+- **Normalization / metric (D-025)**: the server runs with the default
+  `--embd-normalize 2` = **euclidean/L2**, i.e. vectors are L2-normalized.
+  Consequence for consumers: on L2-normalized vectors, **cosine similarity
+  ≡ dot product** — Sprint 8 picks the similarity metric
+  (`EmbeddingServerConfig.embedding_similarity_metric`, reserved `"cosine"`);
+  `embedding_normalization` (reserved `"l2"`) documents what the server does.
+- **Model-specific preprocessing is NOT implemented in Sprint 5**: nomic's
+  task prefixes (`search_document:` / `search_query:`) are a retrieval-
+  quality concern for **Sprint 8** — recorded here so it isn't rediscovered.
+  The provider interface stays model-agnostic (no prefixes anywhere in
+  code).
 
 ## 6. Hardware notes
 

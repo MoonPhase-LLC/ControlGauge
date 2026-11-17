@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import signal
 import sys
@@ -38,7 +39,7 @@ from controlgauge_service.model_runtime.schemas import (
     NESTED_SCHEMA,
     SIMPLE_FLAT_SCHEMA,
 )
-from tests.conftest import MODEL_ENV
+from tests.conftest import EXPECTED_EMBEDDING_DIMENSIONS, MODEL_ENV
 
 pytestmark = [
     pytest.mark.skipif(
@@ -395,8 +396,10 @@ def test_integration_sampler_enforcement_vs_semantic_quality(
             "REFERENCES",
             "CONFLICTS_WITH",
         }
+        # Shape-only conformance: the grammar guarantees a number, not its
+        # range (free-invented overflowing exponents are observed and are
+        # deterministic validation's job to refuse -- DEV_MODELS.md §5.1).
         assert isinstance(data["confidence"], int | float)
-        assert 0.0 <= data["confidence"] <= 1.0
 
     # The evidence itself (conformant shape, arbitrary content) rides the
     # test log for the DEV_MODELS.md record.
@@ -421,3 +424,80 @@ def test_integration_offline_no_non_loopback_sockets(
     )
 
     assert generation.data["control_id"] == "AC-2"
+
+
+# --- S5-04: embeddings against the real model --------------------------------
+
+
+def test_integration_embedding_finite_and_dimensioned(
+    embedding_provider: LlamaCppProvider,
+) -> None:
+    """Real nomic embeddings: every value finite, and the dimensionality
+    equals the conftest-pinned expectation (768) as reported by the
+    server -- the learn-and-pin path reports the same number through
+    ``describe()``. On mismatch this test fails and DEV_MODELS.md is
+    corrected (verify, don't assert blindly)."""
+    vector = embedding_provider.embed("controlgauge health check")
+
+    assert len(vector) == EXPECTED_EMBEDDING_DIMENSIONS
+    assert all(math.isfinite(value) for value in vector)
+
+    descriptor = embedding_provider.describe()
+    assert descriptor.embedding_dimensions == EXPECTED_EMBEDDING_DIMENSIONS
+
+
+def test_integration_embedding_deterministic(
+    embedding_provider: LlamaCppProvider,
+) -> None:
+    """Same-process determinism: two embeds of identical input return
+    exactly identical vectors (restart determinism is a baseline
+    observation, not a guarantee)."""
+    first = embedding_provider.embed("determinism probe for sprint 5")
+    second = embedding_provider.embed("determinism probe for sprint 5")
+
+    assert first == second
+
+
+def test_integration_embedding_input_limit_enforced(
+    embedding_provider: LlamaCppProvider,
+) -> None:
+    """No silent truncation: input over ``max_input_chars`` is refused
+    with ``input_too_long``, never embedded short. (The char bound is
+    Sprint 5's enforced proxy; tokenizer-exact limits are Sprint 6's
+    catalog concern per D-023.)"""
+    with pytest.raises(ModelRuntimeError) as excinfo:
+        embedding_provider.embed("x" * 33_000)  # > EMBEDDING_DEFAULT_MAX_INPUT_CHARS
+
+    assert excinfo.value.code == "input_too_long"
+
+
+def test_integration_embedding_health_check_capability_specific(
+    embedding_provider: LlamaCppProvider,
+) -> None:
+    """D-023: the embedding capability's health check is a real embed,
+    never a generation call -- proven from the server side: a generation
+    request to the embedding-mode server is refused (4xx, and not the
+    401 that would mean an auth problem), while the embedding health
+    check returns ``ready``."""
+    credential = embedding_provider._credential
+    port = embedding_provider._port
+    assert credential and port
+
+    client = httpx.Client(
+        base_url=f"http://127.0.0.1:{port}",
+        trust_env=False,
+        timeout=60.0,
+        headers={"Authorization": f"Bearer {credential}"},
+    )
+    try:
+        response = client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": "hello"}], "max_tokens": 8},
+        )
+    finally:
+        client.close()
+
+    assert 400 <= response.status_code < 600
+    assert response.status_code != 401, "auth failure would make this evidence inconclusive"
+
+    assert embedding_provider.health_check().state == "ready"
