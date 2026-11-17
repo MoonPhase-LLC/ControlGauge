@@ -46,6 +46,11 @@ def _provider(
             transport=httpx.MockTransport(handler),
             base_url="http://127.0.0.1:51997",
             trust_env=False,
+            # Mirror _make_client: the credential rides client-level
+            # headers on every request (unit-level half of that contract;
+            # the real-server half is the 401 matrix in the integration
+            # module).
+            headers={"Authorization": "Bearer unit-test-credential"},
         )
     return provider
 
@@ -251,3 +256,85 @@ def test_error_message_is_fixed_per_code() -> None:
 def test_unknown_code_is_rejected_at_construction() -> None:
     with pytest.raises(ValueError):
         ModelRuntimeError("made_up_code")
+
+
+# --- S5-03: the generate() request contract ---------------------------------
+
+
+def test_generate_request_carries_schema_and_budget() -> None:
+    """The wire contract: the caller's schema rides ``response_format``
+    (sampler enforcement), the configured budget caps the answer, the
+    chat template is applied (messages, not a raw completion), and the
+    Authorization header rides every request (readiness included)."""
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json=_chat_body('{"ok": true}'))
+
+    provider = _provider(handler=handler, max_output_tokens=77)
+
+    provider.generate("p", _OK_SCHEMA, timeout_s=5.0, system_prompt="sys")
+
+    request = calls[0]
+    body = json.loads(request.content)
+    assert body["response_format"]["type"] == "json_schema"
+    assert body["response_format"]["json_schema"]["schema"] == _OK_SCHEMA
+    assert body["max_tokens"] == 77
+    assert body["stream"] is False
+    assert body["messages"] == [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "p"},
+    ]
+    assert request.headers["Authorization"].startswith("Bearer ")
+
+
+def test_generate_respects_timeout_parameter() -> None:
+    """The caller's ``timeout_s`` rides the per-request timeout; a server
+    slower than it maps to ``request_timeout`` (never a hung call)."""
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["timeout"] = request.extensions.get("timeout")
+        raise httpx.ReadTimeout("slow child", request=request)
+
+    provider = _provider(handler=handler)
+
+    with pytest.raises(ModelRuntimeError) as excinfo:
+        provider.generate("p", _OK_SCHEMA, timeout_s=1.25)
+
+    assert excinfo.value.code == "request_timeout"
+    assert seen["timeout"] == {
+        "connect": 1.25,
+        "read": 1.25,
+        "write": 1.25,
+        "pool": 1.25,
+    }
+
+
+def test_generate_never_persists() -> None:
+    """By construction: ``generate()`` returns parsed, validated data and
+    nothing else -- the provider carries no database, session, or store
+    collaborator that could persist anything (Sprint 5 writes no
+    analysis tables). The attribute set is pinned so any future
+    persistence collaborator would have to appear here first."""
+    provider = _provider(
+        handler=lambda request: httpx.Response(200, json=_chat_body('{"ok": true}'))
+    )
+
+    result = provider.generate("p", _OK_SCHEMA, timeout_s=5.0)
+
+    assert result.data == {"ok": True}
+    assert set(provider.__dict__) == {
+        "_config",
+        "_runtime_binary",
+        "_role",
+        "_on_dimension_learned",
+        "_credential",
+        "_handle",
+        "_client",
+        "_port",
+        "_stopped",
+        "_dimension_learned",
+        "_observed_dimensions",
+    }

@@ -145,6 +145,39 @@ Further verified response shapes on this build (S5-02):
   --parallel 1 --no-webui --no-slots --embedding` for the embedding config,
   omitting `--threads`/`-ngl` while unset — **no drift**.
 
+### 5.1 Structured generation (S5-03 evidence, 2026-11-17)
+
+- **`response_format` nesting verified**: b12480 accepts the OpenAI-style
+  `{"type": "json_schema", "json_schema": {"name": ..., "schema": {...}}}`
+  on `POST /v1/chat/completions` (chat template applied). The documented
+  `/completion` fallback was **not needed**; the provider's single
+  `generate()` method stands.
+- **Grammar = shape, not range** (found live): b12480's `json_schema`
+  grammar enforces the enum literals, object/array structure, and the
+  *shape* of a number — but **not numeric `minimum`/`maximum`**. Observed
+  on the real model: a free-invented `confidence` of
+  `0.9555555555555556E1000000000000000` passes the grammar (valid JSON
+  number shape) and parses to `inf`, which deterministic validation then
+  rejects with `schema_validation_failed`. Division of labor is therefore:
+  **sampler enforces shape; deterministic validation (B2) enforces ranges
+  and every other semantic constraint.** Sprint 6's pipeline schemas
+  should not rely on grammar-level numeric ranges.
+- **Sampler enforcement vs semantic quality (PD-023)**: N=5 runs of a
+  deliberately nonsensical prompt ("how the number seven migrates for the
+  winter, in iambic pentameter") under the enum grammar produced 5/5
+  schema-conformant answers — `relationship_type: "REFERENCES"` every
+  time, confidences `0.9555…/1.0` — i.e. conformant shape, meaningless
+  content. Conformance is the sampler's guarantee; meaningfulness is the
+  prompt's.
+- **Offline evidence**: the integration module runs every test under the
+  `offline_guard` fixture (any non-loopback `connect`/`create_connection`
+  attempt raises), and a real structured generation passes under it. The
+  optional hard form on Linux:
+
+  ```bash
+  unshare -rn sh -c 'ip link set lo up && pytest service/tests/test_model_integration.py'
+  ```
+
 ## 6. Hardware notes
 
 - Dev box: Linux x86_64, **CPU-only** (the machine's GPUs are occupied by

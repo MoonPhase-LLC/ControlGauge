@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -76,6 +78,46 @@ def model_env() -> SimpleNamespace:
     ``MODEL_ENV`` above. Integration modules gate themselves with
     ``pytest.mark.skipif(not MODEL_ENV.ready, ...)``."""
     return MODEL_ENV
+
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def _require_loopback(address: object) -> None:
+    """Raise unless ``address`` is a loopback endpoint (the S5-03 offline
+    guard). Unix-socket paths are local by definition; anything else must
+    be a tuple whose host is loopback."""
+    if isinstance(address, str):
+        return
+    if isinstance(address, tuple) and address and isinstance(address[0], str):
+        if address[0] in _LOOPBACK_HOSTS:
+            return
+    raise AssertionError(f"non-loopback connection attempted: {address!r}")
+
+
+@pytest.fixture()
+def offline_guard(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """S5-03 offline evidence: while active, any connection attempt to a
+    non-loopback address raises. The real-model integration module applies
+    this to all of its tests via ``pytestmark``; a passing generation
+    under the guard is the proof that the runtime needs no external
+    traffic. (Primary evidence; the optional hard form on Linux is
+    running the module under ``unshare -rn`` -- documented in
+    ``docs/DEV_MODELS.md``.)"""
+    real_connect = socket.socket.connect
+    real_create_connection = socket.create_connection
+
+    def guarded_connect(sock: socket.socket, address: Any) -> Any:
+        _require_loopback(address)
+        return real_connect(sock, address)
+
+    def guarded_create_connection(address: Any, *args: Any, **kwargs: Any) -> socket.socket:
+        _require_loopback(address)
+        return real_create_connection(address, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    monkeypatch.setattr(socket, "create_connection", guarded_create_connection)
+    yield
 
 
 #: 32 chars -- comfortably above MIN_SESSION_TOKEN_LENGTH. Not a secret:
