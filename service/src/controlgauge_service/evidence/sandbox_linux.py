@@ -64,6 +64,7 @@ import subprocess  # noqa: E402
 import tempfile  # noqa: E402
 import threading  # noqa: E402
 from pathlib import Path  # noqa: E402
+from typing import Any  # noqa: E402
 
 from .sandbox import (  # noqa: E402
     SandboxLimits,
@@ -71,6 +72,16 @@ from .sandbox import (  # noqa: E402
     WorkerCommand,
     worker_command,
 )
+
+# Typeshed ships the POSIX-only `resource` stub as an empty module when mypy
+# runs with platform=win32 (Windows CI), while this file is never imported at
+# runtime there. Narrow on sys.platform so the alias keeps full precision on
+# Linux and degrades to Any under win32 type-checking instead of failing with
+# "Name 'resource.struct_rusage' is not defined".
+if sys.platform != "win32":
+    RusageType = resource.struct_rusage
+else:  # pragma: no cover - type-checking only; the module is never imported on Windows
+    RusageType = Any
 
 #: Preferred locations of the distro bubblewrap binary. A bwrap found via
 #: `which` (snap/nix) will fail the probe on a userns-restricting distro and
@@ -291,7 +302,7 @@ def _collect(proc: subprocess.Popen[bytes], limits: SandboxLimits) -> SandboxRes
     chunks: list[bytes] = []
     overflow = threading.Event()
     done = threading.Event()
-    status_info: list[tuple[int, int, resource.struct_rusage]] = []  # (pid, status, rusage)
+    status_info: list[tuple[int, int, RusageType]] = []  # (pid, status, rusage)
 
     def reader() -> None:
         stdout = proc.stdout
