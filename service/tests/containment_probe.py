@@ -5,6 +5,9 @@ is one deliberate escape attempt; the probe prints one JSON object mapping
 each attempt to "allowed" or "denied:<ExceptionName>". Tests then assert
 the sandbox denied it. Resource-bound probes (`alloc`, `spin`, `flood`,
 `sleep`) do not return; the test asserts the sandbox stopped them.
+`floodscratch` fills the scratch directory (its working directory) until
+the filesystem stops it and reports `denied:<ExceptionName>` -- the bound
+itself is the property under test, so on success it does not return.
 
 Standard library only, so it runs from any interpreter the sandbox allows.
 """
@@ -57,6 +60,11 @@ def _attempt(action: str) -> str:
             block = b"x" * 65536
             while True:
                 out.write(block)
+        elif kind == "floodscratch":
+            block = b"x" * (4 * 1024 * 1024)
+            with open("flood.bin", "wb") as f:  # cwd is the scratch directory
+                while True:
+                    f.write(block)
         else:
             return "unknown"
     except Exception as exc:  # noqa: BLE001 - reporting what the OS did

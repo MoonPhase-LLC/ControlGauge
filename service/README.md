@@ -145,11 +145,33 @@ sections. Each outcome is one `parse_status` (`parsed`, `partial`, `empty`, `uns
 `failed`) with a fixed `parse_detail` code (e.g. `encrypted`, `archive_limit`, `timeout`).
 Interrupted parses are re-queued at startup.
 
-- **Windows only.** On other platforms parsing fails closed (`failed` /
-  `containment_unavailable`). Tests there inject a test-only unconfined runner explicitly.
-- **First parse on a machine** grants the `controlGaugeParserRuntime` capability read/execute on
-  the worker's program directories (inherited ACE): in development the base Python install,
-  `site-packages` and `src/`; in the frozen build the bundle directory. Nothing else changes.
+- **Windows:** per-parse LPAC AppContainer + Job Object (D-027). **Linux (Sprint 4.5):**
+  per-parse bubblewrap sandbox (D-028): all namespaces unshared (no network), read-only binds
+  of the worker's program directories plus system code (`/usr`, `/lib`, `/lib64`) only — the
+  data directory, database and `/etc` are not visible inside — input as a read-only stdin fd
+  (never a path), per-parse tmpfs scratch as the only writable location, cleared environment,
+  rlimit bounds (memory/CPU/one process/no core), `--die-with-parent`. **macOS/other:**
+  parsing fails closed (`containment_unavailable`).
+- **Linux prerequisites:** `bwrap` (tested 0.9.0) and a per-binary AppArmor profile allowing
+  `/usr/bin/bwrap` to create user namespaces (Ubuntu 24.04 restricts them). Availability is a
+  real cached probe: without bwrap or the profile, uploads answer `failed` /
+  `containment_unavailable` (fail closed).
+
+  ```apparmor
+  # /etc/apparmor.d/bwrap — allow bubblewrap to create user namespaces
+  abi <abi/4.0>,
+  include <tunables/global>
+  profile bwrap /usr/bin/bwrap flags=(unconfined) {
+    userns,
+    include if exists <local/bwrap>
+  }
+  ```
+
+  Load with `sudo apparmor_parser -r /etc/apparmor.d/bwrap`; restart the service
+  afterwards (the probe result is cached for the process lifetime). *(Profile follows the
+  Ubuntu 24.04 userns-restriction pattern; verify with the availability probe.)*
+- First parse on a machine: Windows grants the `controlGaugeParserRuntime` capability ACE once;
+  Linux changes nothing on disk (binds are read-only, scratch is tmpfs).
 - `tests/test_containment.py` is the D-022 containment harness (a hostile probe must be denied
   evidence, the database, writes outside scratch, the network and child processes, and be stopped
   at each bound). `--service-exe <exe>` also runs the frozen worker contained.

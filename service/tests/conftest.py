@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,6 +11,11 @@ from fastapi.testclient import TestClient
 
 from controlgauge_service.app import create_app
 from controlgauge_service.config import Settings
+
+#: D-028: the Linux-only containment tests are not collected at all off
+#: Linux (not even as skips), so the Windows suite counts stay exactly as
+#: they were before the Linux sandbox existed.
+collect_ignore_glob = [] if sys.platform == "linux" else ["test_containment_linux.py"]
 
 #: 32 chars -- comfortably above MIN_SESSION_TOKEN_LENGTH. Not a secret:
 #: this value is fixed only so tests are deterministic and never resembles

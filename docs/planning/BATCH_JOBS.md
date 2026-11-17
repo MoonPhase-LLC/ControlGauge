@@ -360,6 +360,38 @@ Spec: `docs/SPRINTS.md` Sprint 4; gates S-1/S-2 resolved by PD-016; mechanism D-
 - **Known follow-ups (not in scope):** re-parse of an artifact; DOCX headers/footers/footnotes
   are not extracted (body only); OCR (scanned PDFs report `empty`); a parse-progress cancel.
 
+## Sprint 4.5 — Linux parser containment parity
+
+Owner-approved mechanism: bubblewrap (PD-021, D-028). One branch `claude/linux-parser-sandbox`,
+one PR. Deployment prerequisite on Linux: bwrap ≥ 0.9.0 and a per-binary AppArmor userns
+profile for /usr/bin/bwrap (documented in service/README.md); without it parsing fails closed.
+
+**Merged 2026-11-17 (PD-022):** PR creation blocked by the token (403, PD-020 state) → merged
+locally into `main` and pushed under standing owner instruction §7 of the mission prompt.
+Evidence: pre-merge re-verification on Linux 2026-11-17 — `uv run pytest -q` → 578 passed,
+7 skipped; `ruff check`, `ruff format --check`, `mypy` (77 files) clean. Windows CI verification
+rides the `main` push (watched post-merge per §7).
+
+### S4.5-01 — sandbox_linux.py and platform guarding
+- **Depends:** owner approval (PD-021). **Status:** Done — merged to `main` 2026-11-17 (PD-022); commit `b67695d`.
+- **Result:** `evidence/sandbox_linux.py` (namespaced bwrap sandbox, trusted rlimit bootstrap,
+  cached fail-closed capability probe, frozen-Linux refused); `ContainedRunner.available()/run()`
+  platform dispatch with the Windows path unchanged.
+- **Acceptance:** Linux containment harness green on a bwrap-capable box; Windows pytest still
+  575 passed / 6 skipped; ruff + ruff format + mypy clean.
+
+### S4.5-02 — Harness port and Linux-specific tests
+- **Depends:** S4.5-01. **Status:** Done — merged to `main` 2026-11-17 (PD-022); commit `9aa5769`.
+- **Result:** `test_containment.py` probes dispatch per platform (Windows bodies unchanged);
+  `tests/conftest.py` collects `test_containment_linux.py` on Linux only; new fail-closed,
+  cache, leftover-state and scratch-bound tests; `containment_probe.py` gains `floodscratch`.
+- **Acceptance:** Windows suite count invariant proven; Linux counts recorded.
+
+### S4.5-03 — Docs and deployment prerequisite
+- **Depends:** S4.5-02. **Status:** Done — merged to `main` 2026-11-17 (PD-022); commits `58cdf32`, `4d5c9fa`, `bce647f`.
+- **Result:** D-028 (+ D-027 amendment note), SECURITY.md T-01/T-11, service/README.md
+  (prerequisites + AppArmor profile), DECISION_LOG.md PD-021, CURRENT_STATUS.md.
+
 ## Later sprints (milestone level only)
 
 Detailed batches are created at the start of each sprint (PD-002). Do not pre-plan beyond this.

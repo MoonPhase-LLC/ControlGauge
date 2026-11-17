@@ -2,9 +2,10 @@
 PD-016).
 
 `ContainedRunner` is the production runner: on Windows it runs each parse
-in `sandbox_windows.run_contained` (LPAC AppContainer + Job Object). On
-any other platform it refuses to parse (`containment_unavailable`) rather
-than run an unconfined parser -- there is no silent fallback.
+in `sandbox_windows.run_contained` (LPAC AppContainer + Job Object, D-027),
+on Linux in `sandbox_linux.run_contained` (bubblewrap, D-028). On any other
+platform it refuses to parse (`containment_unavailable`) rather than run an
+unconfined parser -- there is no silent fallback.
 
 Tests on platforms without the sandbox inject `UnconfinedTestRunner`
 explicitly; it is never selected by configuration or environment.
@@ -109,17 +110,32 @@ class ContainedRunner:
 
     @staticmethod
     def available() -> bool:
-        return sys.platform == "win32"
+        if sys.platform == "win32":
+            return True
+        if sys.platform != "linux":
+            return False
+        from . import sandbox_linux
+
+        return sandbox_linux.is_available()
 
     def run(self, input_path: Path, fmt: str) -> SandboxResult:
-        if sys.platform != "win32":
-            return SandboxResult("containment_unavailable", None, b"")
-        from . import sandbox_windows
+        if sys.platform == "win32":
+            from . import sandbox_windows
 
-        self._scratch_root.mkdir(parents=True, exist_ok=True)
-        return sandbox_windows.run_contained(
-            worker_command(fmt), input_path, self._scratch_root, self._limits
-        )
+            self._scratch_root.mkdir(parents=True, exist_ok=True)
+            return sandbox_windows.run_contained(
+                worker_command(fmt), input_path, self._scratch_root, self._limits
+            )
+        if sys.platform == "linux":
+            from . import sandbox_linux
+
+            if not sandbox_linux.is_available():
+                return SandboxResult("containment_unavailable", None, b"")
+            self._scratch_root.mkdir(parents=True, exist_ok=True)
+            return sandbox_linux.run_contained(
+                worker_command(fmt), input_path, self._scratch_root, self._limits
+            )
+        return SandboxResult("containment_unavailable", None, b"")
 
 
 class UnconfinedTestRunner:

@@ -5,27 +5,30 @@ documents describe plans or decisions; none of them track progress. Navigation:
 [MASTER_PLAN](MASTER_PLAN.md) · [BATCH_JOBS](BATCH_JOBS.md) · [EXECUTION_RULES](EXECUTION_RULES.md) ·
 [DECISION_LOG](DECISION_LOG.md)
 
-Last updated: 2026-11-16 (PD-019 branch cleanup + Linux compatibility audit).
+Last updated: 2026-11-17 (Sprint 4.5 merged; Sprint 5 starting).
 
 ## Position
 
 | Item | Value |
 |---|---|
-| Current sprint | Sprint 4 complete (PR #19 merged); Sprint 5 not started |
-| Active batch | None in progress |
-| Next action | Sprint 5 prep: owner approves a development model (`BATCH_JOBS.md` later-sprints table), then batch Sprint 5 |
-| Baseline | `origin/main` @ `b442033` (PR #20 merge, PD-018 doc sync) |
+| Current sprint | Sprint 4.5 merged to `main` (PD-022); Sprint 5 (local model runtime) starting |
+| Active batch | Sprint 5 gate: owner approves the development model (initial GGUF model(s) for development/testing, `SPRINTS.md` Sprint 5 "Human responsibilities") |
+| Next action | Owner approves the Sprint 5 dev model → batch breakdown into `BATCH_JOBS.md` → pipeline (architect → developer → reviewer) on `claude/sprint-5-model-runtime` |
+| Baseline | `origin/main` @ merge of `bce647f` (Sprint 4.5, PD-022, standing owner instruction §7) |
 | Sprint 4 commits | S4-02..S4-04 `97aa67f`, S4-05 `9946ee6`, S4-01/S4-06 docs (final branch commit) |
 | Open PRs | None |
 
-## Verified facts (2026-11-05, this session)
+## Verified facts (2026-11-05 Sprint 4; 2026-11-16 Sprint 4.5)
 
 - PDF/DOCX/TXT/CSV evidence uploads in the real app and is parsed inside the parser sandbox
   (per-parse LPAC AppContainer + Job Object, D-027); duplicates are flagged, not re-parsed.
 - Containment harness: a hostile probe in the sandbox is denied other evidence, the database,
   writes outside scratch, loopback/internet/DNS and child processes, and is stopped at the memory,
   CPU, wall-clock and output bounds. The frozen exe's `--parse-worker` also runs contained.
-- Off Windows, parsing fails closed (`containment_unavailable`).
+- Linux parser sandbox (D-028): hostile probes denied as on Windows; real worker parses all four
+  formats contained; bwrap/AppArmor prerequisite documented.
+- On platforms with no sandbox (macOS/other), parsing fails closed (`containment_unavailable`);
+  on Linux, a missing `bwrap`/AppArmor profile fails closed the same way (D-028).
 
 ## Sprint progress
 
@@ -36,12 +39,14 @@ Last updated: 2026-11-16 (PD-019 branch cleanup + Linux compatibility audit).
 | 2 Assessment and database layer | Complete (PR #17) |
 | 3 NIST 800-53 framework engine | Complete (PR #18, merged 2026-11-05, PD-017) |
 | 4 Evidence ingestion + parser containment | Complete (PR #19, merged 2026-11-05, PD-018) |
-| 5–16 | Not started |
+| 4.5 Linux parser containment parity | Complete (merged to `main` 2026-11-17, PD-022) |
+| 5–16 | Sprint 5 starting; 6–16 not started |
 
 ## Blockers and pending decisions
 
-- Open: A-2 configurable path / model location, P-1, P-2, C-2; Sprint 5 needs an owner-approved
-  development model (`BATCH_JOBS.md` later-sprints table).
+- Open: A-2 configurable path / model location, P-1, P-2, C-2; Sprint 5 gate: owner approves the
+  development model — the initial GGUF model(s) used for development/testing
+  (`SPRINTS.md` Sprint 5 "Human responsibilities"; options proposed by the coordinator).
 - Flaky test to watch: one `cargo test` run in seven had one failure (run took 28 s instead of
   14 s) that did not reproduce in six later runs, including under load; the failing test's name
   was not captured. The new round-trip parse wait was raised from 10 s to 30 s as a precaution.
@@ -60,11 +65,15 @@ Last updated: 2026-11-16 (PD-019 branch cleanup + Linux compatibility audit).
   `--platform linux`) clean; `pytest` → 575 passed, 6 skipped; frozen exe supervised suite +
   frozen worker → 17 passed.
 
-## Last verified on Linux (2026-11-16, compatibility audit)
+## Last verified on Linux (2026-11-16, compatibility audit + Sprint 4.5)
 
-- `service`: `uv sync --frozen` + `uv run pytest -q` on Linux (CPython 3.12.3) → **561 passed,
-  20 skipped** in 41 s; every skip is a Windows-only test (parser sandbox containment,
-  `GetDriveTypeW` probe). No Linux failures.
+- `service` (Sprint 4.5, bwrap 0.9.0): `uv run pytest -q` → **578 passed, 7 skipped** in 44 s —
+  the D-022 containment harness now runs contained on Linux (bubblewrap, D-028: probes denied,
+  real worker parses all four formats, bounds enforced). Remaining skips: 5 Windows-only
+  containment tests, the `GetDriveTypeW` probe, and the fail-closed test (skips because a sandbox
+  *is* available here). `ruff check`, `ruff format --check`, `mypy` (77 files) clean. Windows
+  invariant unchanged: **575 passed, 6 skipped**. (Pre-Sprint-4.5 audit baseline: 561 passed,
+  20 skipped.)
 - `app/src-tauri`: `cargo check --all-targets` on Linux → **Finished**, zero errors; one benign
   dead-code warning (`JobObjectCreateFailed`/`JobObjectAssignFailed` never constructed off Windows).
   The supervisor already has non-Windows dev/production resolution paths (`bin/python`,
@@ -77,6 +86,8 @@ Last updated: 2026-11-16 (PD-019 branch cleanup + Linux compatibility audit).
 
 ## Update log (newest first; keep to one line each)
 
+- 2026-11-17 — Sprint 4.5 merged to `main` under standing owner instruction §7 (PD-022): PR creation 403 (PD-020 token state) → local `--no-ff` merge + push; local gates re-verified pre-merge on Linux (pytest 578 passed/7 skipped, ruff/format/mypy clean); CI on the main push watched post-merge.
+- 2026-11-16 — Sprint 4.5 (D-028, PD-021): bubblewrap parser sandbox on Linux; containment harness runs contained on Linux (pytest 578 passed/7 skipped, ruff/format/mypy clean); docs + AppArmor prerequisite documented; Windows invariant 575/6 preserved. Branch `claude/linux-parser-sandbox`, not pushed.
 - 2026-11-16 — Pending docs landed on `main` by owner instruction: PR #20 merged (`b442033`), PD-019 commits pushed direct (PD-020); merged branches deleted. Linux audit: service pytest 561 passed/20 skipped on Linux; `cargo check` clean on Linux.
 - 2026-11-05 — PR #19 merged by owner instruction (PD-018), accepting `DATABASE.md` §9 and PD-016 implementation choices.
 - 2026-11-05 — Sprint 4 S4-01..S4-06 implemented/verified on one branch; graph refreshed; PR #19 opened.
