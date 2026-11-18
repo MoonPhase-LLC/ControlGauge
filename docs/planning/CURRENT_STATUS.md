@@ -5,20 +5,20 @@ documents describe plans or decisions; none of them track progress. Navigation:
 [MASTER_PLAN](MASTER_PLAN.md) · [BATCH_JOBS](BATCH_JOBS.md) · [EXECUTION_RULES](EXECUTION_RULES.md) ·
 [DECISION_LOG](DECISION_LOG.md)
 
-Last updated: 2026-11-17 (Sprint 4.5 merged; Sprint 5 starting).
+Last updated: 2026-11-17 (Sprint 5 merged; Sprint 6 starting).
 
 ## Position
 
 | Item | Value |
 |---|---|
-| Current sprint | Sprint 5 (local model runtime) — executing on `claude/sprint-5-model-runtime` |
-| Active batch | S5-01..S5-07 (see `BATCH_JOBS.md`); architect spec phase |
-| Next action | Architect spec → developer implementation batch by batch → reviewer gate → §7 merge |
-| Baseline | `origin/main` @ merge of `bce647f` (Sprint 4.5, PD-022, standing owner instruction §7) |
-| Sprint 4 commits | S4-02..S4-04 `97aa67f`, S4-05 `9946ee6`, S4-01/S4-06 docs (final branch commit) |
+| Current sprint | Sprint 5 (local model runtime) merged to `main` (PD-025); Sprint 6 (hardware detection + model catalog) starting |
+| Active batch | Sprint 6 gate: owner approves P-3 (initial recommended-model catalog) + S-4 (download source + checksum/manifest mechanism) — `OPEN_QUESTIONS.md`; options proposed by the coordinator |
+| Next action | Owner gate → batch breakdown into `BATCH_JOBS.md` → pipeline (architect → developer → reviewer) on `claude/sprint-6-hardware-catalog` |
+| Baseline | `origin/main` @ merge of `5934465` (Sprint 5, PD-025, standing owner instruction §7) |
+| Sprint 5 commits | Kickoff docs `b4451e8`; S5-01 `58a2fa1`, S5-02 `ceea877`, S5-03 `d62fff1`, S5-04 `d7c0ba8`, S5-05 `f163967`, S5-06 `5959a4c`, S5-07 `d97cd58`; review fix round `5934465` |
 | Open PRs | None |
 
-## Verified facts (2026-11-05 Sprint 4; 2026-11-16 Sprint 4.5)
+## Verified facts (2026-11-05 Sprint 4; 2026-11-16 Sprint 4.5; 2026-11-17 Sprint 5)
 
 - PDF/DOCX/TXT/CSV evidence uploads in the real app and is parsed inside the parser sandbox
   (per-parse LPAC AppContainer + Job Object, D-027); duplicates are flagged, not re-parsed.
@@ -29,6 +29,13 @@ Last updated: 2026-11-17 (Sprint 4.5 merged; Sprint 5 starting).
   formats contained; bwrap/AppArmor prerequisite documented.
 - On platforms with no sandbox (macOS/other), parsing fails closed (`containment_unavailable`);
   on Linux, a missing `bwrap`/AppArmor profile fails closed the same way (D-028).
+- Model runtime (Sprint 5): llama.cpp `llama-server` b12480 runs as a supervised subprocess per
+  capability with a fresh per-launch credential (D-017 via `LLAMA_API_KEY` child env, never argv);
+  `/health` is auth-exempt, all other endpoints 401 anonymous; split GGUFs load from shard 1;
+  nomic embeddings are 768-dim, finite, deterministic. b12480's `json_schema` grammar enforces
+  SHAPE, not numeric ranges — the deterministic validator owns ranges (DEV_MODELS.md §5.1).
+  Baselines (development only): 7B generation ~46.5 tok/s warm CPU (7.9 GiB child RSS),
+  embedding 3.9 ms (158 MiB RSS). `GET /models` is structural (no live child contact).
 
 ## Sprint progress
 
@@ -40,7 +47,8 @@ Last updated: 2026-11-17 (Sprint 4.5 merged; Sprint 5 starting).
 | 3 NIST 800-53 framework engine | Complete (PR #18, merged 2026-11-05, PD-017) |
 | 4 Evidence ingestion + parser containment | Complete (PR #19, merged 2026-11-05, PD-018) |
 | 4.5 Linux parser containment parity | Complete (merged to `main` 2026-11-17, PD-022) |
-| 5–16 | Sprint 5 starting; 6–16 not started |
+| 5 Local model runtime | Complete (merged to `main` 2026-11-17, PD-025; manual UI acceptance run still operator-gated) |
+| 6–16 | Sprint 6 starting; 7–16 not started |
 
 ## Blockers and pending decisions
 
@@ -48,6 +56,17 @@ Last updated: 2026-11-17 (Sprint 4.5 merged; Sprint 5 starting).
 - Resolved 2026-11-17 (PD-023): Sprint 5 dev models — Qwen2.5-7B-Instruct Q4_K_M (generation) +
   nomic-embed-text-v1.5 Q4_K_M (embedding), development/validation only; Sprint 6 curates
   production options independently. Mechanism default PD-024 (llama-server subprocess + HTTP).
+- Resolved 2026-11-17 (PD-025): Sprint 5 merged to `main` under §7 after reviewer APPROVE
+  (fix round `5934465` closed F1/F2+N1/N2; gates re-run green).
+- Sprint 5 open item (reviewer ruling, not a merge blocker): manual UI acceptance run —
+  import → start → health → stop of the real Qwen model from the built app — required before
+  calling the sprint "shipped"; operator-gated.
+- Sprint 6 gate (owner): P-3 initial recommended-model catalog + S-4 download source and
+  checksum/manifest mechanism (`OPEN_QUESTIONS.md`); coordinator proposes options at the gate.
+- Sprint 6 fold-ins from the Sprint 5 review (non-blocking): import route checks extension
+  before existence (ordering polish); N5 `manager.status()` lock scope during live checks;
+  D-028 follow-ups where they fit (Linux packaging script, CI Linux rust job, rust-toolchain
+  linux target).
 - Flaky test to watch: one `cargo test` run in seven had one failure (run took 28 s instead of
   14 s) that did not reproduce in six later runs, including under load; the failing test's name
   was not captured. The new round-trip parse wait was raised from 10 s to 30 s as a precaution.
