@@ -72,6 +72,14 @@ rand = "0.8"
 # resolved transitively in this workspace.
 tokio-util = "0.7"
 
+# Sprint 5 (S5-06): the official Tauri file dialog, used by the Models
+# screen to pick a local GGUF file. It is the only way to obtain a real
+# absolute path for a multi-GB model file: a WebView `<input type=file>`
+# cannot yield a server-reachable path in Tauri v2, and streaming
+# gigabytes through IPC is wrong. Scoped on the capability side to
+# `dialog:allow-open` only (see capabilities/default.json).
+tauri-plugin-dialog = "2"
+
 # Windows-only: assigns the spawned child to a Job Object with
 # `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` so an abnormal exit of this process
 # (crash, forced termination) still cannot leave the child orphaned, even

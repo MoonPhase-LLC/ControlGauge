@@ -267,3 +267,63 @@ export type SectionList = {
   limit: number;
   offset: number;
 };
+
+// --- Sprint 5 model management ---------------------------------------------------
+// Mirror `app/src-tauri/src/supervisor/service_api.rs` (closed schemas). Model
+// display names are file-derived untrusted strings: render as inert text only
+// (SECURITY T-21). The machine-local `path` appears in none of these shapes
+// (T-10): it is validated, hashed, and stored server-side only.
+
+/** The two roles the service accepts for a model file. */
+export type ModelRole = "generation" | "embedding";
+
+export type ModelFile = {
+  id: string;
+  role: string;
+  display_name: string;
+  sha256: string;
+  size_bytes: number;
+  /** ISO 8601, UTC. */
+  imported_at: string;
+  last_verified_at: string | null;
+  embedding_dimensions: number | null;
+  embedding_normalization: string | null;
+  embedding_similarity_metric: string | null;
+};
+
+/**
+ * Per-role runtime state. From `GET /models` (and start/stop answers) this
+ * is the service's last-known state: structural, without contacting the
+ * running child (Sprint 5 review F1) -- the explicit health check is the
+ * live answer. Never a pid, port, path, or credential.
+ */
+export type RuntimeStatus = {
+  state: string;
+  detail_code: string | null;
+  checked_at: string | null;
+  model_id: string | null;
+};
+
+/** `GET /models/{id}` (same closed shape as a list entry). */
+export type ModelSummary = ModelFile;
+
+/** `POST /models/{id}/health` (same closed shape as the per-role status). */
+export type ModelHealthStatus = RuntimeStatus;
+
+export type RuntimeStates = {
+  generation: RuntimeStatus | null;
+  embedding: RuntimeStatus | null;
+};
+
+export type ModelInventory = {
+  models: ModelFile[];
+  runtime: RuntimeStates;
+};
+
+export type ModelImportResult = {
+  model: ModelFile;
+  /** Same content (sha256) imported for the same role answers 200, not 201. */
+  duplicate: boolean;
+  provenance: string;
+  warning: string;
+};

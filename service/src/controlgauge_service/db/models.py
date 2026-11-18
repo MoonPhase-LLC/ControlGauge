@@ -24,6 +24,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     ForeignKey,
@@ -461,4 +462,67 @@ class ArtifactSection(Base):
         CheckConstraint("sequence_index >= 0", name="sequence_index_not_negative"),
         CheckConstraint(f"length(locator) <= {SECTION_LOCATOR_MAX}", name="locator_max_length"),
         Index("ix_artifact_section_artifact_id", "artifact_id"),
+    )
+
+
+# --- Sprint 5: model runtime (migration 0005, docs/DATABASE.md §10) -----------
+
+MODEL_ROLE_MAX = 20
+EMBEDDING_DIMENSION_MIN = 0
+#: D-025 reserved values: the server's `--embd-normalize` default (2) is
+#: euclidean/L2; the similarity metric is a consumer-side (Sprint 8) choice.
+EMBEDDING_NORMALIZATIONS = ("none", "l2")
+EMBEDDING_SIMILARITY_METRICS = ("cosine", "dot_product")
+MODEL_ROLES = ("generation", "embedding")
+
+
+class ModelFile(Base):
+    """One user-imported GGUF model file the runtime can run (S5-05).
+
+    `path` is the machine-local absolute path as imported -- the database is
+    the one sanctioned place for it; it is never logged and never sent to
+    the frontend (it contains the OS user name). `display_name` is cleaned
+    display text only and is never used as a path (T-05, like
+    `artifact.filename`). `embedding_dimensions` is the learn-and-pinned
+    observed dimensionality (S5-04); NULL until an embedding model first
+    serves successfully.
+    """
+
+    __tablename__ = "model_file"
+
+    id: Mapped[str] = mapped_column(String(ID_MAX), primary_key=True)
+    role: Mapped[str] = mapped_column(String(MODEL_ROLE_MAX))
+    display_name: Mapped[str] = mapped_column(String(255))
+    path: Mapped[str] = mapped_column(Text)
+    sha256_hash: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
+    imported_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    #: Timestamp of the most recent import (hash re-verification) of the
+    #: same content; NULL for the first import of a file.
+    last_verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    embedding_dimensions: Mapped[int | None] = mapped_column(Integer)
+    embedding_normalization: Mapped[str | None] = mapped_column(String(20))
+    embedding_similarity_metric: Mapped[str | None] = mapped_column(String(20))
+
+    __table_args__ = (
+        # Duplicate detection scope is (content, role): the same file may
+        # serve as a generation model and as an embedding model.
+        UniqueConstraint("sha256_hash", "role"),
+        CheckConstraint(_in("role", MODEL_ROLES), name="role_known"),
+        CheckConstraint("length(trim(display_name)) > 0", name="display_name_not_blank"),
+        CheckConstraint("length(display_name) <= 255", name="display_name_max_length"),
+        CheckConstraint("length(sha256_hash) = 64", name="sha256_length"),
+        CheckConstraint("size_bytes >= 0", name="size_not_negative"),
+        CheckConstraint(
+            f"embedding_dimensions IS NULL OR embedding_dimensions >= {EMBEDDING_DIMENSION_MIN}",
+            name="embedding_dimensions_not_negative",
+        ),
+        CheckConstraint(
+            _in("embedding_normalization", EMBEDDING_NORMALIZATIONS),
+            name="embedding_normalization_known",
+        ),
+        CheckConstraint(
+            _in("embedding_similarity_metric", EMBEDDING_SIMILARITY_METRICS),
+            name="embedding_similarity_metric_known",
+        ),
     )

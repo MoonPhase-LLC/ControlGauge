@@ -51,6 +51,7 @@ from .credentials import CredentialStore
 from .db import DatabaseInitError, initialize_database
 from .evidence.ingest import start_ingestion
 from .logging_config import configure_logging
+from .model_runtime.manager import ModelRuntimeManager
 
 logger = logging.getLogger("controlgauge_service.supervised")
 
@@ -184,10 +185,17 @@ def main() -> None:
     except protocol.ProtocolError:
         _fail("internal_error")
 
+    # Sprint 5: the per-capability model runtime is constructed with the
+    # app and stopped beside ingestion in the `finally` below, so no
+    # llama-server child outlives this process. `None` until the app is
+    # fully wired -- the shutdown path must tolerate that.
+    model_runtime: ModelRuntimeManager | None = None
+
     try:
         settings = Settings(host=host, port=port, session_token=None)
         credential_store = CredentialStore()
         challenge_state = StartupChallengeState(secret=secret, host=host, port=port)
+        model_runtime = ModelRuntimeManager(settings.llama_server)
 
         app = create_app(
             settings,
@@ -196,6 +204,7 @@ def main() -> None:
             supervised=True,
             database=database,
             ingestion=ingestion,
+            model_runtime=model_runtime,
         )
 
         logger.info(
@@ -243,6 +252,8 @@ def main() -> None:
         logger.error("supervised_unexpected_failure", extra={})
         raise SystemExit(_STARTUP_ERROR_EXIT_CODE) from None
     finally:
+        if model_runtime is not None:
+            model_runtime.stop_all()
         if ingestion is not None:
             ingestion.stop()
         database.dispose()

@@ -10,7 +10,13 @@ import type {
   ControlQuery,
   FrameworkSummary,
   HealthResponse,
+  ModelHealthStatus,
+  ModelImportResult,
+  ModelInventory,
+  ModelRole,
+  ModelSummary,
   NewAssessment,
+  RuntimeStatus,
   SectionList,
   SupervisorState,
   UploadResult,
@@ -87,4 +93,46 @@ export function getArtifact(id: string): Promise<Artifact> {
 
 export function listArtifactSections(id: string, limit: number, offset: number): Promise<SectionList> {
   return invoke<SectionList>("list_artifact_sections", { id, limit, offset });
+}
+
+// --- Sprint 5 model management ---------------------------------------------------
+
+/**
+ * Imports a local GGUF file chosen through the native file dialog. The path
+ * exists only to be forwarded to Rust and on to the service (which
+ * re-validates it, sniff-validates the container, and hashes the file): it is
+ * stored server-side and never appears in any response (SECURITY T-10).
+ * `role` must be a known `ModelRole`; the service re-validates everything.
+ */
+export function importModel(path: string, role: ModelRole): Promise<ModelImportResult> {
+  return invoke<ModelImportResult>("import_model", { path, role });
+}
+
+export function listModels(): Promise<ModelInventory> {
+  return invoke<ModelInventory>("list_models");
+}
+
+export function getModel(id: string): Promise<ModelSummary> {
+  return invoke<ModelSummary>("get_model", { id });
+}
+
+/**
+ * Starts the model for its recorded role (supervised stop-then-start). The
+ * service answers only after the load finished -- up to minutes for a 7B
+ * model on CPU, so callers must keep the busy state up throughout.
+ */
+export function startModel(id: string): Promise<RuntimeStatus> {
+  return invoke<RuntimeStatus>("start_model", { id });
+}
+
+export function stopModel(id: string): Promise<RuntimeStatus> {
+  return invoke<RuntimeStatus>("stop_model", { id });
+}
+
+/**
+ * One bounded real capability check for the model. An `unhealthy` answer is
+ * a resolved status, not a rejection; only transport/service failures reject.
+ */
+export function checkModelHealth(id: string): Promise<ModelHealthStatus> {
+  return invoke<ModelHealthStatus>("check_model_health", { id });
 }

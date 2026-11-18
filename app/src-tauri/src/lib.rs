@@ -220,6 +220,71 @@ async fn list_artifact_sections(
     service_api::list_artifact_sections(&ready(&state).await?, &id, limit, offset).await
 }
 
+// --- Sprint 5 (S5-06): model management commands -------------------------------
+//
+// `import_model` is the one command whose argument is a machine-local
+// path. That path only ever originates from the native file dialog
+// (`tauri-plugin-dialog`; T-14 -- `dialog:allow-open` is the only new
+// capability grant): the WebView never types one in, and Rust forwards
+// it to the service, which re-validates it, sniff-validates the GGUF
+// container, and hashes the file. The machine-local path is stored
+// server-side only and never appears in any response schema (T-10).
+// Start/stop/health answers are runtime states -- never a pid, port,
+// path, or credential.
+
+#[tauri::command]
+async fn import_model(
+    state: tauri::State<'_, SupervisorHandle>,
+    path: String,
+    role: String,
+) -> Result<service_api::ModelImportResult, ServiceCallError> {
+    service_api::import_model(&ready(&state).await?, &path, &role).await
+}
+
+#[tauri::command]
+async fn list_models(
+    state: tauri::State<'_, SupervisorHandle>,
+) -> Result<service_api::ModelInventory, ServiceCallError> {
+    service_api::list_models(&ready(&state).await?).await
+}
+
+#[tauri::command]
+async fn get_model(
+    state: tauri::State<'_, SupervisorHandle>,
+    id: String,
+) -> Result<service_api::ModelSummary, ServiceCallError> {
+    service_api::get_model(&ready(&state).await?, &id).await
+}
+
+/// The service answers `/models/{id}/start` only after the load
+/// finished (its own start timeout tops out at 600 s for a 7B model on
+/// CPU), so this command carries the wider
+/// [`service_api::MODEL_START_TIMEOUT`] -- a slow-but-successful load
+/// must not trip the request deadline.
+#[tauri::command]
+async fn start_model(
+    state: tauri::State<'_, SupervisorHandle>,
+    id: String,
+) -> Result<service_api::RuntimeStatus, ServiceCallError> {
+    service_api::start_model(&ready(&state).await?, &id).await
+}
+
+#[tauri::command]
+async fn stop_model(
+    state: tauri::State<'_, SupervisorHandle>,
+    id: String,
+) -> Result<service_api::RuntimeStatus, ServiceCallError> {
+    service_api::stop_model(&ready(&state).await?, &id).await
+}
+
+#[tauri::command]
+async fn check_model_health(
+    state: tauri::State<'_, SupervisorHandle>,
+    id: String,
+) -> Result<service_api::ModelHealthStatus, ServiceCallError> {
+    service_api::check_model_health(&ready(&state).await?, &id).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let supervisor_handle = SupervisorHandle::new();
@@ -235,6 +300,11 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .manage(supervisor_handle.clone())
+        // S5-06 (T-14): native GGUF file picker for model import. The
+        // plugin's `open` permission is the only new capability grant --
+        // see capabilities/default.json. The chosen path goes to the
+        // service, never to the WebView's file APIs.
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             get_service_status,
             check_service_health,
@@ -248,7 +318,13 @@ pub fn run() {
             upload_evidence,
             list_artifacts,
             get_artifact,
-            list_artifact_sections
+            list_artifact_sections,
+            import_model,
+            list_models,
+            get_model,
+            start_model,
+            stop_model,
+            check_model_health
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();

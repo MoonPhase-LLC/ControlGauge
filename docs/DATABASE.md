@@ -441,3 +441,35 @@ Migration `0004_artifacts` creates `artifact` and `artifact_section`. Difference
 
 See also: `COMPLIANCE_MODEL.md` for the conceptual model this schema implements, `ARCHITECTURE.md`
 §5 for database ownership rules.
+
+## 10. Sprint 5 implementation notes (migration `0005_model_files`, S5-05)
+
+Migration `0005_model_files` creates one table, `model_file` — the persisted record of a
+user-imported GGUF model file (`docs/MODEL_RUNTIME.md` §7). It exists so the model-management
+screen can list imported models across app restarts (`USER_FLOWS.md` §12) and so the
+learn-and-pinned embedding dimension (S5-04) survives restarts. Deviation from the Sprint 5
+spec's column list: none.
+
+- **Columns:** `id` (UUID4 string, PK); `role` (`generation`/`embedding`); `display_name`
+  (cleaned display text, ≤ 255 characters, **never used as a path** — same rule as
+  `artifact.filename`); `path` (the machine-local absolute path as imported); `sha256_hash`
+  (64 hex characters); `size_bytes` (BIGINT, ≥ 0); `imported_at`; `last_verified_at` (set on
+  re-import of the same content); `embedding_dimensions` (learn-and-pinned, NULL until the
+  model's first successful embed); `embedding_normalization` / `embedding_similarity_metric`
+  (D-025 reserved, NULL in Sprint 5, CHECK-constrained to `none`/`l2` and
+  `cosine`/`dot_product`).
+- **Checks:** non-blank `display_name`; 64-character `sha256_hash`; known `role`; non-negative
+  `size_bytes` and `embedding_dimensions`. Unique `(sha256_hash, role)` is the duplicate rule:
+  the same file may serve as a generation model and as an embedding model, but the same
+  content cannot be imported twice for one role (a re-import refreshes `path` and
+  `last_verified_at` instead of adding a row). No foreign keys; no delete route in Sprint 5.
+- **`path` is machine-local by design** and the database is the one sanctioned place for it:
+  it contains the OS user name, is never logged, and is never returned by any API response
+  (`ModelFileOut` has no `path` column). The model runtime reads it directly from the record
+  when the user explicitly starts the model. llama-server remains a full-privilege native
+  parser of the untrusted file — the accepted residual behind the fixed T-08 import warning
+  (`SECURITY.md` T-08), with checksum verification against a pinned manifest arriving with the
+  Sprint 6 catalog.
+- **Dimension pinning:** the first successful embed after a start pins the server-observed
+  dimensionality into `embedding_dimensions`; later starts pass it as
+  `expected_dimensions`, so dimension drift is refused (`embedding_dimension_mismatch`).

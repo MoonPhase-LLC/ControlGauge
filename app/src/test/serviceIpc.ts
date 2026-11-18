@@ -7,6 +7,9 @@ import type {
   ControlQuery,
   FrameworkSummary,
   HealthResponse,
+  ModelFile,
+  ModelRole,
+  RuntimeStatus,
   SupervisorState,
 } from "@/service/types";
 import { CONTROLS, RELEASE, RELEASE_SUMMARY } from "./catalogFixture";
@@ -55,6 +58,12 @@ const DATA_COMMANDS = [
   "list_catalog_controls",
   "get_control",
   "list_artifacts",
+  "import_model",
+  "list_models",
+  "get_model",
+  "start_model",
+  "stop_model",
+  "check_model_health",
 ] as const;
 type DataCommand = (typeof DATA_COMMANDS)[number];
 
@@ -67,11 +76,11 @@ export function apiError(status: number, code: string, message: string, fields: 
  * immediately from `setStatus`; every health request gets its own deferred
  * promise in `health`, settled explicitly by the test, so async ordering is
  * controlled rather than timed. Data commands are served from an in-memory
- * store (`frameworks`, `assessments`, newest first) that mirrors the
- * service's documented behavior; `failNext` makes the next call of a command
- * reject with a given `ServiceCallError`, and `hold` keeps a command's calls
- * pending until the test settles them. Any other command is recorded and
- * rejected.
+ * store (`frameworks`, `assessments`, `models`, newest first) that mirrors
+ * the service's documented behavior; `failNext` makes the next call of a
+ * command reject with a given `ServiceCallError`, and `hold` keeps a
+ * command's calls pending until the test settles them. Any other command is
+ * recorded and rejected.
  */
 export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
   let status = initial;
@@ -80,6 +89,12 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
   const unexpected: string[] = [];
   const frameworks: FrameworkSummary[] = [FRAMEWORK];
   const assessments: Assessment[] = [];
+  const models: ModelFile[] = [];
+  const runtime: Record<ModelRole, RuntimeStatus | null> = { generation: null, embedding: null };
+  // One-shot: the next health check for a role's occupant answers
+  // `unhealthy` with this detail code (an `unhealthy` answer is a resolved
+  // status, mirroring the service).
+  let unhealthyHealthNext: string | null = null;
   const failures = new Map<DataCommand, unknown>();
   const held = new Map<DataCommand, Deferred<void>[]>();
   let seq = 0;
@@ -180,6 +195,79 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
         if (!found) throw apiError(404, "control_not_found", "The control was not found.");
         return found;
       }
+      // --- Sprint 5 model management (mirrors routes/models.py) -----------
+      case "import_model": {
+        const path = String(args.path ?? "");
+        const role = String(args.role ?? "");
+        if (!path.startsWith("/") || !path.endsWith(".gguf")) {
+          throw apiError(422, "validation_failed", "The request is not valid.", [
+            { field: "path", code: "invalid_path", message: "Provide an absolute path to a .gguf file." },
+          ]);
+        }
+        if (role !== "generation" && role !== "embedding") {
+          throw apiError(422, "validation_failed", "The request is not valid.", [
+            { field: "role", code: "invalid_role", message: "Choose a known model role." },
+          ]);
+        }
+        seq++;
+        const created: ModelFile = {
+          id: `00000000-0000-4000-8000-${String(seq).padStart(12, "0")}`,
+          role,
+          display_name: path.split("/").pop() ?? "model.gguf",
+          sha256: "a".repeat(64),
+          size_bytes: 3_993_201_344,
+          imported_at: `2026-11-02T12:00:${String(seq).padStart(2, "0")}Z`,
+          last_verified_at: null,
+          embedding_dimensions: null,
+          embedding_normalization: null,
+          embedding_similarity_metric: null,
+        };
+        models.unshift(created);
+        return { model: created, duplicate: false, provenance: "unverified_import", warning: "unverified_import" };
+      }
+      case "list_models":
+        return { models: [...models], runtime: { ...runtime } };
+      case "get_model": {
+        const found = models.find((m) => m.id === args.id);
+        if (!found) throw apiError(404, "model_not_found", "The model was not found.");
+        return found;
+      }
+      case "start_model": {
+        const model = models.find((m) => m.id === args.id);
+        if (!model) throw apiError(404, "model_not_found", "The model was not found.");
+        // Supervised switch: the role's occupant becomes this model.
+        const status: RuntimeStatus = {
+          state: "ready",
+          detail_code: null,
+          checked_at: "2026-11-02T12:05:00Z",
+          model_id: model.id,
+        };
+        runtime[model.role as ModelRole] = status;
+        return status;
+      }
+      case "stop_model": {
+        const model = models.find((m) => m.id === args.id);
+        if (!model) throw apiError(404, "model_not_found", "The model was not found.");
+        const status: RuntimeStatus = { state: "stopped", detail_code: null, checked_at: null, model_id: null };
+        runtime[model.role as ModelRole] = status;
+        return status;
+      }
+      case "check_model_health": {
+        const model = models.find((m) => m.id === args.id);
+        if (!model) throw apiError(404, "model_not_found", "The model was not found.");
+        const occupant = runtime[model.role as ModelRole];
+        // A model that is not the role's current occupant reports stopped
+        // without being contacted.
+        if (occupant?.model_id !== model.id) {
+          return { state: "stopped", detail_code: null, checked_at: null, model_id: null };
+        }
+        if (unhealthyHealthNext !== null) {
+          const detail = unhealthyHealthNext;
+          unhealthyHealthNext = null;
+          return { state: "unhealthy", detail_code: detail, checked_at: "2026-11-02T12:06:00Z", model_id: model.id };
+        }
+        return { state: "ready", detail_code: null, checked_at: "2026-11-02T12:06:00Z", model_id: model.id };
+      }
     }
   }
 
@@ -223,6 +311,12 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
     unexpected,
     frameworks,
     assessments,
+    models,
+    runtime,
+    /** Makes the next health check of a role's occupant answer `unhealthy`. */
+    setUnhealthyHealthNext(detailCode: string) {
+      unhealthyHealthNext = detailCode;
+    },
     failNext(cmd: DataCommand, error: unknown) {
       failures.set(cmd, error);
     },
