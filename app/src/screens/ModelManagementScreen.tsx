@@ -39,7 +39,12 @@ const ACTION_TITLES: Record<ModelAction, string> = {
   health: "The health check could not be run",
 };
 
-/** Small opaque-state pill: informative colors only for the two known terminal states. */
+/**
+ * Small opaque-state pill: informative colors only for the two known terminal
+ * states. The state comes from the inventory, i.e. it is the role's last
+ * known state -- never a live check (Sprint 5 review F1); the explicit
+ * "Run health check" action is the live check, so the tooltip says so.
+ */
 function RuntimeBadge({ state }: { state: string }) {
   const tone =
     state === "ready"
@@ -47,7 +52,14 @@ function RuntimeBadge({ state }: { state: string }) {
       : state === "unhealthy"
         ? "border-destructive/30 bg-destructive/5 text-destructive"
         : "border-transparent bg-muted text-muted-foreground";
-  return <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium ${tone}`}>{state}</span>;
+  return (
+    <span
+      title={`Last known state: ${state}`}
+      className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium ${tone}`}
+    >
+      {state}
+    </span>
+  );
 }
 
 function ProvenanceWarning() {
@@ -153,7 +165,9 @@ export function ModelManagementScreen({
         <ScreenHeading focusOnMount={focusOnMount}>Models</ScreenHeading>
         <p className="max-w-prose text-muted-foreground">
           Import a local GGUF model file and run it for generation or embedding. Everything on this
-          screen happens on this computer; no model file or content ever leaves it.
+          screen happens on this computer; no model file or content ever leaves it. The state badge
+          shows a role&apos;s last known state; use a model&apos;s Run health check action to verify
+          it right now.
         </p>
       </header>
 
@@ -252,9 +266,10 @@ type ModelRowProps = {
 };
 
 /**
- * One imported model. The Start/Stop pair is decided by the role's live
- * occupant (`runtime[role].model_id`): the occupant gets Stop, every other
- * model of the role gets Start (the service performs the supervised switch).
+ * One imported model. The Start/Stop pair is decided by the role's current
+ * occupant (`runtime[role].model_id`, structural): the occupant gets Stop,
+ * every other model of the role gets Start (the service performs the
+ * supervised switch). The badge is the occupant's last known state.
  */
 function ModelRow({
   model,

@@ -166,6 +166,25 @@ describe("model management", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("renders the inventory's last-known state as the badge, not a live check", async () => {
+    // F1: the list route serves structural (last-known) status; the badge
+    // says so and the explicit action remains the live check.
+    await openModels((mock) => {
+      const model = seedModel(mock);
+      mock.runtime.generation = {
+        state: "unhealthy",
+        detail_code: "request_timeout",
+        checked_at: "2026-11-02T12:05:00Z",
+        model_id: model.id,
+      };
+    });
+    const item = within(screen.getByRole("list", { name: "Imported models" })).getByRole("listitem");
+    const badge = within(item).getByText("unhealthy");
+    expect(badge).toBeVisible();
+    expect(badge).toHaveAttribute("title", "Last known state: unhealthy");
+    expect(within(item).getByRole("button", { name: "Run health check" })).toBeVisible();
+  });
+
   it("waits for the service and makes no data call before it is ready", async () => {
     const { ipc } = await openModels(undefined, { state: "awaiting_endpoint" });
     expect(screen.getByText("Waiting for the local service")).toBeVisible();

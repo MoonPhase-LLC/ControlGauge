@@ -26,7 +26,13 @@ MIME_TYPES: dict[Format, str] = {
 
 _EXTENSIONS: dict[str, Format] = {".pdf": "pdf", ".docx": "docx", ".txt": "txt", ".csv": "csv"}
 
-_DISALLOWED_NAME_CHARS = re.compile(r'[\x00-\x1f\x7f-\x9f<>:"/\\|?*  ]')
+#: Characters refused in display names (Windows-forbidden plus control and
+#: line-separator characters; note the two invisible line-separator
+#: literals before the closing bracket, U+2028 and U+2029). One source of
+#: truth, imported -- never copied -- by the model import routes
+#: (`routes/models.py`) so the two surfaces cannot drift (Sprint 5
+#: review F2).
+DISALLOWED_NAME_CHARS = re.compile(r'[\x00-\x1f\x7f-\x9f<>:"/\\|?*  ]')
 
 
 class UploadRejected(ValueError):
@@ -49,7 +55,7 @@ def clean_filename(raw: str) -> str:
         raise UploadRejected("invalid_filename")
     if len(name) > MAX_FILENAME_CHARS:
         raise UploadRejected("invalid_filename")
-    if _DISALLOWED_NAME_CHARS.search(name):
+    if DISALLOWED_NAME_CHARS.search(name):
         raise UploadRejected("invalid_filename")
     return name
 

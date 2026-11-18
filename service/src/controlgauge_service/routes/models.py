@@ -1,7 +1,7 @@
 """Model import and runtime control (Sprint 5, S5-05).
 
     POST /models/import           import a local GGUF file (untrusted data)
-    GET  /models                  imported models + per-role runtime status
+    GET  /models                  imported models + last-known role status
     GET  /models/{id}             one imported model
     POST /models/{id}/start       run the model for its role (supervised)
     POST /models/{id}/stop        stop the role (idempotent)
@@ -33,6 +33,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import stat
 import unicodedata
 import uuid
 from datetime import datetime
@@ -48,6 +49,7 @@ from starlette.responses import JSONResponse
 from ..db import Database
 from ..db.base import utc_now
 from ..db.models import ModelFile
+from ..evidence.filetype import DISALLOWED_NAME_CHARS
 from ..model_runtime import gguf
 from ..model_runtime.config import (
     EMBEDDING_DEFAULT_CONTEXT_TOKENS,
@@ -235,11 +237,13 @@ def _canonical_model_id(value: str) -> str:
 
 # --- display-name cleaning (local, generic helper) -----------------------------
 
-#: Characters refused in display names (Windows-forbidden plus control and
-#: line-separator characters) -- the same rule as
-#: `evidence/filetype.clean_filename`, applied through a local helper so the
-#: model routes stay independent of the evidence subsystem.
-_DISALLOWED_NAME_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f<>:\"/\\|?*   ]")
+#: Refused display-name characters: the exact `evidence/filetype.py` class
+#: (Windows-forbidden plus control and line-separator characters), imported
+#: -- never copied -- as the single source of truth so the two surfaces
+#: cannot drift (Sprint 5 review F2). Plain spaces are legal, so
+#: space-named GGUF files import; U+2028/U+2029 stay refused. Only the
+#: character class is shared: the helper below stays local so the route
+#: keeps its own bound and fixed error mapping (T-10).
 
 DISPLAY_NAME_MAX = 255
 
@@ -247,14 +251,15 @@ DISPLAY_NAME_MAX = 255
 def _clean_display_name(raw: str) -> str:
     """Cleaned display text for a model, from the file's last path segment
     (or a caller-supplied name). Applies the `filetype.clean_filename`
-    rules: NFC normalization, no directory part, no blank/``.``/``..``/
-    disallowed characters, bounded length. The result is display text only
-    and is never used as a path (T-05)."""
+    character class (shared, `DISALLOWED_NAME_CHARS`) with NFC
+    normalization, no directory part, no blank/``.``/``..`` name, bounded
+    length. The result is display text only and is never used as a path
+    (T-05)."""
     name = unicodedata.normalize("NFC", raw).strip()
     name = re.split(r"[\\/]", name)[-1].strip()
     if not name or name in {".", ".."}:
         raise ModelRuntimeError("model_path_invalid")
-    if len(name) > DISPLAY_NAME_MAX or _DISALLOWED_NAME_CHARS.search(name):
+    if len(name) > DISPLAY_NAME_MAX or DISALLOWED_NAME_CHARS.search(name):
         raise ModelRuntimeError("model_path_invalid")
     return name
 
@@ -294,14 +299,20 @@ def _check_import_path_shape(path_text: str) -> Path:
 def _read_head_and_size(path: Path) -> tuple[bytes, int]:
     """stat + read the first sniff bytes of an untrusted file. Every I/O
     failure maps to the fixed not-found code; nothing about the file is
-    logged."""
+    logged. A non-regular file is refused from its stat entry, BEFORE any
+    open: a FIFO would block ``open()`` forever (Sprint 5 review N1)."""
     try:
-        size = path.stat().st_size
+        st = path.stat()
+    except OSError:
+        raise ModelRuntimeError("model_file_not_found") from None
+    if not stat.S_ISREG(st.st_mode):
+        raise ModelRuntimeError("model_file_not_regular")
+    try:
         with path.open("rb") as fh:
             head = fh.read(_SNIFF_BYTES)
     except OSError:
         raise ModelRuntimeError("model_file_not_found") from None
-    return head, size
+    return head, st.st_size
 
 
 def _stream_sha256(path: Path) -> str:
@@ -312,8 +323,24 @@ def _stream_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _runtime_status(manager: ModelRuntimeManager, role: Role) -> RuntimeStatusOut:
+def _live_runtime_status(manager: ModelRuntimeManager, role: Role) -> RuntimeStatusOut:
+    """A REAL capability check (D-023) for the role's current occupant.
+    Only for routes whose client deadline is sized for it (start, health)
+    -- never the list route (Sprint 5 review F1)."""
     status: HealthStatus = manager.status(role)
+    return RuntimeStatusOut(
+        state=status.state,
+        detail_code=status.detail_code,
+        checked_at=status.checked_at,
+        model_id=manager.loaded_model_id(role),
+    )
+
+
+def _structural_runtime_status(manager: ModelRuntimeManager, role: Role) -> RuntimeStatusOut:
+    """Last-known status for the role WITHOUT contacting the running child
+    (Sprint 5 review F1): the list route must never block behind -- or be
+    fail-closed (D-026) by -- a live check."""
+    status: HealthStatus = manager.peek_status(role)
     return RuntimeStatusOut(
         state=status.state,
         detail_code=status.detail_code,
@@ -485,8 +512,11 @@ def list_models(
     database: DatabaseDep,
     manager: ModelRuntimeDep,
 ) -> ModelInventory:
-    """Every imported model plus the live per-role runtime status (a real
-    capability check per occupied role, D-023 -- closed fields only)."""
+    """Every imported model plus each role's LAST-KNOWN runtime status:
+    structural only, never a live capability check (Sprint 5 review F1 --
+    a hung child must not stall or fail-close this list; the live check
+    is `POST /models/{id}/health`). Closed fields only; `checked_at` is
+    when the last real check ran, if any."""
     with database.session() as session:
         rows: Any = session.scalars(
             select(ModelFile).order_by(ModelFile.imported_at.desc(), ModelFile.id.desc())
@@ -495,8 +525,8 @@ def list_models(
     return ModelInventory(
         models=models,
         runtime=RuntimeStatesOut(
-            generation=_runtime_status(manager, "generation"),
-            embedding=_runtime_status(manager, "embedding"),
+            generation=_structural_runtime_status(manager, "generation"),
+            embedding=_structural_runtime_status(manager, "embedding"),
         ),
     )
 
@@ -535,7 +565,7 @@ def start_model(
     except ModelRuntimeError as exc:
         raise _runtime_error(exc) from None
     logger.info("model_started", extra={"model_id": canonical, "role": record.role})
-    return _runtime_status(manager, record.role)  # type: ignore[arg-type]
+    return _live_runtime_status(manager, record.role)  # type: ignore[arg-type]
 
 
 @router.post("/models/{model_id}/stop")

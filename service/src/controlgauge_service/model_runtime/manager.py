@@ -7,7 +7,9 @@ clients -- then the replacement starts; if the replacement fails to
 start, the role stays **empty** (fail closed, never a silent keep-old).
 
 A single ``threading.Lock`` serializes start/stop/status transitions;
-``generate``/``embed`` never take it. ``stop_all`` is invoked next to
+``generate``/``embed`` never take it. ``peek_status`` answers from the
+recorded last-known state without I/O (the structural `GET /models`
+answer, Sprint 5 review F1). ``stop_all`` is invoked next to
 ``ingestion.stop()`` in both process entry points (the established
 shutdown pattern) so no model-server child outlives the service.
 """
@@ -37,6 +39,9 @@ class ModelRuntimeManager:
     def __init__(self, runtime_binary: Path | None) -> None:
         self._runtime_binary = runtime_binary
         self._providers: dict[RoleLiteral, LlamaCppProvider] = {}
+        #: Last-known status per occupied role, served structurally by
+        #: `peek_status` without contacting the child (Sprint 5 review F1).
+        self._last_status: dict[RoleLiteral, HealthStatus] = {}
         self._lock = threading.Lock()
 
     def start(
@@ -65,6 +70,9 @@ class ModelRuntimeManager:
                 # keeping the stopped previous model.
                 raise
             self._providers[role] = provider
+            # A successful start is the last known event until a real
+            # capability check runs: `checked_at` stays None until then.
+            self._last_status[role] = HealthStatus(state="ready")
             descriptor = provider.describe()
             if descriptor.display_name != display_name:
                 descriptor = replace(descriptor, display_name=display_name)
@@ -91,12 +99,31 @@ class ModelRuntimeManager:
     def status(self, role: RoleLiteral) -> HealthStatus:
         """``stopped`` when absent; otherwise a real capability-specific
         health check -- never a dead-child trust (a stopped provider
-        reports unhealthy with its detail code)."""
+        reports unhealthy with its detail code). The result is recorded
+        as the role's last-known status for `peek_status`."""
         with self._lock:
             provider = self._providers.get(role)
             if provider is None:
                 return HealthStatus(state="stopped")
-            return provider.health_check()
+            result = provider.health_check()
+            self._last_status[role] = result
+            return result
+
+    def peek_status(self, role: RoleLiteral) -> HealthStatus:
+        """The role's last-known status WITHOUT contacting the child: the
+        structural answer `GET /models` serves (Sprint 5 review F1).
+        ``stopped`` when the role is empty; otherwise the state recorded
+        at start (``ready``, nothing checked yet) or by the most recent
+        `status()` check. Holds the manager lock only for dictionary
+        reads -- no I/O ever runs under it here."""
+        with self._lock:
+            if role not in self._providers:
+                return HealthStatus(state="stopped")
+            last = self._last_status.get(role)
+            # Unreachable in practice (start() records before the provider
+            # is registered); ``ready`` is the honest default for a
+            # registered provider, whose start succeeded.
+            return last if last is not None else HealthStatus(state="ready")
 
     def stop_all(self) -> None:
         """Stop every role (process shutdown)."""

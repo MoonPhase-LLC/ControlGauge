@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import struct
+import sys
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,14 +26,19 @@ from controlgauge_service.app import create_app
 from controlgauge_service.config import Settings
 from controlgauge_service.db import initialize_database
 from controlgauge_service.db.models import ModelFile
+from controlgauge_service.evidence.filetype import UploadRejected, clean_filename
 from controlgauge_service.model_runtime import manager as manager_module
 from controlgauge_service.model_runtime.config import (
     EmbeddingServerConfig,
     GenerationServerConfig,
 )
+from controlgauge_service.model_runtime.errors import ModelRuntimeError
 from controlgauge_service.model_runtime.manager import ModelRuntimeManager
 from controlgauge_service.model_runtime.protocols import HealthStatus, ModelDescriptor
-from controlgauge_service.routes.models import IMPORT_PROVENANCE_WARNING
+from controlgauge_service.routes.models import (
+    IMPORT_PROVENANCE_WARNING,
+    _clean_display_name,
+)
 
 from .conftest import VALID_TOKEN
 
@@ -53,6 +60,7 @@ class _FakeProvider:
 
     instances: ClassVar[list[_FakeProvider]] = []
     next_health: ClassVar[HealthStatus | None] = None
+    health_check_calls: ClassVar[int] = 0
 
     def __init__(
         self,
@@ -80,6 +88,7 @@ class _FakeProvider:
         self.stopped = True
 
     def health_check(self) -> HealthStatus:
+        _FakeProvider.health_check_calls += 1
         if _FakeProvider.next_health is not None:
             return _FakeProvider.next_health
         return HealthStatus(state="ready", detail_code=None, checked_at=datetime.now(UTC))
@@ -99,6 +108,7 @@ def model_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Simpl
     monkeypatch.setattr(manager_module, "LlamaCppProvider", _FakeProvider)
     _FakeProvider.instances = []
     _FakeProvider.next_health = None
+    _FakeProvider.health_check_calls = 0
     database = initialize_database(tmp_path)
     app = create_app(
         Settings(session_token=VALID_TOKEN),
@@ -210,6 +220,85 @@ def test_import_rejects_unknown_role_and_extra_fields(
     )
     assert extra.status_code == 422
     assert extra.json()["error"]["fields"][0]["code"] == "unknown_field"
+
+
+def test_import_accepts_space_in_filename(model_env: SimpleNamespace, tmp_path: Path) -> None:
+    """F2: the display-name class is `evidence/filetype.py`'s, exactly --
+    plain spaces are legal, so a space-named GGUF imports."""
+    path = _write_gguf(tmp_path / "Meta-Llama 3 8B.Q4_K_M.gguf", body=b"w" * 5000)
+    response = _import(model_env.client, path)
+    assert response.status_code == 201, response.text
+    assert response.json()["model"]["display_name"] == "Meta-Llama 3 8B.Q4_K_M.gguf"
+
+
+def test_import_rejects_line_separator_in_filename(
+    model_env: SimpleNamespace, tmp_path: Path
+) -> None:
+    """F2, disallowed side: the shared class still refuses the Unicode
+    line separator (and paragraph separator -- same class)."""
+    path = _write_gguf(tmp_path / "bad\u2028name.gguf", body=b"w" * 5000)
+    response = _import(model_env.client, path)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "model_path_invalid"
+
+
+@pytest.mark.parametrize(
+    ("probe", "description"),
+    [
+        (" ", "plain space"),
+        ("\u00a0", "no-break space"),
+        ("\u2028", "line separator"),
+        ("\u2029", "paragraph separator"),
+        ("<", "Windows-forbidden"),
+        (">", "Windows-forbidden"),
+        (":", "Windows-forbidden"),
+        ("?", "Windows-forbidden"),
+        ("\t", "control character"),
+        ("\x7f", "control character"),
+        ("\u00e9", "ordinary letter"),
+    ],
+)
+def test_display_name_rule_matches_evidence_clean_filename(probe: str, description: str) -> None:
+    """F2 drift guard: the model import surface accepts/rejects exactly
+    what `evidence/filetype.clean_filename` accepts/rejects for every
+    probed character. The shared class makes drift structurally
+    impossible; this pins the behavior anyway."""
+    name = f"m{probe}odel.gguf"
+    try:
+        clean_filename(name)
+        evidence_accepts = True
+    except UploadRejected:
+        evidence_accepts = False
+    try:
+        _clean_display_name(name)
+        models_accept = True
+    except ModelRuntimeError:
+        models_accept = False
+    assert models_accept is evidence_accepts, f"probe {probe!r} ({description})"
+
+
+def test_import_rejects_directory_path(model_env: SimpleNamespace, tmp_path: Path) -> None:
+    """N1: only regular files are candidates; a directory is refused from
+    its stat entry with the fixed not-regular code."""
+    directory = tmp_path / "not-a-model.gguf"
+    directory.mkdir()
+    response = _import(model_env.client, directory)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "model_file_not_regular"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="os.mkfifo is POSIX-only")
+def test_import_rejects_fifo_path(model_env: SimpleNamespace, tmp_path: Path) -> None:
+    """N1: a FIFO at the imported path must be refused from its stat
+    entry, BEFORE any open -- open() on a writerless FIFO would block
+    forever (self-DoS). A regression here hangs this test."""
+    mkfifo = getattr(os, "mkfifo", None)
+    assert mkfifo is not None  # POSIX-guarded above
+    fifo = tmp_path / "pipe.gguf"
+    mkfifo(fifo)
+    response = _import(model_env.client, fifo)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "model_file_not_regular"
 
 
 # --- import: persistence + duplicate + provenance -------------------------------
@@ -332,6 +421,57 @@ def test_get_model_unknown_shape_is_validation_error(model_env: SimpleNamespace)
     body = response.json()
     assert body["error"]["code"] == "validation_failed"
     assert body["error"]["fields"][0]["field"] == "model_id"
+
+
+def test_models_list_is_structural_and_never_checks_the_runtime(
+    model_env: SimpleNamespace, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F1: `GET /models` answers from the manager's last-known state and
+    never performs a live capability check -- a hung child must not stall
+    or D-026-fail-close the list. Live checks ride
+    `POST /models/{id}/health` (its own test below)."""
+    path = _write_gguf(tmp_path / "model.gguf")
+    model_id = _imported_id(model_env.client, path)
+    started = model_env.client.post(f"/models/{model_id}/start", json={}, headers=AUTH)
+    assert started.status_code == 200
+    checks_after_start = _FakeProvider.health_check_calls
+
+    def _refuse_live_check(role: Any) -> HealthStatus:
+        raise AssertionError("GET /models must not perform a live health check")
+
+    monkeypatch.setattr(ModelRuntimeManager, "status", _refuse_live_check)
+    listed = model_env.client.get("/models", headers=AUTH)
+    assert listed.status_code == 200
+    generation = listed.json()["runtime"]["generation"]
+    # Last-known state: the start route's real check recorded it.
+    assert generation["state"] == "ready"
+    assert generation["model_id"] == model_id
+    assert generation["checked_at"] is not None
+    assert listed.json()["runtime"]["embedding"]["state"] == "stopped"
+    # Not one live check ran anywhere on the list path.
+    assert _FakeProvider.health_check_calls == checks_after_start
+
+
+def test_health_route_still_performs_a_real_check(
+    model_env: SimpleNamespace, tmp_path: Path
+) -> None:
+    """F1 counterpart: `POST /models/{id}/health` remains the bounded REAL
+    capability check (D-023); `unhealthy` is a status, not an error."""
+    path = _write_gguf(tmp_path / "model.gguf")
+    model_id = _imported_id(model_env.client, path)
+    started = model_env.client.post(f"/models/{model_id}/start", json={}, headers=AUTH)
+    assert started.status_code == 200
+    assert _FakeProvider.health_check_calls >= 1  # the start route's post-load check
+
+    _FakeProvider.next_health = HealthStatus(
+        state="unhealthy", detail_code="request_timeout", checked_at=datetime.now(UTC)
+    )
+    response = model_env.client.post(f"/models/{model_id}/health", json={}, headers=AUTH)
+    assert response.status_code == 200
+    assert response.json()["state"] == "unhealthy"
+    assert response.json()["detail_code"] == "request_timeout"
+    assert response.json()["model_id"] == model_id
+    assert _FakeProvider.health_check_calls >= 2
 
 
 def test_no_route_exposes_runtime_port_pid_or_credential(

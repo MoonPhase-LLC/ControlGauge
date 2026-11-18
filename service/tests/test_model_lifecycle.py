@@ -16,12 +16,16 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import cast
 
+import httpx
 import pytest
 
 from controlgauge_service.model_runtime import childproc
 from controlgauge_service.model_runtime import manager as manager_module
 from controlgauge_service.model_runtime import provider as provider_module
-from controlgauge_service.model_runtime.config import GenerationServerConfig
+from controlgauge_service.model_runtime.config import (
+    EmbeddingServerConfig,
+    GenerationServerConfig,
+)
 from controlgauge_service.model_runtime.errors import ModelRuntimeError
 from controlgauge_service.model_runtime.manager import ModelRuntimeManager
 from controlgauge_service.model_runtime.protocols import HealthStatus, ModelDescriptor
@@ -212,6 +216,46 @@ def test_stop_is_idempotent(
     assert provider._handle is None
 
 
+# --- closed-client error mapping ---------------------------------------------
+
+
+def test_closed_client_maps_runtimeerror_to_transport_error(tmp_path: Path) -> None:
+    """N2: httpx 0.28 raises a bare RuntimeError ("Cannot send a request,
+    as the client has been closed.") for a closed client -- the post-stop
+    in-flight call -- instead of a TransportError. It must map to the same
+    fixed ``transport_error`` code, not escape error mapping as a 500."""
+    model = tmp_path / "model.gguf"
+    model.write_bytes(b"fake")
+
+    def _provider_with_closed_client(
+        config: GenerationServerConfig | EmbeddingServerConfig, role: str
+    ) -> provider_module.LlamaCppProvider:
+        provider = provider_module.LlamaCppProvider(
+            config,
+            runtime_binary=_binary(tmp_path),
+            role=role,  # type: ignore[arg-type]
+        )
+        client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+        client.close()
+        provider._client = client
+        provider._stopped = False
+        return provider
+
+    generation = _provider_with_closed_client(
+        GenerationServerConfig(model_path=model, model_id="test-model"), "generation"
+    )
+    with pytest.raises(ModelRuntimeError) as excinfo:
+        generation.generate("p", _OK_SCHEMA, timeout_s=5.0)
+    assert excinfo.value.code == "transport_error"
+
+    embedding = _provider_with_closed_client(
+        EmbeddingServerConfig(model_path=model, model_id="test-model"), "embedding"
+    )
+    with pytest.raises(ModelRuntimeError) as excinfo:
+        embedding.embed("text")
+    assert excinfo.value.code == "transport_error"
+
+
 # --- manager switching semantics --------------------------------------------
 
 
@@ -334,6 +378,39 @@ def test_status_without_provider_is_stopped() -> None:
 
     assert manager.status("generation").state == "stopped"
     assert manager.status("embedding").state == "stopped"
+
+
+def test_peek_status_is_structural_last_known(
+    tmp_path: Path,
+    fake_child: Callable[[str], list[childproc.ChildHandle]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F1: `peek_status` answers from recorded state WITHOUT contacting
+    the child (the `GET /models` answer); `status` is the live check and
+    records what the peek serves."""
+    fake_child(_SERVE_SCRIPT)
+    manager = ModelRuntimeManager(_binary(tmp_path))
+
+    assert manager.peek_status("generation").state == "stopped"
+
+    manager.start("generation", _config(tmp_path), display_name="test-model")
+    peeked = manager.peek_status("generation")
+    assert peeked.state == "ready"
+    assert peeked.checked_at is None  # no capability check has run yet
+
+    # The live check records the last-known state the peek then serves.
+    assert manager.status("generation").state == "ready"
+    assert manager.peek_status("generation").checked_at is not None
+
+    # The peek never contacts the child.
+    def _refuse(self: LlamaCppProvider) -> HealthStatus:
+        raise AssertionError("peek_status must not contact the child")
+
+    monkeypatch.setattr(LlamaCppProvider, "health_check", _refuse)
+    assert manager.peek_status("generation").state == "ready"
+
+    manager.stop("generation")
+    assert manager.peek_status("generation").state == "stopped"
 
 
 def test_start_without_runtime_binary_fails_closed(stub_providers: type[StubProvider]) -> None:

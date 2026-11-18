@@ -970,6 +970,12 @@ pub async fn import_model(
     .map(|(result, _)| result)
 }
 
+/// The inventory plus each role's **last-known** runtime status: the
+/// service answers `GET /models` from recorded state without contacting
+/// the model children (Sprint 5 review F1), so the default
+/// [`HTTP_REQUEST_TIMEOUT`] is the right deadline here -- never a
+/// dedicated wide one. Live checks are [`check_model_health`]'s job and
+/// carry [`MODEL_HEALTH_TIMEOUT`].
 pub async fn list_models(connection: &ReadyConnection) -> Result<ModelInventory, ServiceCallError> {
     call(connection, Method::GET, "/models", None, StatusCode::OK).await
 }

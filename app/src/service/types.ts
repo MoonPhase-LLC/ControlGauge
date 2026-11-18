@@ -291,7 +291,12 @@ export type ModelFile = {
   embedding_similarity_metric: string | null;
 };
 
-/** Live per-role runtime state. Never a pid, port, path, or credential. */
+/**
+ * Per-role runtime state. From `GET /models` (and start/stop answers) this
+ * is the service's last-known state: structural, without contacting the
+ * running child (Sprint 5 review F1) -- the explicit health check is the
+ * live answer. Never a pid, port, path, or credential.
+ */
 export type RuntimeStatus = {
   state: string;
   detail_code: string | null;

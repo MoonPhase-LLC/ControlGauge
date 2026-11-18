@@ -383,6 +383,12 @@ class LlamaCppProvider:
             raise ModelRuntimeError("request_timeout") from exc
         except httpx.TransportError as exc:
             raise ModelRuntimeError("transport_error") from exc
+        except RuntimeError as exc:
+            # httpx 0.28 raises a bare RuntimeError ("Cannot send a
+            # request, as the client has been closed.") for the post-stop
+            # in-flight call instead of a TransportError; map it to the
+            # same fixed code (Sprint 5 review N2).
+            raise ModelRuntimeError("transport_error") from exc
         if response.status_code == 401:
             raise ModelRuntimeError("auth_rejected")
         if response.status_code == 400:
