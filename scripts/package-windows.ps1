@@ -81,7 +81,10 @@ Invoke-Native 'Freeze the service (PyInstaller --onedir)' { & $python @pyiArgs }
 # 2. Inspect the bundle.
 $exe = Join-Path $bundle 'controlgauge-service.exe'
 if (-not (Test-Path $exe -PathType Leaf)) { throw "frozen service not found at $exe" }
-$forbidden = @('mypy', 'setuptools', 'pip', 'pytest', '_pytest', 'httpx', 'ruff', 'PyInstaller', 'tests')
+# httpx is a runtime dependency since Sprint 5 (model-runtime provider,
+# PD-024), so it must be present in the bundle -- it is asserted below in the
+# required list instead of forbidden here.
+$forbidden = @('mypy', 'setuptools', 'pip', 'pytest', '_pytest', 'ruff', 'PyInstaller', 'tests')
 $found = Get-ChildItem (Join-Path $bundle '_internal') -Directory |
     Where-Object { $forbidden -contains $_.Name -or $_.Name -like 'pytest*' -or $_.Name -like 'mypy*' }
 if ($found) { throw "bundle contains build/dev-only packages: $($found.Name -join ', ')" }
@@ -91,7 +94,7 @@ if ($LASTEXITCODE -ne 0) { throw "could not list the frozen archive (exit code $
 $pattern = '^\s*(' + (($forbidden | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')(\.|$)'
 $bad = @($archive | Where-Object { $_ -match $pattern })
 if ($bad.Count -gt 0) { throw "frozen archive contains build/dev-only modules: $(($bad | Select-Object -First 10) -join ', ')" }
-foreach ($required in 'controlgauge_service.supervised', 'controlgauge_service.evidence.worker', 'controlgauge_service.evidence.parsers', 'pypdf') {
+foreach ($required in 'controlgauge_service.supervised', 'controlgauge_service.evidence.worker', 'controlgauge_service.evidence.parsers', 'pypdf', 'httpx') {
     # Sprint 4: the same executable is the contained parser worker
     # (`--parse-worker`), so the worker, the parsers and pypdf must be frozen in.
     if (-not ($archive | Where-Object { $_ -match ('^\s*' + [regex]::Escape($required) + '$') })) {

@@ -1379,13 +1379,13 @@ mod tests {
         let upper = std::env::temp_dir().join("MODEL.GGUF");
         assert!(import_request(upper.to_str().unwrap(), "embedding").is_ok());
 
-        let relative = std::env::temp_dir().join("relative").join("model.gguf");
-        let relative = relative
-            .to_str()
-            .unwrap()
-            .strip_prefix(std::path::MAIN_SEPARATOR_STR)
-            .unwrap_or(relative.to_str().unwrap())
-            .to_string();
+        // Relative on every platform: no root, no prefix. (Deriving one from
+        // temp_dir by stripping a separator is Unix-only -- a Windows temp
+        // path like "C:\Users\...\relative\model.gguf" has no leading
+        // separator to strip and would stay absolute, which import_request
+        // correctly accepts.)
+        let relative = std::path::Path::new("relative").join("model.gguf");
+        let relative = relative.to_str().unwrap().to_string();
         let wrong_extension = std::env::temp_dir().join("model.bin");
         let dotfile = std::env::temp_dir().join(".gguf");
         let bad = [
