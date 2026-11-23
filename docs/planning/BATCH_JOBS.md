@@ -524,7 +524,7 @@ Detailed batches are created at the start of each sprint (PD-002). Do not pre-pl
 | 3 | NIST Rev. 5 catalog loaded, browsable, no hardcoded NIST logic | Batched above (S3-01..S3-06) |
 | 4 | Upload + parsers + verified parser containment (D-022) | Batched above (S4-01..S4-06) |
 | 5 | Local GGUF model import, health check, structured output, offline | Batched above (S5-01..S5-07); dev models approved (PD-023) |
-| 6 | Hardware detection, catalog, verified download | Resolve P-3, S-4 |
+| 6 | Hardware detection, catalog, verified download | Batched above (S6-01..S6-08); gate resolved (PD-026) |
 | 7 | Classification with analyst correction | Resolve AI-2 |
 | 8 | Validated Mapping Candidates with provenance and run lifecycle | Resolve AI-1; eval sample |
 | 9 | Policy mapping assessed against generic pipeline | — |

@@ -5,17 +5,17 @@ documents describe plans or decisions; none of them track progress. Navigation:
 [MASTER_PLAN](MASTER_PLAN.md) · [BATCH_JOBS](BATCH_JOBS.md) · [EXECUTION_RULES](EXECUTION_RULES.md) ·
 [DECISION_LOG](DECISION_LOG.md)
 
-Last updated: 2026-11-17 (Sprint 5 merged; Sprint 6 starting).
+Last updated: 2026-11-22 (Sprint 5 merged + Windows-CI fix-forward; Sprint 6 executing).
 
 ## Position
 
 | Item | Value |
 |---|---|
-| Current sprint | Sprint 5 (local model runtime) merged to `main` (PD-025); Sprint 6 (hardware detection + model catalog) starting |
-| Active batch | Sprint 6 gate: owner approves P-3 (initial recommended-model catalog) + S-4 (download source + checksum/manifest mechanism) — `OPEN_QUESTIONS.md`; options proposed by the coordinator |
-| Next action | Owner gate → batch breakdown into `BATCH_JOBS.md` → pipeline (architect → developer → reviewer) on `claude/sprint-6-hardware-catalog` |
-| Baseline | `origin/main` @ merge of `5934465` (Sprint 5, PD-025, standing owner instruction §7) |
-| Sprint 5 commits | Kickoff docs `b4451e8`; S5-01 `58a2fa1`, S5-02 `ceea877`, S5-03 `d62fff1`, S5-04 `d7c0ba8`, S5-05 `f163967`, S5-06 `5959a4c`, S5-07 `d97cd58`; review fix round `5934465` |
+| Current sprint | Sprint 6 (hardware detection + model catalog/recommendations) — executing on `claude/sprint-6-hardware-catalog` |
+| Active batch | S6-01..S6-08 (see `BATCH_JOBS.md`); architect spec phase |
+| Next action | Architect spec → developer implementation batch by batch → reviewer gate → §7 merge; developer start held until CI on the Sprint 5 fix-forwards (`e55a1be`, `fd9d356`) is green |
+| Baseline | `origin/main` @ `fd9d356` (Sprint 5 merge `5925928` + Windows-CI fix-forwards `e55a1be`, `fd9d356`, §7) |
+| Sprint 5 commits | Kickoff docs `b4451e8`; S5-01 `58a2fa1`, S5-02 `ceea877`, S5-03 `d62fff1`, S5-04 `d7c0ba8`, S5-05 `f163967`, S5-06 `5959a4c`, S5-07 `d97cd58`; review fix round `5934465`; merge `5925928`; CI fix-forwards `e1ff803`/`e55a1be` and `6945871`/`fd9d356` |
 | Open PRs | None |
 
 ## Verified facts (2026-11-05 Sprint 4; 2026-11-16 Sprint 4.5; 2026-11-17 Sprint 5)
@@ -61,11 +61,27 @@ Last updated: 2026-11-17 (Sprint 5 merged; Sprint 6 starting).
 - Sprint 5 open item (reviewer ruling, not a merge blocker): manual UI acceptance run —
   import → start → health → stop of the real Qwen model from the built app — required before
   calling the sprint "shipped"; operator-gated.
-- Sprint 6 gate (owner): P-3 initial recommended-model catalog + S-4 download source and
-  checksum/manifest mechanism (`OPEN_QUESTIONS.md`); coordinator proposes options at the gate.
-- Sprint 6 fold-ins from the Sprint 5 review (non-blocking): import route checks extension
-  before existence (ordering polish); N5 `manager.status()` lock scope during live checks;
-  D-028 follow-ups where they fit (Linux packaging script, CI Linux rust job, rust-toolchain
+- Resolved 2026-11-22 (PD-026): Sprint 6 gate — Qwen2.5 1.5B/7B/14B tiers + nomic catalog approved
+  (a baseline, not a capability ceiling); official HF revision-pinned + SHA-256-verified downloads;
+  universal local model support (curated catalog + separate user-managed registry, backend
+  abstraction, external local endpoints); high-VRAM-first hardware targets (32 GB VRAM and 288 GB
+  aggregate-VRAM multi-GPU systems primary, consumer secondary); hallucination minimization is the
+  program's highest priority (evidence grounding/abstention/verification documented as Sprint 6
+  integration points, built in later sprints).
+- CI fix-forward on the Sprint 5 merge (2026-11-22, `e55a1be`): httpx frozen-bundle classification
+  (PyInstaller job) + a Unix-biased Rust path-validation test fixed; the third red job (Service
+  windows-latest) was a GitHub Actions runner disk-full infrastructure failure (check-run
+  annotation, no failed step) — re-verdicted by the fix-branch CI push.
+- CI fix-forward 2 (2026-11-23, `fd9d356`): the windows-latest pytest death was NOT pure infra —
+  `test_import_rejects_oversized` materialized a 256 GiB "sparse" fixture via `truncate()`, free on
+  Linux but disk-consuming on Windows/NTFS, killing the runner mid-suite with ENOSPC (no failed
+  step, no log blob). Fixed by injecting the oversized size through the `_read_head_and_size` seam
+  (all platforms) + a POSIX-only real-sparse companion test; nothing weakened, Windows gains
+  oversized-refusal coverage. Lesson: size-bound test fixtures must never rely on truncate() holes
+  cross-platform.
+- Sprint 6 fold-ins from the Sprint 5 review (non-blocking): import route checks extension before
+  existence (folded into S6-04); N5 `manager.status()` lock scope during live checks (folded into
+  S6-05); D-028 follow-ups where they fit (Linux packaging script, CI Linux rust job, rust-toolchain
   linux target).
 - Flaky test to watch: one `cargo test` run in seven had one failure (run took 28 s instead of
   14 s) that did not reproduce in six later runs, including under load; the failing test's name

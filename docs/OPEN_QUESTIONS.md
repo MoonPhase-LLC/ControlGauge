@@ -18,6 +18,10 @@ resolution inline and mark Resolved) or as new ones surface during implementatio
   from scratch. The question itself stays open.*
 - P-3: What is the actual target list of "recommended" GGUF models for the initial catalog, and
   who curates/maintains it over time? (`MODEL_RUNTIME.md` §3, `SPRINTS.md` Sprint 6)
+  *Resolved 2026-11-22 (owner, PD-026): initial catalog = Qwen2.5-Instruct 1.5B/7B/14B Q4_K_M
+  tiers + nomic-embed-text-v1.5 Q4_K_M from official HF repos — a convenience baseline, not a
+  capability ceiling; curation/maintenance rides the in-repo versioned manifest per release, and a
+  separate user-managed registry accepts arbitrary compatible models.*
 
 ## Compliance
 
@@ -125,6 +129,10 @@ resolution inline and mark Resolved) or as new ones surface during implementatio
   the data it may contain, or explicitly deferred with that risk accepted for V0.1? (T-12)
 - S-4: What is the exact model checksum/manifest verification mechanism, and who maintains and
   hosts the pinned model catalog referenced in `MODEL_RUNTIME.md` §3/§6? (T-08)
+  *Resolved 2026-11-22 (owner, PD-026): official Hugging Face pinned to exact revisions with
+  approved per-file SHA-256s, fail-closed verification, explicit user approval, provenance/license
+  recorded; external imports (local files / direct URLs) with user-supplied expected checksums and
+  a clear curated-vs-user-managed distinction; no self-hosted distribution for V0.1.*
 - S-5: Is dependency/SCA (software composition analysis) scanning required in CI for V0.1? (T-13)
 
 ---
