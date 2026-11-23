@@ -515,6 +515,102 @@ byte-identical to `main` via worktree, CI runs cargo test windows-only). Final b
 - **Acceptance:** `SPRINTS.md` Sprint 5 exit criteria demonstrated with evidence; Windows
   invariants intact on CI.
 
+## Sprint 6 — Hardware Detection and Model Recommendations
+
+Spec: `docs/SPRINTS.md` Sprint 6; requirements `docs/MODEL_RUNTIME.md` (§3–§6 rewritten by
+S6-01 as the binding Sprint 6 contracts); decisions D-011, D-017, D-023, D-025; owner gate
+**PD-026** (two-tier universe, catalog tiers Qwen2.5 1.5B/7B/14B + nomic-embed-v1.5, primary
+targets 32 GB VRAM pro + 288 GB aggregate enterprise, universal local model support via curated
+catalog + user-managed registry, S-4 secure downloads, hallucination-minimization integration
+points). One branch `claude/sprint-6-hardware-catalog`, batches committed separately with
+conventional messages, reviewer gate before the §7 merge. Implementation spec: the Sprint 6
+architect deliverable (2026-11-22). **Invariants grow-only:** offline baseline 706p/27sk pytest,
+cargo 106p/8f Linux (8 pre-existing failures byte-identical to main), Vitest 70/70.
+
+### S6-01 — Sprint 6 docs: two-tier universe, manifest/profile format, download contract, pipeline integration points
+- **Status:** implemented 2026-11-22.
+- **Scope:** `MODEL_RUNTIME.md` §3/§4/§5/§6 rewritten into the binding Sprint 6 contracts
+  (two-tier universe, strict manifest schema with footprint fields + reserved `evaluation`
+  field fail-closed to `unevaluated`, recommendation profiles, the exact §5 recommendation math,
+  the §6 download contract + Sprint 6 error-code table); §7 registry distinction note.
+  `AI_PIPELINE.md` §13 (documented-not-built integration points). `SECURITY.md` T-08 Sprint 6
+  mitigation + T-10 download-log note. `DATABASE.md` §11 placeholder (migration 0006 list).
+  `BATCH_JOBS.md` this section. No code, no new tests.
+- **Acceptance:** gates unchanged-green (706/27); every S6-02..S6-07 design element traceable
+  to a doc sentence.
+
+### S6-02 — Hardware detection module + `/hardware` routes + Rust command
+- **Status:** planned.
+- **Scope:** `service/src/controlgauge_service/hardware/` (`models.py`, `detect.py`,
+  `detect_windows.py` DXGI+GlobalMemoryStatusEx via ctypes, `detect_linux.py` /proc/meminfo +
+  nvidia-smi); cache `<data_dir>/hardware.json`; `GET /hardware` (structural) +
+  `POST /hardware/refresh`; Rust `get_hardware`/`refresh_hardware` with `HARDWARE_TIMEOUT` 15 s;
+  TS mirrors. Best-effort per field; `gpus: []` = nothing detected (never an error).
+- **Acceptance:** dev-box evidence recorded (os_name linux, real RAM/CPU, `gpus: []`, free-disk
+  bytes); mypy strict both platforms; no new dependency.
+
+### S6-03 — Curated catalog: in-repo manifest + strict loader + `/model-catalog` list + packaging
+- **Status:** planned.
+- **Scope:** repo-root `models_catalog/` (`catalog.json`, `profiles.json`) with REAL revision
+  pins + per-file SHA-256s fetched from HF at dev time (provenance table in
+  `docs/MODEL_CATALOG.md`); strict fail-closed loader (`model_catalog/manifest.py`, the
+  `framework_catalog.py` pattern); `GET /model-catalog` structural list with installed state;
+  `scripts/package-windows.ps1` `--add-data` + bundle assertion; service README re-verify notes.
+  Manifest lives OUTSIDE the `test_model_agnostic_source_guard` scan trees.
+- **Acceptance:** all four PD-026 entries with real pins; env-gated HF match test passes live;
+  manifest loads on Windows CI (pure JSON validation).
+
+### S6-04 — Secure download + verification (catalog + URL imports) + progress + resume
+- **Status:** planned.
+- **Scope:** `model_runtime/download.py` (streamed SHA-256 fail-closed pre-registration, Range
+  `.part` resume, one active download, https-only no-downgrade, `trust_env=False` +
+  retries=0); `POST /model-catalog/{id}/download` (the approval record) + poll + cancel routes;
+  `POST /models/import-url` (expected checksum or explicit unverified acknowledgment);
+  `expected_sha256` enforcement on local import; Sprint 5 fold-in: import validation order
+  becomes shape → existence → extension → display name → sniff; `DownloadManager` in both
+  entry points; Rust commands + closed schemas + deadline constants; TS mirrors. Registration
+  writes `model_file` only (S6-05 backfills `model_source` + migration 0006).
+- **Acceptance:** checksum mismatch provably registers nothing; resume proven on a real Range
+  exchange; nothing downloads at startup; env-gated nomic E2E (download → verify → register →
+  start → health → stop) passes with `CONTROLGAUGE_TEST_ALLOW_DOWNLOAD=1`.
+
+### S6-05 — User-managed registry + external-endpoint backend abstraction + migration 0006 + N5 fix
+- **Status:** planned.
+- **Scope:** migration `0006_model_registry` (model_file origin/verification, 1:1
+  `model_source`, loopback-only `external_endpoint` with NO credential column); ORM models;
+  `ExternalEndpointProvider` (real OpenAI-compatible loopback backend, not an interface-only
+  seam); `/model-endpoints` routes (register/health/attach/delete, registration refused for
+  non-loopback); manager `attach` + N5 fix (health checks run outside the manager lock, stale
+  results discarded); DATABASE.md §11 finalized.
+- **Acceptance:** migration applies/rolls back with backfill; endpoint register→attach→
+  generate→detach proven against a stub and real llama-server; N5 re-entrant-stop test.
+
+### S6-06 — Hardware-aware recommendation engine (combined footprint + multi-GPU sharding awareness)
+- **Status:** planned.
+- **Scope:** `model_catalog/recommend.py` pure functions implementing the normative §5 math
+  (0.7 RAM / 0.9 VRAM usable fractions, ×1.5 recommended headroom, per-GPU share AND aggregate
+  checks, sequential_only fallback, unknown→never infeasible, curator_withheld gate);
+  `GET /recommendations` + `GET /recommendations/profile/{id}` routes; Rust + TS mirrors.
+- **Acceptance:** every math rule has a named synthetic-fixture test; dev-box evidence recorded;
+  enterprise-288gb profile marks the catalog recommended (no-ceiling).
+
+### S6-07 — UI: tiers, catalog, download approval + progress, registry, endpoints, hardware
+- **Status:** planned.
+- **Scope:** `ModelCatalogScreen` (FAST/BALANCED/ACCURATE tiers, recommendation badges,
+  network-capable labeling); `DownloadDialog` (approval gate) + `DownloadProgress` (750 ms
+  poll); `HardwareSummaryCard`; `EndpointSection`; `UrlImportSection`; registry origin/
+  verification badges on the models screen; Vitest + Playwright additions.
+- **Acceptance:** curated vs user-managed visible without reading code; no model identity
+  hardcoded (source guard stays green); operator-gated manual UI acceptance run recorded as the
+  standing open item.
+
+### S6-08 — Sprint 6 exit validation
+- **Status:** planned.
+- **Scope:** env-gated `test_integration_sprint6_exit_flow.py`; evidence recorded in
+  `MODEL_RUNTIME.md`/`DEV_MODELS.md`; BATCH_JOBS/CURRENT_STATUS finalized.
+- **Acceptance:** SPRINTS.md Sprint 6 exit criteria demonstrated with evidence; Windows
+  invariants re-verified on CI after the §7 merge.
+
 ## Later sprints (milestone level only)
 
 Detailed batches are created at the start of each sprint (PD-002). Do not pre-plan beyond this.

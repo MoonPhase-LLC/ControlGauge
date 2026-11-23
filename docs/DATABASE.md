@@ -473,3 +473,35 @@ spec's column list: none.
 - **Dimension pinning:** the first successful embed after a start pins the server-observed
   dimensionality into `embedding_dimensions`; later starts pass it as
   `expected_dimensions`, so dimension drift is refused (`embedding_dimension_mismatch`).
+
+## 11. Sprint 6 implementation notes (migration `0006_model_registry`, S6-05)
+
+Placeholder written by S6-01 (planned state); the column list below is finalized when S6-05 lands.
+Migration `0006_model_registry` (`down_revision = "0005_model_files"`) persists the curated-catalog
+vs user-managed-registry distinction (`docs/MODEL_RUNTIME.md` §3.1) and external-endpoint
+provenance:
+
+- **`model_file` gains:** `origin` (String 32, NOT NULL, server_default `'local_import'`) and
+  `verification` (String 32, NOT NULL, server_default `'none'`), CHECKs
+  `origin IN ('local_import','catalog_download','url_import')` and
+  `verification IN ('none','user_checksum','catalog_manifest')`. Existing rows backfill via the
+  defaults.
+- **New `model_source`** (1:1 with `model_file`): `id` (uuid PK), `model_file_id` (String 64,
+  NOT NULL, UNIQUE, FK → `model_file.id` ON DELETE RESTRICT), `origin` (same CHECK),
+  `catalog_model_id` (String 100, nullable), `source_url` (Text, nullable), `revision`
+  (String 40 hex, nullable), `license_notice` (String 2000, nullable), `files_json` (Text,
+  NOT NULL, default `'[]'` — a JSON array of `{filename, sha256, size_bytes}` covering **all**
+  files of a model, e.g. both shards of a split GGUF), `created_at`, `updated_at`. Backfill: one
+  row per existing `model_file` (`origin='local_import'`, `files_json` from that row's own
+  hash/size, `filename = PurePath(path).name`).
+- **New `external_endpoint`**: `id` (uuid PK), `display_name` (String 255, not-blank/length
+  CHECKs — cleaned on write like model display names), `backend` (CHECK
+  `('llama_cpp','openai_compatible')`), `base_url` (Text NOT NULL — loopback-validated at the
+  write path), `capabilities` (CHECK `('generation','embedding','both')`), `registered_at`
+  (NOT NULL), `last_health_at` (nullable), `last_health_state` (nullable, CHECK
+  `('ready','unhealthy','unreachable')`), `last_health_code` (String 64, nullable). **No
+  credential column** — V0.1 registers unauthenticated loopback endpoints only; whether/where to
+  store endpoint credentials is an owner decision (`OPEN_QUESTIONS.md`, not invented here).
+- Hardware detection results are **deliberately not** in this migration: machine facts are
+  cached as JSON in the data dir (`hardware.json`, `MODEL_RUNTIME.md` §4), never in the
+  assessment database.
