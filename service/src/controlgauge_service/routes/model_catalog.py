@@ -62,12 +62,6 @@ DownloadsDep = Annotated[DownloadManager, Depends(get_downloads)]
 
 
 class CatalogFileOut(BaseModel):
-    filename: str
-    size_bytes: int
-    sha256: str
-
-
-class CatalogFileOut(BaseModel):
     """One declared file. The SHA-256 is a computed content identity
     (allowed structural metadata, T-10) and the filename is the REMOTE
     artifact name -- never a local path."""

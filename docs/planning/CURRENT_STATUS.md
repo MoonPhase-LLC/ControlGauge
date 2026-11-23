@@ -5,16 +5,16 @@ documents describe plans or decisions; none of them track progress. Navigation:
 [MASTER_PLAN](MASTER_PLAN.md) · [BATCH_JOBS](BATCH_JOBS.md) · [EXECUTION_RULES](EXECUTION_RULES.md) ·
 [DECISION_LOG](DECISION_LOG.md)
 
-Last updated: 2026-11-22 (Sprint 5 merged + Windows-CI fix-forward; Sprint 6 executing).
+Last updated: 2026-11-23 (Sprint 6 batches S6-01..S6-08 complete; reviewer gate next).
 
 ## Position
 
 | Item | Value |
 |---|---|
-| Current sprint | Sprint 6 (hardware detection + model catalog/recommendations) — executing on `claude/sprint-6-hardware-catalog` |
-| Active batch | S6-01..S6-08 (see `BATCH_JOBS.md`); architect spec phase |
-| Next action | Architect spec → developer implementation batch by batch → reviewer gate → §7 merge; developer start held until CI on the Sprint 5 fix-forwards (`e55a1be`, `fd9d356`) is green |
-| Baseline | `origin/main` @ `fd9d356` (Sprint 5 merge `5925928` + Windows-CI fix-forwards `e55a1be`, `fd9d356`, §7) |
+| Current sprint | Sprint 6 (hardware detection + model catalog/recommendations) — batches complete on `claude/sprint-6-hardware-catalog` |
+| Active batch | None — all of S6-01..S6-08 DONE (see `BATCH_JOBS.md`); reviewer gate is next |
+| Next action | Reviewer gate over the Sprint 6 branch → §7 merge (owner-authorized); Windows-CI invariants re-verified on the main push; operator-gated manual UI acceptance run remains the sprint's standing open item |
+| Baseline | `origin/main` @ `ded58d9` (Sprint 5 merge `5925928` + Windows-CI fix-forwards `e55a1be`, `fd9d356`, `ded58d9`; §7) |
 | Sprint 5 commits | Kickoff docs `b4451e8`; S5-01 `58a2fa1`, S5-02 `ceea877`, S5-03 `d62fff1`, S5-04 `d7c0ba8`, S5-05 `f163967`, S5-06 `5959a4c`, S5-07 `d97cd58`; review fix round `5934465`; merge `5925928`; CI fix-forwards `e1ff803`/`e55a1be` and `6945871`/`fd9d356` |
 | Open PRs | None |
 
@@ -36,6 +36,18 @@ Last updated: 2026-11-22 (Sprint 5 merged + Windows-CI fix-forward; Sprint 6 exe
   SHAPE, not numeric ranges — the deterministic validator owns ranges (DEV_MODELS.md §5.1).
   Baselines (development only): 7B generation ~46.5 tok/s warm CPU (7.9 GiB child RSS),
   embedding 3.9 ms (158 MiB RSS). `GET /models` is structural (no live child contact).
+- Sprint 6 (2026-11-22/23, dev box): hardware detection answers with real machine facts
+  (Linux: /proc/meminfo + nvidia-smi — this box's 3× RTX PRO 6000 enumerate with ≈95.6 GiB
+  each; Windows DXGI path fixture-verified only); the curated catalog serves the four PD-026
+  entries with immutable revision-pinned URLs + per-file SHA-256s; the real 84 MB nomic
+  download verified against the manifest pin end to end (fail-closed checksum, resumable,
+  approval-gated); recommendations are pure §5 math — detected hardware and all three
+  profiles answer closed-vocabulary verdicts, with the no-ceiling property (full catalog
+  recommended on enterprise-288gb) and honest consumer-cpu tiering (14B infeasible);
+  the user-managed registry distinguishes origin/verification end to end (migration 0006),
+  external loopback endpoints register probe-gated/attach/generate/detach (real-engine
+  round trip proven in S6-05); the exit-validation flow composes it all offline
+  (test_integration_sprint6_exit_flow.py, DEV_MODELS.md §9).
 
 ## Sprint progress
 
@@ -48,7 +60,8 @@ Last updated: 2026-11-22 (Sprint 5 merged + Windows-CI fix-forward; Sprint 6 exe
 | 4 Evidence ingestion + parser containment | Complete (PR #19, merged 2026-11-05, PD-018) |
 | 4.5 Linux parser containment parity | Complete (merged to `main` 2026-11-17, PD-022) |
 | 5 Local model runtime | Complete (merged to `main` 2026-11-17, PD-025; manual UI acceptance run still operator-gated) |
-| 6–16 | Sprint 6 starting; 7–16 not started |
+| 6 Hardware detection + model catalog/recommendations | Batches S6-01..S6-08 complete (2026-11-23, `claude/sprint-6-hardware-catalog`); reviewer gate next; manual UI acceptance run still operator-gated |
+| 7–16 | Not started |
 
 ## Blockers and pending decisions
 
@@ -120,8 +133,20 @@ Last updated: 2026-11-22 (Sprint 5 merged + Windows-CI fix-forward; Sprint 6 exe
 - CI on PR #19 (run 42120874860): all checks pass; Windows service job 576 passed, 5 skipped (containment harness ran, not skipped); frozen worker in the sandbox 4 passed; supervised frozen suite 13 passed.
 - Graphify: `graphify update .` (AST only, local) → 2,518 nodes, 6,130 edges.
 
+## Last verified on Linux (2026-11-23, Sprint 6 batches)
+
+- `service`: ruff + `ruff format --check` clean; mypy strict clean (136 files) on linux AND
+  `--platform win32`; `pytest -q` → **936 passed, 36 skipped** offline (the Windows-invariant
+  pytest suite grows only on main-push CI; the 3 new skips are the env-gated S6-08 module).
+- Env-gated live (dev gates set): `test_integration_sprint6_exit_flow.py` **3/3 PASSED**
+  (1.81 s; evidence in DEV_MODELS §9) and `test_download_integration.py` **1/1 PASSED**
+  (16.92 s, real 84 MB nomic download from the pinned HF revision).
+- Rust/TS untouched by S6-08 — S6-07 baselines stand: cargo **112p/8f** (documented failing
+  set), vitest **85/85**, Playwright **4/4**, `npm run build` exit 0.
+
 ## Update log (newest first; keep to one line each)
 
+- 2026-11-23 — Sprint 6 S6-01..S6-08 complete on `claude/sprint-6-hardware-catalog` (local commits, not pushed): exit-validation flow + planning-doc finalization (S6-08, incl. a shadowed-duplicate `CatalogFileOut` fix-forward); offline gates 936p/36sk, env-gated exit-flow 3/3 + download E2E 1/1 passed; reviewer gate next.
 - 2026-11-17 — Sprint 4.5 merged to `main` under standing owner instruction §7 (PD-022): PR creation 403 (PD-020 token state) → local `--no-ff` merge + push; local gates re-verified pre-merge on Linux (pytest 578 passed/7 skipped, ruff/format/mypy clean); CI on the main push watched post-merge.
 - 2026-11-16 — Sprint 4.5 (D-028, PD-021): bubblewrap parser sandbox on Linux; containment harness runs contained on Linux (pytest 578 passed/7 skipped, ruff/format/mypy clean); docs + AppArmor prerequisite documented; Windows invariant 575/6 preserved. Branch `claude/linux-parser-sandbox`, not pushed.
 - 2026-11-16 — Pending docs landed on `main` by owner instruction: PR #20 merged (`b442033`), PD-019 commits pushed direct (PD-020); merged branches deleted. Linux audit: service pytest 561 passed/20 skipped on Linux; `cargo check` clean on Linux.

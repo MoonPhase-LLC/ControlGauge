@@ -193,9 +193,12 @@ migration 0006 minimal). `GET /hardware` serves the cache structurally when fres
 contacts anything); refresh is always the explicit POST (`USER_FLOWS.md` §2.4).
 
 Limitations recorded honestly: the Windows DXGI path is fixture-verified until the owner's
-Windows machine runs it (SPRINTS.md exit criterion); multi-GPU detection cannot be validated on a
-single-GPU-or-less dev box (synthetic fixtures only); `nvidia-smi` VRAM values are driver-reported
-totals, not free-at-runtime.
+Windows machine runs it (SPRINTS.md exit criterion — its Linux half IS demonstrated on real
+hardware, DEV_MODELS.md §9); multi-GPU `nvidia-smi` enumeration and the GPU-path
+recommendations are validated on the dev box's three EQUAL RTX PRO 6000s (2026-11-23), so the
+uneven-bank straggler case (aggregate passes, one GPU's share fails) remains the
+synthetic-fixture-only case; `nvidia-smi` VRAM values are driver-reported totals, not
+free-at-runtime.
 
 ## 5. Recommendation Math (Sprint 6 contract — the exact formulas S6-06 implements)
 

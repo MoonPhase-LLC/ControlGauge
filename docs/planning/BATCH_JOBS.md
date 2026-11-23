@@ -824,11 +824,57 @@ cargo 106p/8f Linux (8 pre-existing failures byte-identical to main), Vitest 70/
   text, not a link (no network egress from a click).
 
 ### S6-08 — Sprint 6 exit validation
-- **Status:** planned.
-- **Scope:** env-gated `test_integration_sprint6_exit_flow.py`; evidence recorded in
-  `MODEL_RUNTIME.md`/`DEV_MODELS.md`; BATCH_JOBS/CURRENT_STATUS finalized.
-- **Acceptance:** SPRINTS.md Sprint 6 exit criteria demonstrated with evidence; Windows
-  invariants re-verified on CI after the §7 merge.
+- **Status:** DONE (2026-11-23).
+- **Scope delivered:** env-gated `service/tests/test_integration_sprint6_exit_flow.py`
+  (3 tests over ONE fresh app, the whole module under the `offline_guard`; skips cleanly
+  when the dev environment is unset): cold `GET /hardware` (real detection) →
+  `GET /recommendations` (detected hardware) → the three profile routes with the honest
+  no-ceiling assertions (enterprise-288gb recommends the FULL catalog; workstation-32gb all
+  feasible-or-recommended; consumer-cpu never auto-promotes the 14B entry while the 1.5B is
+  recommended) → the catalog embedding entry registered with the manifest pin ENFORCED
+  (`expected_sha256`, so a passing run proves the dev file byte-identical to the catalog
+  download) → start → real embed health (768-dim, finite) → stop → external endpoint
+  register(probe)/attach/generate/health/stop against a loopback stub. The download step is
+  EXCLUDED from the guarded section (the real-network E2E stays in
+  `test_download_integration.py`). Fix-forward: the S6-07 commit left a shadowed duplicate
+  `CatalogFileOut` in `routes/model_catalog.py` (ruff F811 + mypy `no-redef` at HEAD) —
+  removed the undocumented first definition, zero behavior change. Planning docs finalized
+  (this section, CURRENT_STATUS, DEV_MODELS §6/§9, MODEL_RUNTIME §4).
+- **Evidence (dev box, 2026-11-23):** `GET /hardware` — os_name "linux", kernel
+  7.0.0-42-generic, cpu_model "x86_64" (`platform.processor()`), 128 logical cores, RAM
+  1,081,232,535,552 B, **three GPUs via the real `nvidia-smi` path** (NVIDIA RTX PRO 6000
+  Blackwell Max-Q Workstation Edition, 102,641,958,912 B ≈ 95.6 GiB each — the GPUs are
+  occupied by another workload but ARE detectable; occupancy ≠ absence), model-dir free
+  340,225,961,984 B, `detection_complete` true. Detected-hardware recommendations exercise
+  the REAL GPU path (aggregate 3×0.9×95.6 GiB AND per-GPU share both clear every entry):
+  all four entries `recommended`, all three pairs `simultaneous` (14B total 12,209,335,968 B
+  vs per-GPU budget ≈ 92.4 GiB). Profiles: workstation-32gb and enterprise-288gb full catalog
+  `recommended`/`simultaneous` (the no-ceiling property); consumer-cpu 1.5B/7B/nomic
+  `recommended`, 14B `infeasible` (`insufficient_ram`) — honest tiering. Footprint estimates
+  identical across all four hardware sources. Exit-flow module **3/3 PASSED** (1.81 s);
+  env-gated download E2E **1/1 PASSED** (16.92 s): real 84,106,624 B nomic fetch from pinned
+  revision `0188c9bf…`, streamed SHA-256 == manifest pin `d4e38889…95ac`, `model_file` +
+  `model_source` rows `origin=catalog_download`/`verification=catalog_manifest`, start →
+  real embed health (768-dim) → stop, rerun takes the duplicate path.
+- **Gates:** ruff + `ruff format --check` clean; mypy strict clean linux AND
+  `--platform win32` (136 files each); pytest **936 passed / 36 skipped** offline (936
+  baseline + the new module's 3 env-gated skips). Rust/TS untouched by this batch — the
+  S6-07 baselines stand (cargo **112p/8f** with the documented failing set; vitest **85/85**;
+  Playwright **4/4**).
+- **Limitations recorded:** the multi-GPU RECOMMENDATION path on real hardware is exercised
+  only on this box's three EQUAL GPUs — the uneven-bank straggler case (aggregate passes,
+  one GPU's share fails) remains synthetic-fixture-only; Windows detection (DXGI +
+  GlobalMemoryStatusEx) is fixture-verified until the owner's Windows machine run —
+  SPRINTS.md exit criterion 1's Windows half is owner-gated, the Linux half is demonstrated
+  here; `nvidia-smi` VRAM values are driver-reported totals, not free-at-runtime; the
+  operator-gated manual UI acceptance run (import→download→start→health→stop from the built
+  app) remains the sprint's standing open item.
+- **Acceptance:** SPRINTS.md Sprint 6 exit criteria demonstrated with recorded evidence —
+  detection on real hardware (Linux half here, Windows half owner-gated as noted); accurate
+  feasible/recommended tiers including the honest no-ceiling property on the owner's 288 GB
+  target; a real model downloaded + verified end to end (checksum fail-closed, registered,
+  started, health-checked, stopped). Windows invariants re-verified on CI after the §7 merge
+  (post-merge task; CI runs only on main pushes).
 
 ## Later sprints (milestone level only)
 
