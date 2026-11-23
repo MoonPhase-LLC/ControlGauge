@@ -37,6 +37,12 @@ JobObjectExtendedLimitInformation = 9
 WAIT_OBJECT_0 = 0x00000000
 _STILL_ACTIVE = 259
 
+#: Bounded wait in ``close()`` for the (already requested) Job
+#: termination to complete, so the final exit code can be captured
+#: before the process handle is released. ``stop()`` terminates first,
+#: so in the normal path the wait returns immediately.
+_CLOSE_CAPTURE_WAIT_MS = 2000
+
 
 class STARTUPINFOW(ctypes.Structure):  # noqa: N801 - Win32 name
     _fields_ = [
@@ -181,8 +187,18 @@ class WindowsChild:
         self._process = process_handle
         self._job = job_handle
         self.pid = pid
+        #: Exit code captured in ``close()``; ``poll()`` answers from it
+        #: once the handles are gone.
+        self._final_code: int | None = None
 
     def poll(self) -> int | None:
+        if self._process == 0:
+            # Handles released by close(): answer from the captured exit
+            # code. A stopped child must never read as "running" -- the
+            # POSIX ``Popen`` surface keeps answering after stop, and
+            # ``provider.stop()`` closes this handle before callers poll
+            # (found by test_stop_terminates_child on windows-latest).
+            return self._final_code
         code = wintypes.DWORD()
         if not GetExitCodeProcess(self._process, ctypes.byref(code)):
             return None
@@ -198,12 +214,21 @@ class WindowsChild:
 
     def close(self) -> None:
         """Closes the Job handle (KILL_ON_JOB_CLOSE kills a still-running
-        child) and the process handle. Idempotent."""
+        child) and the process handle. Idempotent. The final exit code is
+        captured BEFORE the process handle disappears, so ``poll()``
+        keeps reporting the true state afterwards instead of mapping the
+        invalid handle to None ("still running")."""
         if self._job:
             TerminateJobObject(self._job, 1)
             CloseHandle(self._job)
             self._job = 0
         if self._process:
+            WaitForSingleObject(self._process, _CLOSE_CAPTURE_WAIT_MS)
+            code = wintypes.DWORD()
+            if GetExitCodeProcess(self._process, ctypes.byref(code)) and (
+                code.value != _STILL_ACTIVE
+            ):
+                self._final_code = int(code.value)
             CloseHandle(self._process)
             self._process = 0
 
