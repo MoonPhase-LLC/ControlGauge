@@ -19,6 +19,7 @@ import type {
   ModelRole,
   ModelSummary,
   NewAssessment,
+  RecommendationReport,
   RuntimeStatus,
   SectionList,
   SupervisorState,
@@ -155,6 +156,25 @@ export function getHardware(): Promise<HardwareInfo> {
 /** Explicit re-detection: always runs the probes and rewrites the service cache. */
 export function refreshHardware(): Promise<HardwareInfo> {
   return invoke<HardwareInfo>("refresh_hardware");
+}
+
+// --- Sprint 6 recommendations (S6-06) -----------------------------------------------
+
+/**
+ * The hardware-aware recommendation report for THIS machine (pure
+ * computation over the shipped catalog + the service's cached hardware
+ * snapshot). Structural: never contacts a model child or the network.
+ */
+export function getRecommendations(): Promise<RecommendationReport> {
+  return invoke<RecommendationReport>("get_recommendations");
+}
+
+/**
+ * The same math on a synthetic profile (the 32 GB / 288 GB owner
+ * targets). Unknown profile ids are a service 404 `profile_unknown`.
+ */
+export function getProfileRecommendations(profileId: string): Promise<RecommendationReport> {
+  return invoke<RecommendationReport>("get_profile_recommendations", { profileId });
 }
 
 // --- Sprint 6 secure downloads (S6-04) ----------------------------------------------

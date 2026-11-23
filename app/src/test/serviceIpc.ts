@@ -11,6 +11,7 @@ import type {
   HealthResponse,
   ModelFile,
   ModelRole,
+  RecommendationReport,
   RuntimeStatus,
   SupervisorState,
 } from "@/service/types";
@@ -65,6 +66,93 @@ export const HARDWARE: HardwareInfo = {
   detected_at: "2026-11-02T12:00:00Z",
 };
 
+/**
+ * S6-06 recommendation report for the mock hardware: everything fits the
+ * 32 GiB GPU comfortably, so the pinned shape is all-recommended with the
+ * default pair simultaneous. Pure computation in production — the mock is a
+ * fixture, not a reimplementation.
+ */
+export const RECOMMENDATIONS: RecommendationReport = {
+  hardware_source: "detected",
+  entries: [
+    {
+      model_id: "catalog-gen-small",
+      role: "generation",
+      verdict: "recommended",
+      load_mode: "simultaneous",
+      estimated: {
+        weights_bytes: 1_117_320_736,
+        kv_cache_bytes: 234_881_024,
+        runtime_overhead_bytes: 644_245_094,
+        total_bytes: 1_996_446_854,
+      },
+      reasons: [],
+    },
+    {
+      model_id: "catalog-gen-medium",
+      role: "generation",
+      verdict: "recommended",
+      load_mode: "simultaneous",
+      estimated: {
+        weights_bytes: 4_683_073_632,
+        kv_cache_bytes: 469_762_048,
+        runtime_overhead_bytes: 1_073_741_824,
+        total_bytes: 6_226_577_504,
+      },
+      reasons: [],
+    },
+    {
+      model_id: "catalog-gen-large",
+      role: "generation",
+      verdict: "recommended",
+      load_mode: "simultaneous",
+      estimated: {
+        weights_bytes: 8_988_110_496,
+        kv_cache_bytes: 1_610_612_736,
+        runtime_overhead_bytes: 1_610_612_736,
+        total_bytes: 12_209_335_968,
+      },
+      reasons: [],
+    },
+    {
+      model_id: "catalog-embed-default",
+      role: "embedding",
+      verdict: "recommended",
+      load_mode: null,
+      estimated: {
+        weights_bytes: 84_106_624,
+        kv_cache_bytes: 0,
+        runtime_overhead_bytes: 429_496_730,
+        total_bytes: 513_603_354,
+      },
+      reasons: [],
+    },
+  ],
+  pairs: [
+    {
+      generation_model_id: "catalog-gen-small",
+      embedding_model_id: "catalog-embed-default",
+      verdict: "simultaneous",
+      combined_total_bytes: 2_510_050_208,
+      reasons: [],
+    },
+    {
+      generation_model_id: "catalog-gen-medium",
+      embedding_model_id: "catalog-embed-default",
+      verdict: "simultaneous",
+      combined_total_bytes: 6_740_180_858,
+      reasons: [],
+    },
+    {
+      generation_model_id: "catalog-gen-large",
+      embedding_model_id: "catalog-embed-default",
+      verdict: "simultaneous",
+      combined_total_bytes: 12_722_939_322,
+      reasons: [],
+    },
+  ],
+};
+
 const DATA_COMMANDS = [
   "list_frameworks",
   "list_assessments",
@@ -82,6 +170,8 @@ const DATA_COMMANDS = [
   "check_model_health",
   "get_hardware",
   "refresh_hardware",
+  "get_recommendations",
+  "get_profile_recommendations",
   "start_catalog_download",
   "get_download_status",
   "cancel_download",
@@ -313,6 +403,39 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
       case "get_hardware":
       case "refresh_hardware":
         return { ...HARDWARE, gpus: [...HARDWARE.gpus] };
+      // --- Sprint 6 recommendations (mirrors routes/recommendations.py) --
+      // Pure computation in production; the mock serves the pinned
+      // all-recommended fixture. Unknown profile ids 404 like the service.
+      case "get_recommendations":
+        return { ...RECOMMENDATIONS, entries: [...RECOMMENDATIONS.entries], pairs: [...RECOMMENDATIONS.pairs] };
+      case "get_profile_recommendations": {
+        const profileId = String(args.profileId ?? "");
+        if (profileId === "consumer-cpu") {
+          const report: RecommendationReport = {
+            hardware_source: "profile:consumer-cpu",
+            entries: RECOMMENDATIONS.entries.map((e) =>
+              e.model_id === "catalog-gen-large"
+                ? { ...e, verdict: "infeasible" as const, load_mode: null, reasons: ["insufficient_ram"] }
+                : { ...e }
+            ),
+            pairs: RECOMMENDATIONS.pairs.map((p) =>
+              p.generation_model_id === "catalog-gen-large"
+                ? { ...p, verdict: "infeasible" as const, reasons: ["insufficient_ram"] }
+                : { ...p }
+            ),
+          };
+          return report;
+        }
+        if (profileId === "workstation-32gb" || profileId === "enterprise-288gb") {
+          return {
+            ...RECOMMENDATIONS,
+            hardware_source: `profile:${profileId}`,
+            entries: [...RECOMMENDATIONS.entries],
+            pairs: [...RECOMMENDATIONS.pairs],
+          };
+        }
+        throw apiError(404, "profile_unknown", "The requested recommendation profile does not exist.");
+      }
       // --- Sprint 6 secure downloads (mirrors routes/model_catalog.py and
       // routes/models.py import-url) ----------------------------------------
       // Starts register a synthetic `downloading` record; the test drives

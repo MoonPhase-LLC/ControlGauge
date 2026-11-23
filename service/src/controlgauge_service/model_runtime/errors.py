@@ -27,10 +27,12 @@ DOWNLOAD_ERROR_CODES = (
     "expected_checksum_required",
 )
 
-#: Sprint 6 (S6-03/S6-04) curated-catalog codes.
+#: Sprint 6 (S6-03/S6-04) curated-catalog codes; `profile_unknown` joins
+#: with S6-06's recommendations routes.
 CATALOG_ERROR_CODES = (
     "catalog_entry_unknown",
     "catalog_unavailable",
+    "profile_unknown",
 )
 
 #: Sprint 6 (S6-05) user-managed registry + external-endpoint codes.
@@ -104,9 +106,11 @@ _MESSAGES: dict[str, str] = {
     "model_file_too_large": "The file is larger than the supported model size limit.",
     "invalid_gguf_magic": "The file does not look like a GGUF model file.",
     "invalid_gguf_version": "The GGUF file version is not supported.",
-    # Sprint 6 catalog + download surfaces (S6-03/S6-04).
+    # Sprint 6 catalog + download surfaces (S6-03/S6-04); `profile_unknown`
+    # joins with S6-06's recommendations routes.
     "catalog_unavailable": "The model catalog is not available.",
     "catalog_entry_unknown": "The catalog entry was not found.",
+    "profile_unknown": "The requested recommendation profile does not exist.",
     "download_active": "A download is already in progress.",
     "download_not_found": "The download was not found.",
     "download_checksum_mismatch": "The downloaded file failed checksum verification.",

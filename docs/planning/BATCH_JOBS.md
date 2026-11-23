@@ -719,13 +719,44 @@ cargo 106p/8f Linux (8 pre-existing failures byte-identical to main), Vitest 70/
   never the installed-state matching key.
 
 ### S6-06 — Hardware-aware recommendation engine (combined footprint + multi-GPU sharding awareness)
-- **Status:** planned.
-- **Scope:** `model_catalog/recommend.py` pure functions implementing the normative §5 math
-  (0.7 RAM / 0.9 VRAM usable fractions, ×1.5 recommended headroom, per-GPU share AND aggregate
-  checks, sequential_only fallback, unknown→never infeasible, curator_withheld gate);
-  `GET /recommendations` + `GET /recommendations/profile/{id}` routes; Rust + TS mirrors.
-- **Acceptance:** every math rule has a named synthetic-fixture test; dev-box evidence recorded;
-  enterprise-288gb profile marks the catalog recommended (no-ceiling).
+- **Status:** DONE (2026-11-22).
+- **Scope delivered:** `model_catalog/recommend.py` — pure §5 engine (`estimate_footprint`,
+  `evaluate_entry`, `evaluate_pair`, `recommend`, `recommend_for_profile`) with exact integer
+  forms of the fractions (0.7/0.9/1.5), closed verdict/reason vocabularies, disk gate on known
+  data only, unknown-VRAM GPUs excluded (never guessed), per-GPU share AND aggregate checks
+  (PD-026 "not one contiguous pool"), sequential_only fallback, curator_withheld no-ceiling gate,
+  ×1.5 recommended headroom on the deciding path's budget, >25-pair guard restricting to
+  `pairing_default`; `GET /recommendations` + `GET /recommendations/profile/{profile_id}` routes
+  (cached hardware only — never a live re-detect; unknown profile 404 `profile_unknown` added to
+  `CATALOG_ERROR_CODES` + fixed-message table); Rust mirror structs (`deny_unknown_fields`) +
+  `get_recommendations`/`get_profile_recommendations` commands (default `HTTP_REQUEST_TIMEOUT` —
+  pure computation) + TS types/commands/serviceIpc mock.
+- **Evidence:** 50 new tests (`test_recommend_footprint` 6, `test_recommend_entries` 17,
+  `test_recommend_pairs` 14, `test_recommend_routes` 7 + boundary pins) — every normative rule
+  has a named failing-then-passing test on synthetic fixtures; shipped catalog × shipped profiles
+  pinned EXACTLY (consumer-cpu: 1.5B/7B/nomic recommended, 14B infeasible `insufficient_ram`,
+  7B+nomic simultaneous; workstation-32gb: all recommended; enterprise-288gb: full catalog
+  recommended — no-ceiling evidence; exact footprint totals pinned per entry so catalog edits
+  cannot silently break the owner's targets). **Dev-box live evidence** (real detection: 1 TiB
+  RAM, 3× nvidia ≈95.6 GiB VRAM, 317 GiB free — the GPU path decides, NOT the CPU-only shape the
+  spec anticipated): all four entries `recommended`, all three pairs `simultaneous`.
+- **Gates:** ruff + `ruff format --check` clean; mypy strict clean linux AND `--platform win32`;
+  pytest **936p/33sk** offline; cargo fmt/clippy `-D warnings` clean; cargo test **109p/8f** —
+  failing set byte-identical to the known set (+1 new closed-schema test); `typecheck:test` +
+  eslint clean; vitest **70/70**; source guard green (the serviceIpc mock uses synthetic catalog
+  ids — dev-model substrings stay out of `app/src`).
+- **Limitations recorded:** KV/overhead constants are author-assigned estimates (formula +
+  provenance in the manifest notes; not measured on real GPUs here); full-offload-only GPU model
+  (partial `-ngl` budgets out of scope for recommendations — a user may still start with partial
+  offload manually); single-layer granularity unknown without GGUF metadata parsing (the
+  per-GPU-share check is the conservative proxy); a GPU with unknown VRAM is excluded from GPU
+  budgeting (if that leaves no usable GPU the CPU path decides); a pair whose deciding inputs
+  are unknown is OMITTED from reports (the pair vocabulary has no `unknown`; claiming
+  `infeasible` from unknown data would be dishonest — rare: RAM is known on every real detection
+  and profile); sequential loading is a *verdict* in V0.1 — runtime auto-swap per pipeline phase
+  is Sprint 8 work; `installed_model_ids` parameter is reserved for S6-07 UI cross-referencing
+  and deliberately does not affect the math; spec's "U-8-style" open question for endpoint
+  credentials landed as `OPEN_QUESTIONS.md` A-6 (architecture, not UX).
 
 ### S6-07 — UI: tiers, catalog, download approval + progress, registry, endpoints, hardware
 - **Status:** planned.

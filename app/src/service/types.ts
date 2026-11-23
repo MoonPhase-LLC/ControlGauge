@@ -394,3 +394,48 @@ export type DownloadStatus = {
   files: DownloadFileProgress[];
   error_code: string | null;
 };
+
+// --- Sprint 6 recommendations (S6-06) ----------------------------------------------
+// Mirror `app/src-tauri/src/supervisor/service_api.rs` + the service's
+// `routes/recommendations.py` (closed schemas). Pure computation over the
+// shipped catalog + cached hardware (or a synthetic profile): no path, URL, or
+// credential ever appears (T-10).
+
+/** The §5 footprint estimate in bytes. */
+export type FootprintEstimate = {
+  weights_bytes: number;
+  kv_cache_bytes: number;
+  runtime_overhead_bytes: number;
+  total_bytes: number;
+};
+
+/**
+ * One entry's feasibility for one declared role. `verdict` is the closed
+ * `recommended|feasible|infeasible|unknown` vocabulary; `load_mode` the closed
+ * `simultaneous|sequential` one (generation roles only); `reasons` members of
+ * the fixed reason-code vocabulary.
+ */
+export type EntryVerdict = {
+  model_id: string;
+  role: string;
+  verdict: "recommended" | "feasible" | "infeasible" | "unknown";
+  load_mode: "simultaneous" | "sequential" | null;
+  estimated: FootprintEstimate;
+  reasons: string[];
+};
+
+/** One generation×embedding combination (D-023). */
+export type PairVerdict = {
+  generation_model_id: string;
+  embedding_model_id: string;
+  verdict: "simultaneous" | "sequential_only" | "infeasible";
+  combined_total_bytes: number;
+  reasons: string[];
+};
+
+/** The full report for one hardware source (`detected` or `profile:<id>`). */
+export type RecommendationReport = {
+  hardware_source: string;
+  entries: EntryVerdict[];
+  pairs: PairVerdict[];
+};

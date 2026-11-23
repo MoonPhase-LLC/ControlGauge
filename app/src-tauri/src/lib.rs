@@ -307,6 +307,23 @@ async fn refresh_hardware(
     service_api::refresh_hardware(&ready(&state).await?).await
 }
 
+// --- Sprint 6 (S6-06): hardware-aware recommendations ----------------------------
+
+#[tauri::command]
+async fn get_recommendations(
+    state: tauri::State<'_, SupervisorHandle>,
+) -> Result<service_api::RecommendationReport, ServiceCallError> {
+    service_api::get_recommendations(&ready(&state).await?).await
+}
+
+#[tauri::command]
+async fn get_profile_recommendations(
+    state: tauri::State<'_, SupervisorHandle>,
+    profile_id: String,
+) -> Result<service_api::RecommendationReport, ServiceCallError> {
+    service_api::get_profile_recommendations(&ready(&state).await?, &profile_id).await
+}
+
 // --- Sprint 6 (S6-04): secure downloads + URL import commands --------------------
 //
 // Download answers are state machines + byte counts -- never a path, URL,
@@ -402,6 +419,8 @@ pub fn run() {
             check_model_health,
             get_hardware,
             refresh_hardware,
+            get_recommendations,
+            get_profile_recommendations,
             start_catalog_download,
             get_download_status,
             cancel_download,

@@ -48,6 +48,7 @@ from .routes.health import router as health_router
 from .routes.model_catalog import router as model_catalog_router
 from .routes.model_endpoints import router as model_endpoints_router
 from .routes.models import router as models_router
+from .routes.recommendations import router as recommendations_router
 
 logger = logging.getLogger("controlgauge_service")
 
@@ -139,6 +140,9 @@ def create_app(
     # Sprint 6 user-registered external endpoints (S6-05): loopback-only,
     # probe-gated registration, behind the same middleware.
     app.include_router(model_endpoints_router)
+    # Sprint 6 hardware-aware recommendations (S6-06): pure computation
+    # over the manifest + cached hardware or a synthetic profile.
+    app.include_router(recommendations_router)
     if startup_challenge is not None:
         app.include_router(challenge_router)
 

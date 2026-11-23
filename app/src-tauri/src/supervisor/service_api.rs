@@ -1115,6 +1115,94 @@ pub async fn refresh_hardware(
     .map(|(info, _)| info)
 }
 
+// --- Sprint 6 (S6-06): hardware-aware recommendations ------------------------------
+
+/// The §5 footprint estimate in bytes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct FootprintEstimate {
+    pub weights_bytes: u64,
+    pub kv_cache_bytes: u64,
+    pub runtime_overhead_bytes: u64,
+    pub total_bytes: u64,
+}
+
+/// One entry's feasibility for one declared role. `verdict` is the
+/// closed `recommended|feasible|infeasible|unknown` vocabulary,
+/// `load_mode` the closed `simultaneous|sequential` one; `reasons`
+/// members of the fixed reason-code vocabulary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EntryVerdict {
+    pub model_id: String,
+    pub role: String,
+    pub verdict: String,
+    pub load_mode: Option<String>,
+    pub estimated: FootprintEstimate,
+    pub reasons: Vec<String>,
+}
+
+/// One generation×embedding combination (D-023). `verdict` is the
+/// closed `simultaneous|sequential_only|infeasible` vocabulary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PairVerdict {
+    pub generation_model_id: String,
+    pub embedding_model_id: String,
+    pub verdict: String,
+    pub combined_total_bytes: u64,
+    pub reasons: Vec<String>,
+}
+
+/// The full deterministic report for one hardware source (`detected` or
+/// `profile:<id>`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RecommendationReport {
+    pub hardware_source: String,
+    pub entries: Vec<EntryVerdict>,
+    pub pairs: Vec<PairVerdict>,
+}
+
+/// `GET /recommendations`: the pure §5 computation over the shipped
+/// manifest + the service's cached hardware snapshot. Pure computation
+/// on the service side: [`HTTP_REQUEST_TIMEOUT`] is the right deadline.
+pub async fn get_recommendations(
+    connection: &ReadyConnection,
+) -> Result<RecommendationReport, ServiceCallError> {
+    call_with(
+        connection,
+        Method::GET,
+        "/recommendations",
+        None,
+        &[StatusCode::OK],
+        HTTP_REQUEST_TIMEOUT,
+    )
+    .await
+    .map(|(report, _)| report)
+}
+
+/// `GET /recommendations/profile/{profile_id}`: the same math on a
+/// synthetic profile (the 32 GB / 288 GB owner targets). Unknown ids
+/// are a service 404 (`profile_unknown`); the id is restricted to
+/// `[a-z0-9-]` by the service's own profile schema, so path
+/// interpolation is safe.
+pub async fn get_profile_recommendations(
+    connection: &ReadyConnection,
+    profile_id: &str,
+) -> Result<RecommendationReport, ServiceCallError> {
+    call_with(
+        connection,
+        Method::GET,
+        &format!("/recommendations/profile/{profile_id}"),
+        None,
+        &[StatusCode::OK],
+        HTTP_REQUEST_TIMEOUT,
+    )
+    .await
+    .map(|(report, _)| report)
+}
+
 // --- Sprint 6 (S6-04): secure downloads + URL imports -----------------------------
 
 /// The catalog download-start POST does bounded local work before the
@@ -1718,6 +1806,61 @@ mod tests {
         });
         extra_import["path"] = serde_json::json!("/home/user/models/x.gguf");
         assert!(serde_json::from_value::<ModelImportResult>(extra_import).is_err());
+    }
+
+    #[test]
+    fn recommendation_report_schema_is_closed() {
+        // --- Sprint 6 (S6-06): the recommendation report mirror ----------
+        let report = serde_json::json!({
+            "hardware_source": "profile:workstation-32gb",
+            "entries": [{
+                "model_id": "m", "role": "generation", "verdict": "recommended",
+                "load_mode": "simultaneous",
+                "estimated": {
+                    "weights_bytes": 1u64, "kv_cache_bytes": 2u64,
+                    "runtime_overhead_bytes": 3u64, "total_bytes": 6u64
+                },
+                "reasons": []
+            }],
+            "pairs": [{
+                "generation_model_id": "m", "embedding_model_id": "e",
+                "verdict": "simultaneous", "combined_total_bytes": 7u64,
+                "reasons": ["insufficient_vram"]
+            }]
+        });
+        assert!(serde_json::from_value::<RecommendationReport>(report.clone()).is_ok());
+        assert_eq!(
+            serde_json::from_value::<RecommendationReport>(report).unwrap(),
+            RecommendationReport {
+                hardware_source: "profile:workstation-32gb".into(),
+                entries: vec![EntryVerdict {
+                    model_id: "m".into(),
+                    role: "generation".into(),
+                    verdict: "recommended".into(),
+                    load_mode: Some("simultaneous".into()),
+                    estimated: FootprintEstimate {
+                        weights_bytes: 1,
+                        kv_cache_bytes: 2,
+                        runtime_overhead_bytes: 3,
+                        total_bytes: 6
+                    },
+                    reasons: vec![]
+                }],
+                pairs: vec![PairVerdict {
+                    generation_model_id: "m".into(),
+                    embedding_model_id: "e".into(),
+                    verdict: "simultaneous".into(),
+                    combined_total_bytes: 7,
+                    reasons: vec!["insufficient_vram".into()]
+                }]
+            }
+        );
+        // T-10/closed-schema: an unknown field is refused, never tolerated.
+        let mut extra = serde_json::json!({
+            "hardware_source": "detected", "entries": [], "pairs": []
+        });
+        extra["gpu_names"] = serde_json::json!(["RTX"]);
+        assert!(serde_json::from_value::<RecommendationReport>(extra).is_err());
     }
 
     #[test]
