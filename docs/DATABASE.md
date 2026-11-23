@@ -476,7 +476,6 @@ spec's column list: none.
 
 ## 11. Sprint 6 implementation notes (migration `0006_model_registry`, S6-05)
 
-Placeholder written by S6-01 (planned state); the column list below is finalized when S6-05 lands.
 Migration `0006_model_registry` (`down_revision = "0005_model_files"`) persists the curated-catalog
 vs user-managed-registry distinction (`docs/MODEL_RUNTIME.md` §3.1) and external-endpoint
 provenance:
@@ -505,3 +504,33 @@ provenance:
 - Hardware detection results are **deliberately not** in this migration: machine facts are
   cached as JSON in the data dir (`hardware.json`, `MODEL_RUNTIME.md` §4), never in the
   assessment database.
+
+Implementation notes (S6-05):
+
+- **Deterministic recreate, not in-place ALTER:** SQLite cannot add a CHECK-constrained column
+  with `ALTER TABLE`, so the migration rebuilds `model_file` via
+  `_recreate_model_file(with_registry_columns=...)`, reused by upgrade and downgrade. The CHECK
+  expressions are built lazily inside the migration (`_model_file_0005_constraints()`) —
+  `op.f()` proxies only exist while a migration is running, so module-import-time construction
+  fails.
+- **ORM agreement is verified:** `alembic check` at head confirms the ORM (`db/models.py`) and the
+  migrated schema agree, including `ModelSource.model_file_id` carrying its uniqueness on the
+  column (no separate unique index) and the `external_endpoint` backend/capabilities query index.
+- **Backfill is 1:1 and self-describing:** every pre-existing `model_file` row gets a
+  `model_source` row with `origin='local_import'`, `verification` per the 0005 defaults, and
+  `files_json` describing exactly its own file (`filename = PurePath(path).name`, own sha256 and
+  size). Legacy per-shard imports therefore each describe one file, while new catalog downloads
+  register one primary row whose `files_json` spans every shard.
+- **Installed-state semantics (`GET /model-catalog`):** content identity remains the SHA-256. An
+  entry is installed when every declared digest is covered across registration rows — one
+  multi-shard registration or several legacy per-shard rows both qualify; a partial shard set
+  lists its row via `installed_model_ids` but is not installed. A malformed `files_json` fails
+  closed to "covers nothing"; `catalog_model_id` is provenance metadata, never the matching key.
+- **`external_endpoint.base_url` is stored normalized** to `scheme://host:port` (host loopback
+  only: `127.0.0.1`, `::1`, `localhost`; scheme `http` only; no userinfo/path/query/fragment
+  survives the write-path validation), so the API can echo a host-only form with nothing
+  sensitive to leak (T-10).
+- **No delete route for models or endpoints in Sprint 6** (documented not-implemented item,
+  `planning/BATCH_JOBS.md`): the `model_source → model_file` FK is ON DELETE RESTRICT, making row
+  deletion a designed two-step operation deferred to a later batch. Endpoint credentials are not
+  stored (`OPEN_QUESTIONS.md` A-6).

@@ -848,6 +848,13 @@ pub struct ModelFile {
     pub embedding_dimensions: Option<u64>,
     pub embedding_normalization: Option<String>,
     pub embedding_similarity_metric: Option<String>,
+    /// Registry distinction (S6-05): `local_import` | `catalog_download` |
+    /// `url_import`. Curated vs user-managed must be visible without
+    /// reading code (PD-026).
+    pub origin: String,
+    /// `none` | `user_checksum` | `catalog_manifest` — how the content was
+    /// verified, if at all.
+    pub verification: String,
 }
 
 /// The live per-role runtime status. Never a pid, port, path, or
@@ -1658,7 +1665,8 @@ mod tests {
             "display_name": "generation-model.gguf", "sha256": "a".repeat(64),
             "size_bytes": 3_993_201_344u64, "imported_at": "2026-11-17T12:00:00Z",
             "last_verified_at": null, "embedding_dimensions": null,
-            "embedding_normalization": null, "embedding_similarity_metric": null
+            "embedding_normalization": null, "embedding_similarity_metric": null,
+            "origin": "local_import", "verification": "none"
         })
     }
 

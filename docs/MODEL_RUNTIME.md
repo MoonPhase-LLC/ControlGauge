@@ -74,9 +74,9 @@ The model universe has **two tiers, distinguished end to end**:
   entries are **never** written into the registry by browsing — only an explicit user-approved
   download creates a registry entry from the catalog.
 
-The distinction is persisted (`model_file.origin`/`verification`, migration `0006_model_registry`)
-and visible in the UI (origin + verification badges). Curated vs user-managed must be clear
-without reading code (PD-026).
+The distinction is persisted (`model_file.origin`/`verification`, migration `0006_model_registry`;
+schema and backfill in `DATABASE.md` §11) and visible in the UI (origin + verification badges).
+Curated vs user-managed must be clear without reading code (PD-026).
 
 ### 3.2 Manifest schema (normative for the shipped `models_catalog/catalog.json`)
 
@@ -302,6 +302,17 @@ larger supply-chain surface than a file the user already has locally), and an un
 import additionally requires the explicit elevated-trust acknowledgment of §6. Catalog downloads
 are the only path that arrives pre-verified (`verification: "catalog_manifest"`).
 
+**External loopback endpoints (Sprint 6):** a user-registered local inference server
+(llama-server or any OpenAI-compatible loopback endpoint) is a first-class registry entry —
+`POST /model-endpoints` validates the URL as loopback http (fail-closed, non-loopback refused),
+runs a bounded real health probe, and refuses registration on probe failure; an endpoint the app
+cannot verify is not registered. Attach makes the endpoint a capability's active provider without
+starting any child (`manager.attach`); detach is the ordinary role stop route. Endpoints carry no
+stored credentials in V0.1 (an auth-requiring endpoint fails its probe with `auth_rejected`;
+credential storage is `OPEN_QUESTIONS.md` A-6), and only OpenAI-compatible backends are
+implemented — other engines remain the documented `backend` seam. Health results persist on the
+endpoint row (`last_health_at/state/code`); the list route is structural and never probes live.
+
 ## 8. Model Start / Stop / Switching
 
 - Start: launch `LlamaCppProvider` subprocess(es) for the selected generation and/or embedding
@@ -332,6 +343,13 @@ embedding-only provider must never be health-checked via a call it doesn't suppo
 
 Used at: model start confirmation (per capability), and optionally a periodic/on-demand check
 surfaced in Settings.
+
+**Lock scope (Sprint 6, N5 fix):** the manager's status check takes the provider reference under
+the lock, runs `health_check()` — real bounded network I/O — **outside** the lock, then
+re-acquires and records the result only if that provider is still the role's occupant. A
+re-entrant `stop()` from inside a health check cannot deadlock, and a status result that outlives
+a model switch is discarded rather than recorded over the new occupant's entry; the caller still
+receives the computed result either way.
 
 ## 10. Localhost Security and Model-Server Authentication
 

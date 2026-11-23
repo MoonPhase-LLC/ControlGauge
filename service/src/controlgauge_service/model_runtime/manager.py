@@ -20,7 +20,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import Literal, Protocol, TypeAlias
 
 from .config import EmbeddingServerConfig, GenerationServerConfig
 from .errors import ModelRuntimeError
@@ -31,6 +31,23 @@ RoleLiteral: TypeAlias = Literal["generation", "embedding"]
 _ROLES: tuple[RoleLiteral, ...] = ("generation", "embedding")
 
 
+class ManagedProvider(Protocol):
+    """The manager's provider contract (S6-05): a registry identity plus
+    the start-free lifecycle -- ``start()`` is deliberately absent, so a
+    PRE-RUNNING provider (an external endpoint the user registered) can
+    occupy a role without the manager spawning anything.
+    ``LlamaCppProvider`` satisfies this structurally."""
+
+    @property
+    def model_id(self) -> str: ...
+
+    def stop(self) -> None: ...
+
+    def health_check(self) -> HealthStatus: ...
+
+    def describe(self) -> ModelDescriptor: ...
+
+
 class ModelRuntimeManager:
     """Owns the active provider for each capability."""
 
@@ -38,7 +55,7 @@ class ModelRuntimeManager:
 
     def __init__(self, runtime_binary: Path | None) -> None:
         self._runtime_binary = runtime_binary
-        self._providers: dict[RoleLiteral, LlamaCppProvider] = {}
+        self._providers: dict[RoleLiteral, ManagedProvider] = {}
         #: Last-known status per occupied role, served structurally by
         #: `peek_status` without contacting the child (Sprint 5 review F1).
         self._last_status: dict[RoleLiteral, HealthStatus] = {}
@@ -83,7 +100,25 @@ class ModelRuntimeManager:
         with self._lock:
             self._stop_locked(role)
 
-    def get(self, role: RoleLiteral) -> LlamaCppProvider | None:
+    def attach(
+        self, role: RoleLiteral, provider: ManagedProvider, *, display_name: str
+    ) -> ModelDescriptor:
+        """Register a PRE-RUNNING provider (an external endpoint, S6-05)
+        as the role's occupant. The switch contract holds: the current
+        occupant is stopped first; ``start()`` is never called (the
+        endpoint is already running and is not ours to spawn); the
+        last-known status is recorded ``ready``. On a stop failure the
+        role stays empty -- the same fail-closed rule as ``start()``."""
+        with self._lock:
+            self._stop_locked(role)
+            self._providers[role] = provider
+            self._last_status[role] = HealthStatus(state="ready")
+            descriptor = provider.describe()
+            if descriptor.display_name != display_name:
+                descriptor = replace(descriptor, display_name=display_name)
+            return descriptor
+
+    def get(self, role: RoleLiteral) -> ManagedProvider | None:
         """The active provider for the role, or ``None``."""
         with self._lock:
             return self._providers.get(role)
@@ -100,13 +135,23 @@ class ModelRuntimeManager:
         """``stopped`` when absent; otherwise a real capability-specific
         health check -- never a dead-child trust (a stopped provider
         reports unhealthy with its detail code). The result is recorded
-        as the role's last-known status for `peek_status`."""
+        as the role's last-known status for `peek_status`.
+
+        Lock scope (Sprint 6 review N5): the provider reference is taken
+        under the lock, the health check runs OUTSIDE it (a health_check
+        that calls back into the manager -- e.g. a re-entrant stop --
+        must not deadlock), then the lock is re-acquired and the result
+        recorded ONLY if the same provider still occupies the role; a
+        mid-check switch discards the stale recording. The check's
+        result is returned either way."""
         with self._lock:
             provider = self._providers.get(role)
             if provider is None:
                 return HealthStatus(state="stopped")
-            result = provider.health_check()
-            self._last_status[role] = result
+        result = provider.health_check()
+        with self._lock:
+            if self._providers.get(role) is provider:
+                self._last_status[role] = result
             return result
 
     def peek_status(self, role: RoleLiteral) -> HealthStatus:

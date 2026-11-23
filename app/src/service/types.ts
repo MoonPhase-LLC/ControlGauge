@@ -289,6 +289,13 @@ export type ModelFile = {
   embedding_dimensions: number | null;
   embedding_normalization: string | null;
   embedding_similarity_metric: string | null;
+  /** Registry distinction (S6-05): `local_import` | `catalog_download` |
+   * `url_import` — curated vs user-managed, visible without reading code
+   * (PD-026). */
+  origin: string;
+  /** `none` | `user_checksum` | `catalog_manifest` — how the content was
+   * verified, if at all. */
+  verification: string;
 };
 
 /**

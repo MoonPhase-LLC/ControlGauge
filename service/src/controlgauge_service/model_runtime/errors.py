@@ -33,9 +33,19 @@ CATALOG_ERROR_CODES = (
     "catalog_unavailable",
 )
 
+#: Sprint 6 (S6-05) user-managed registry + external-endpoint codes.
+REGISTRY_ERROR_CODES = (
+    "registry_endpoint_invalid",
+    "registry_endpoint_not_loopback",
+    "registry_endpoint_unreachable",
+    "registry_duplicate",
+    "endpoint_not_found",
+    "endpoint_attached",
+)
+
 #: Every Sprint 6 code (the batch-by-batch union; S6-05 adds the registry
 #: surface).
-SPRINT6_ERROR_CODES = DOWNLOAD_ERROR_CODES + CATALOG_ERROR_CODES
+SPRINT6_ERROR_CODES = DOWNLOAD_ERROR_CODES + CATALOG_ERROR_CODES + REGISTRY_ERROR_CODES
 
 MODEL_RUNTIME_ERROR_CODES = (
     "runtime_binary_missing",
@@ -108,6 +118,13 @@ _MESSAGES: dict[str, str] = {
     "disk_space_insufficient": "There is not enough disk space for the download.",
     "expected_checksum_mismatch": "The file's checksum does not match the expected value.",
     "expected_checksum_required": ("A checksum or explicit unverified acknowledgment is required."),
+    # Sprint 6 registry + external-endpoint surfaces (S6-05).
+    "registry_endpoint_invalid": "The endpoint address is not valid.",
+    "registry_endpoint_not_loopback": "Only loopback endpoints can be registered.",
+    "registry_endpoint_unreachable": "The endpoint did not answer its health probe.",
+    "registry_duplicate": "An identical endpoint is already registered.",
+    "endpoint_not_found": "The registered endpoint was not found.",
+    "endpoint_attached": "The endpoint is attached to a running model role.",
 }
 
 

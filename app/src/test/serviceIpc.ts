@@ -258,6 +258,8 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
           embedding_dimensions: null,
           embedding_normalization: null,
           embedding_similarity_metric: null,
+          origin: "local_import",
+          verification: "none",
         };
         models.unshift(created);
         return { model: created, duplicate: false, provenance: "unverified_import", warning: "unverified_import" };

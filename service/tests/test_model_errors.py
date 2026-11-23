@@ -414,3 +414,23 @@ def test_sprint6_codes_are_in_the_runtime_taxonomy() -> None:
     assert "download_cancelled" not in MODEL_RUNTIME_ERROR_CODES  # a state, not an error
     assert set(DOWNLOAD_ERROR_CODES) < set(MODEL_RUNTIME_ERROR_CODES)
     assert set(CATALOG_ERROR_CODES) < set(MODEL_RUNTIME_ERROR_CODES)
+
+
+def test_registry_codes_are_pinned_and_routable() -> None:
+    """The S6-05 registry codes exist, are members of the Sprint 6 union
+    and the runtime taxonomy, and every one is reachable from the
+    endpoints router's fixed status map (`model_endpoints.py`)."""
+    from controlgauge_service.model_runtime.errors import REGISTRY_ERROR_CODES
+    from controlgauge_service.routes.model_endpoints import _REGISTRY_ERROR_STATUS
+
+    assert set(REGISTRY_ERROR_CODES) <= set(MODEL_RUNTIME_ERROR_CODES)
+    assert set(REGISTRY_ERROR_CODES) <= set(SPRINT6_ERROR_CODES)
+    assert set(_REGISTRY_ERROR_STATUS) == set(REGISTRY_ERROR_CODES)
+    # The fixed statuses: request problems 422, conflicts 409, unknown
+    # id 404, an unverifiable endpoint 502.
+    assert _REGISTRY_ERROR_STATUS["registry_endpoint_invalid"] == 422
+    assert _REGISTRY_ERROR_STATUS["registry_endpoint_not_loopback"] == 422
+    assert _REGISTRY_ERROR_STATUS["registry_endpoint_unreachable"] == 502
+    assert _REGISTRY_ERROR_STATUS["registry_duplicate"] == 409
+    assert _REGISTRY_ERROR_STATUS["endpoint_not_found"] == 404
+    assert _REGISTRY_ERROR_STATUS["endpoint_attached"] == 409

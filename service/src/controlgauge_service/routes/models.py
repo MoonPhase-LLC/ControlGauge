@@ -69,7 +69,11 @@ from ..model_runtime.download import (
 from ..model_runtime.errors import ModelRuntimeError
 from ..model_runtime.manager import ModelRuntimeManager
 from ..model_runtime.protocols import HealthStatus, Role
-from ..model_runtime.registry import persist_model_import_with_retry
+from ..model_runtime.registry import (
+    ImportProvenance,
+    SourceFile,
+    persist_model_import_with_retry,
+)
 from .deps import get_database, get_downloads, get_model_runtime
 from .errors import ApiError
 
@@ -113,6 +117,12 @@ class ModelFileOut(BaseModel):
     embedding_dimensions: int | None
     embedding_normalization: str | None
     embedding_similarity_metric: str | None
+    #: Sprint 6 registry distinction (S6-05): where the content came
+    #: from and how strongly it was verified -- the closed vocabularies
+    #: of migration 0006, surfaced so the UI can distinguish catalog
+    #: downloads from user imports.
+    origin: str
+    verification: str
     # `path` is deliberately absent: it is machine-local (contains the OS
     # user name), lives in the database only, and nothing in the UI needs
     # it (T-10: it must never travel to the frontend or logs).
@@ -326,6 +336,8 @@ def _to_out(record: ModelFile) -> ModelFileOut:
         embedding_dimensions=record.embedding_dimensions,
         embedding_normalization=record.embedding_normalization,
         embedding_similarity_metric=record.embedding_similarity_metric,
+        origin=record.origin,
+        verification=record.verification,
     )
 
 
@@ -455,6 +467,14 @@ def _get_record(database: Database, canonical: str) -> ModelFile:
     return record
 
 
+def _find_record(database: Database, canonical: str) -> ModelFile | None:
+    """Like `_get_record` but answers ``None`` for an unknown id -- the
+    stop route uses it because an attached external endpoint's registry
+    id is a legal stop target without being a `model_file` row (S6-05)."""
+    with database.session() as session:
+        return session.get(ModelFile, canonical)
+
+
 #: Longest downloaded filename (classic filesystem name bound).
 URL_FILENAME_MAX_CHARS = 255
 
@@ -554,6 +574,11 @@ def import_model(payload: ImportRequest, database: DatabaseDep) -> JSONResponse:
         path=str(path),
         sha256=digest,
         size_bytes=size,
+        provenance=ImportProvenance(
+            origin="local_import",
+            verification="user_checksum" if payload.expected_sha256 is not None else "none",
+            files=(SourceFile(filename=path.name, sha256=digest, size_bytes=size),),
+        ),
     )
     out = _to_out(record)
 
@@ -714,11 +739,27 @@ def stop_model(
     manager: ModelRuntimeDep,
 ) -> RuntimeStatusOut:
     """Idempotent stop of the model's role (the role's current occupant,
-    whichever record started it)."""
+    whichever record started it). The id may also be an ATTACHED external
+    endpoint's registry id (S6-05): detach is the same stop -- the
+    manager's ``stop(role)`` calls the provider's idempotent ``stop()``,
+    which closes our client while the endpoint itself keeps running."""
     canonical = _canonical_model_id(model_id)
-    record = _get_record(database, canonical)
-    manager.stop(record.role)  # type: ignore[arg-type]
-    logger.info("model_stopped", extra={"model_id": canonical, "role": record.role})
+    record = _find_record(database, canonical)
+    role: Role | None
+    if record is not None:
+        role = record.role  # type: ignore[assignment]
+    else:
+        # Not a model_file record: an attached external endpoint? Its
+        # registry id is the role occupant's model_id.
+        roles: tuple[Role, Role] = ("generation", "embedding")
+        role = next(
+            (candidate for candidate in roles if manager.loaded_model_id(candidate) == canonical),
+            None,
+        )
+    if role is None:
+        raise _model_not_found()
+    manager.stop(role)
+    logger.info("model_stopped", extra={"model_id": canonical, "role": role})
     return RuntimeStatusOut(state="stopped", detail_code=None, checked_at=None, model_id=None)
 
 

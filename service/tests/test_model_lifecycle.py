@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -378,6 +380,134 @@ def test_status_without_provider_is_stopped() -> None:
 
     assert manager.status("generation").state == "stopped"
     assert manager.status("embedding").state == "stopped"
+
+
+# --- S6-05: N5 lock scope + attach --------------------------------------------
+
+
+class _ManagedFake:
+    """A `ManagedProvider` double with scripted health outcomes."""
+
+    def __init__(self, model_id: str) -> None:
+        self._model_id = model_id
+        self.stopped = False
+
+    @property
+    def model_id(self) -> str:
+        return self._model_id
+
+    def stop(self) -> None:
+        self.stopped = True
+
+    def health_check(self) -> HealthStatus:
+        return HealthStatus(state="ready", checked_at=datetime.now(UTC))
+
+    def describe(self) -> ModelDescriptor:
+        return ModelDescriptor(
+            model_id=self._model_id,
+            display_name=self._model_id,
+            role="generation",
+            context_tokens=1,
+        )
+
+
+def _status_with_timeout(manager: ModelRuntimeManager, role: str) -> HealthStatus:
+    """`manager.status` on a worker thread with a bounded join: a lock-
+    scope regression (health check under the lock) deadlocks, and a
+    deadlock must fail THIS test, not hang the suite."""
+    outcome: dict[str, HealthStatus] = {}
+
+    def _run() -> None:
+        outcome["result"] = manager.status(role)  # type: ignore[arg-type]
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    worker.join(timeout=5.0)
+    assert not worker.is_alive(), "status() deadlocked: the health check ran under the lock"
+    return outcome["result"]
+
+
+def test_status_health_check_runs_outside_the_lock() -> None:
+    """N5: a health_check that calls back into the manager (a re-entrant
+    stop) completes -- no lock is held across the check. The check's
+    result is returned even though the re-entrant stop emptied the role,
+    and nothing is recorded over the now-empty role."""
+    manager = ModelRuntimeManager(None)
+    events: list[str] = []
+
+    class _Reentrant(_ManagedFake):
+        def health_check(self) -> HealthStatus:
+            manager.stop("generation")  # would deadlock under the old scope
+            events.append("stopped")
+            return HealthStatus(
+                state="unhealthy", detail_code="child_exited", checked_at=datetime.now(UTC)
+            )
+
+    manager.attach("generation", _Reentrant("file-1"), display_name="file-1")
+    result = _status_with_timeout(manager, "generation")
+    assert result.state == "unhealthy"
+    assert result.detail_code == "child_exited"
+    assert events == ["stopped"]
+    # The re-entrant stop emptied the role; the stale result is discarded.
+    assert manager.peek_status("generation").state == "stopped"
+
+
+def test_status_check_that_outlives_a_switch_is_not_recorded() -> None:
+    """N5: a slow status check that is overtaken by a switch (attach of
+    a new occupant) must not record its stale result over the new
+    occupant's entry -- but its result is still returned."""
+    manager = ModelRuntimeManager(None)
+    checked = threading.Event()
+    release = threading.Event()
+
+    class _Slow(_ManagedFake):
+        def health_check(self) -> HealthStatus:
+            checked.set()
+            release.wait(timeout=5.0)
+            return HealthStatus(
+                state="unhealthy", detail_code="child_exited", checked_at=datetime.now(UTC)
+            )
+
+    manager.attach("generation", _Slow("old"), display_name="old")
+    worker = threading.Thread(target=lambda: manager.status("generation"), daemon=True)
+    worker.start()
+    assert checked.wait(timeout=5.0)
+
+    # The switch happens while the old provider's check is in flight.
+    manager.attach("generation", _ManagedFake("new"), display_name="new")
+    release.set()
+    worker.join(timeout=5.0)
+    assert not worker.is_alive()
+
+    # The new occupant's attach-recorded `ready` stands; the stale
+    # `unhealthy` was discarded.
+    assert manager.peek_status("generation").state == "ready"
+    assert manager.loaded_model_id("generation") == "new"
+
+
+def test_attach_registers_pre_running_provider() -> None:
+    """attach: the provider becomes the role's occupant without any
+    start(); last-known status is `ready` from the attach itself; the
+    switch contract stops the previous occupant first."""
+    manager = ModelRuntimeManager(None)
+    first = _ManagedFake("old-model")
+    manager.attach("generation", first, display_name="old-model")
+    assert manager.loaded_model_id("generation") == "old-model"
+    assert manager.peek_status("generation").state == "ready"
+
+    second = _ManagedFake("new-model")
+    descriptor = manager.attach("generation", second, display_name="new-model")
+    assert first.stopped, "the switch contract stops the previous occupant"
+    assert manager.loaded_model_id("generation") == "new-model"
+    assert descriptor.model_id == "new-model"
+    assert descriptor.display_name == "new-model"
+    # attach never calls start() -- there is nothing to start.
+    assert manager.peek_status("generation").state == "ready"
+
+    # attach() over an empty role leaves a working occupant.
+    embedding = _ManagedFake("emb-model")
+    manager.attach("embedding", embedding, display_name="emb-model")
+    assert manager.loaded_model_id("embedding") == "emb-model"
 
 
 def test_peek_status_is_structural_last_known(

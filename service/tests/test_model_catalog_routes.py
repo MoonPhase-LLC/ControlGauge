@@ -3,15 +3,15 @@
 The structural contract (global contract 1) is pinned here: the answer is
 the strictly loaded manifest plus one local database read for installed
 state -- no model child, no network (the offline guard is active for the
-shape test). Installed state is derived from `model_file.sha256_hash`
-matches; a partial shard set is deliberately NOT installed. Responses
-carry catalog metadata only: no local path ever appears (T-10).
+shape test). Installed state is derived from the `model_source` registry
+(S6-05): sha-256 coverage across registration rows; a partial shard set
+is deliberately NOT installed. Responses carry catalog metadata only: no
+local path ever appears (T-10).
 """
 
 from __future__ import annotations
 
 import sys
-import uuid
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 from controlgauge_service.app import create_app
 from controlgauge_service.config import Settings
 from controlgauge_service.db import Database, initialize_database
-from controlgauge_service.db.models import ModelFile
+from controlgauge_service.model_runtime.registry import persist_model_import
 
 from .conftest import VALID_TOKEN
 
@@ -99,21 +99,18 @@ def _seed_model(
     tmp_path: Path,
     role: str = "generation",
 ) -> str:
-    """One imported model_file row with the given content identity."""
-    model_id = uuid.uuid4().hex
-    with database.session() as session:
-        session.add(
-            ModelFile(
-                id=model_id,
-                role=role,
-                display_name="Seeded Model",
-                path=str(tmp_path / "seeded.gguf"),
-                sha256_hash=sha256,
-                size_bytes=size_bytes,
-            )
-        )
-        session.commit()
-    return model_id
+    """One imported model through the real registry path: the
+    ``model_file`` row AND its 1:1 ``model_source`` provenance (S6-05),
+    exactly as a local import writes them."""
+    record, _ = persist_model_import(
+        database,
+        role=role,
+        display_name="Seeded Model",
+        path=str(tmp_path / f"{sha256[:8]}.gguf"),
+        sha256=sha256,
+        size_bytes=size_bytes,
+    )
+    return record.id
 
 
 def _entries_by_id(client: TestClient) -> dict[str, dict[str, object]]:

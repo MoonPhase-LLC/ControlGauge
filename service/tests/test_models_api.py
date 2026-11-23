@@ -447,6 +447,8 @@ def test_models_list_closed_schema(model_env: SimpleNamespace, tmp_path: Path) -
             "embedding_dimensions",
             "embedding_normalization",
             "embedding_similarity_metric",
+            "origin",
+            "verification",
         }
 
 

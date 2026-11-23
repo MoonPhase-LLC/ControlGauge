@@ -8,15 +8,18 @@ loaded in-repo manifest plus one local database read for installed state
 is DATA shipped with the app; a manifest that fails to load is 503
 ``catalog_unavailable`` fail-closed (never partially listed).
 
-``installed`` is computed from ``model_file.sha256_hash`` matches for now
-(every declared file's SHA-256 present among imported rows); S6-05 swaps
-the lookup to the ``model_source`` registry table -- the response schema
-is identical from day one. Responses carry catalog metadata only: no
-local path ever appears (T-10).
+``installed`` is computed from the ``model_source`` registry (S6-05):
+content identity is the SHA-256, and an entry is installed when every
+declared digest is covered across registration rows -- one multi-shard
+registration whose ``files_json`` spans both shards, or legacy per-shard
+rows (a partial shard set is not installed). A malformed ``files_json``
+fails closed to "does not cover". Responses carry catalog metadata only:
+no local path ever appears (T-10).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Annotated
 
@@ -28,7 +31,7 @@ from starlette.responses import JSONResponse
 
 from ..config import resolve_model_dir
 from ..db import Database
-from ..db.models import ModelFile
+from ..db.models import ModelFile, ModelSource
 from ..model_catalog.manifest import (
     CatalogEntry,
     CatalogManifest,
@@ -125,21 +128,45 @@ def _installed_state(
     database: Database, manifest: CatalogManifest
 ) -> dict[str, tuple[bool, list[str]]]:
     """Per-entry ``(installed, installed_model_ids)`` from one local
-    database read: a row matches an entry when its SHA-256 equals one of
-    the entry's declared files; installed means EVERY declared file is
-    matched (a partial shard set is not installed)."""
+    database read of the `model_source` registry (S6-05). Content
+    identity is the SHA-256, exactly as in Sprint 5: a registration row
+    covers a declared file when its ``files_json`` names that digest
+    (the row's own file is always among them -- every write path and the
+    0006 backfill guarantee it). ``installed`` requires EVERY declared
+    digest covered across rows: one multi-shard registration whose
+    ``files_json`` spans both shards installs the entry, and so do two
+    legacy per-shard rows. A partial shard set lists its row but is not
+    installed. A malformed ``files_json`` fails closed to "covers
+    nothing"; ``catalog_model_id`` is provenance metadata, never the
+    matching key (pre-catalog imports carry ``None``)."""
     with database.session() as session:
-        rows = session.execute(select(ModelFile.sha256_hash, ModelFile.id)).all()
-    ids_by_sha: dict[str, list[str]] = {}
-    for sha256_hash, model_id in rows:
-        ids_by_sha.setdefault(sha256_hash, []).append(model_id)
+        rows = session.execute(
+            select(ModelSource.files_json, ModelFile.sha256_hash, ModelFile.id).join(
+                ModelFile, ModelSource.model_file_id == ModelFile.id
+            )
+        ).all()
     state: dict[str, tuple[bool, list[str]]] = {}
     for entry in manifest.entries:
         required = {entry_file.sha256 for entry_file in entry.files}
         matched: list[str] = []
-        for sha256 in required:
-            matched.extend(ids_by_sha.get(sha256, []))
-        state[entry.model_id] = (required.issubset(ids_by_sha.keys()), sorted(matched))
+        covered_union: set[str] = set()
+        for files_json, own_sha, model_id in rows:
+            covered = {own_sha}
+            try:
+                files = json.loads(files_json)
+            except ValueError:
+                files = None  # malformed provenance fails closed
+            if isinstance(files, list):
+                covered.update(
+                    item.get("sha256")
+                    for item in files
+                    if isinstance(item, dict) and isinstance(item.get("sha256"), str)
+                )
+            overlap = covered & required
+            if overlap:
+                matched.append(model_id)
+                covered_union.update(overlap)
+        state[entry.model_id] = (required <= covered_union, sorted(matched))
     return state
 
 

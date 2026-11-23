@@ -57,6 +57,8 @@ function seedModel(ipc: ServiceIpcMock, overrides: Partial<ModelFile> = {}): Mod
     embedding_dimensions: null,
     embedding_normalization: null,
     embedding_similarity_metric: null,
+    origin: "local_import",
+    verification: "none",
     ...overrides,
   };
   ipc.models.unshift(model);

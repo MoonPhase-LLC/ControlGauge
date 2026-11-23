@@ -51,7 +51,7 @@ from ..db import Database
 from . import gguf
 from .config import MIN_MODEL_FILE_BYTES
 from .errors import ModelRuntimeError
-from .registry import persist_model_import_with_retry
+from .registry import ImportProvenance, SourceFile, persist_model_import_with_retry
 
 if TYPE_CHECKING:
     from ..model_catalog.manifest import CatalogFileSpec
@@ -161,6 +161,7 @@ class _Registrar(Protocol):
         path: str,
         sha256: str,
         size_bytes: int,
+        provenance: ImportProvenance | None = None,
     ) -> tuple[object, bool]: ...
 
 
@@ -494,10 +495,11 @@ class DownloadManager:
     ) -> None:
         """The verified-import path, fail-closed: the primary (first)
         file must sniff as a supported GGUF container BEFORE any database
-        write, then one duplicate-aware transaction creates the row.
-        Multi-shard entries register their primary file (shard 1 -- the
-        file llama-server is given; S6-05's `model_source` holds the full
-        shard list)."""
+        write, then one duplicate-aware transaction creates the row and
+        its 1:1 provenance. Multi-shard entries register their primary
+        file (shard 1 -- the file llama-server is given);
+        `model_source.files_json` covers EVERY downloaded file, closing
+        the 7B shard provenance gap (S6-05)."""
         primary = final_paths[0]
         try:
             size = primary.stat().st_size
@@ -506,6 +508,26 @@ class DownloadManager:
         except OSError:
             raise ModelRuntimeError("model_file_not_found") from None
         gguf.validate_gguf_head(head, size)
+        # Full provenance for the registry: every file, its computed
+        # digest and on-disk size. A stat failure here is a fixed error
+        # -- never a partial registration (fail closed).
+        files: list[SourceFile] = []
+        try:
+            for path, digest in zip(final_paths, digests, strict=True):
+                files.append(
+                    SourceFile(filename=path.name, sha256=digest, size_bytes=path.stat().st_size)
+                )
+        except OSError:
+            raise ModelRuntimeError("model_file_not_found") from None
+        provenance = ImportProvenance(
+            origin=request.origin,
+            verification=request.verification,
+            catalog_model_id=request.catalog_model_id,
+            source_url=request.source_url,
+            revision=request.revision,
+            license_notice=request.license_notice,
+            files=tuple(files),
+        )
         record, duplicate = self._registrar(
             self._database,
             role=request.role,
@@ -513,6 +535,7 @@ class DownloadManager:
             path=str(primary),
             sha256=digests[0],
             size_bytes=size,
+            provenance=provenance,
         )
         logger.info(
             "download_registered",
@@ -520,6 +543,7 @@ class DownloadManager:
                 "model_id": getattr(record, "id", None),
                 "role": request.role,
                 "origin": request.origin,
+                "file_count": len(files),
                 "duplicate": duplicate,
             },
         )

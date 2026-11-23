@@ -680,15 +680,43 @@ cargo 106p/8f Linux (8 pre-existing failures byte-identical to main), Vitest 70/
   register → start → health → stop) passes with `CONTROLGAUGE_TEST_ALLOW_DOWNLOAD=1`.
 
 ### S6-05 — User-managed registry + external-endpoint backend abstraction + migration 0006 + N5 fix
-- **Status:** planned.
-- **Scope:** migration `0006_model_registry` (model_file origin/verification, 1:1
-  `model_source`, loopback-only `external_endpoint` with NO credential column); ORM models;
-  `ExternalEndpointProvider` (real OpenAI-compatible loopback backend, not an interface-only
-  seam); `/model-endpoints` routes (register/health/attach/delete, registration refused for
-  non-loopback); manager `attach` + N5 fix (health checks run outside the manager lock, stale
-  results discarded); DATABASE.md §11 finalized.
-- **Acceptance:** migration applies/rolls back with backfill; endpoint register→attach→
-  generate→detach proven against a stub and real llama-server; N5 re-entrant-stop test.
+- **Status:** DONE (2026-11-22).
+- **Scope delivered:** migration `0006_model_registry` (model_file `origin`/`verification` via
+  deterministic recreate — SQLite cannot ALTER in a CHECK; 1:1 `model_source` with full-file
+  `files_json`; loopback-only `external_endpoint` with NO credential column, health-state CHECKs);
+  `ExternalEndpointProvider` (real OpenAI-compatible loopback backend: generation + embedding +
+  D-023 capability-specific health, shared request plumbing extracted in `provider.py`);
+  `/model-endpoints` routes (register with bounded 10 s real probe → 502 refusal on probe
+  failure with nothing persisted; structural list; live health; attach via `manager.attach`;
+  delete refused 409 while attached); N5 fix (health checks run OUTSIDE the manager lock;
+  re-acquire-and-record only if the occupant is unchanged, stale results discarded, caller
+  always gets the result); `GET /models` gains `origin`/`verification` (closed-schema extension,
+  Rust `ModelFile` + TS mirrors updated); catalog installed-state lookup switched to
+  `model_source` with sha-coverage aggregation (one multi-shard registration OR legacy per-shard
+  rows both install; partial set lists but is not installed; malformed `files_json` fails
+  closed); download registration now writes `model_source` same-transaction (7B shard provenance
+  gap closed); duplicate-import merge rules (origin/verification latest-wins, files_json keeps
+  the wider coverage, identity fields only overwritten by non-None).
+- **Evidence:** migration 0006 upgrade/downgrade/backfill + `alembic check` clean at head;
+  18 endpoint-route tests against a stub loopback server (non-loopback/malformed URLs 422
+  fail-closed, unreachable 502 with no row, duplicate 409, health outcomes
+  ready/unhealthy/unreachable, attach→generate→detach, switch contract, auth);
+  N5 re-entrant-stop test runs `status()` on a bounded-join thread (a lock regression fails the
+  test instead of hanging the suite); **env-gated integration vs real llama-server b12480:
+  21/21 passed in 64.7 s, including `test_integration_external_endpoint_llama_server_round_trip`
+  (register→probe→attach→structured generation→health→detach on the standalone 7B; the 10 s
+  registration probe held a real generation, whole test 7.26 s warm)**.
+- **Gates:** ruff + `ruff format --check` clean; mypy strict clean linux AND `--platform win32`;
+  pytest **885p/33sk** offline (baseline 852p/32sk + 33 new passing + 1 new env-gated skip);
+  cargo fmt/clippy `-D warnings` clean; cargo test **108p/8f** — failing set byte-identical to
+  the known set; `typecheck:test` + eslint clean; vitest **70/70**.
+- **Limitations recorded:** model delete (USER_FLOWS §12) deliberately deferred — the
+  `model_source → model_file` FK is ON DELETE RESTRICT, a designed two-step operation for a
+  later batch; endpoint credentials are not stored (documented seam, `OPEN_QUESTIONS.md` A-6);
+  only OpenAI-compatible backends implemented (`backend` seam documented); registration probe
+  budget is a fixed 10 s — a slow first generation on a cold CPU model may refuse registration
+  (measured: warm 7B probes in ≪1 s of the budget); `catalog_model_id` is provenance metadata,
+  never the installed-state matching key.
 
 ### S6-06 — Hardware-aware recommendation engine (combined footprint + multi-GPU sharding awareness)
 - **Status:** planned.

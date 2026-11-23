@@ -101,6 +101,14 @@ resolution inline and mark Resolved) or as new ones surface during implementatio
   groupings, once a second framework's real data is available to inform the actual shape needed?
   Deliberately not attempted in V0.1 with only one framework implemented — designing a general
   hierarchy against a single example risks guessing wrong.
+- A-6: Should user-registered external endpoints (`model_endpoint` table, Sprint 6) ever support
+  authentication, and if so where are those credentials stored? V0.1 deliberately registers
+  unauthenticated loopback endpoints only — the table has **no credential column** (fail-closed:
+  an endpoint requiring Bearer auth simply fails its health probe with `auth_rejected`), and the
+  service's own model-server credential (`DECISIONS.md` D-017) is per-launch and never persisted.
+  Persisting user-supplied endpoint credentials would introduce the first long-lived secret in
+  the database and needs a deliberate design (keychain integration vs encrypted-at-rest column vs
+  never storing them) before any UI offers it. Owner decision; not invented in Sprint 6.
 
 ## AI
 

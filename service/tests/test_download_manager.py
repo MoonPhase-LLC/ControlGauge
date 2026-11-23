@@ -66,6 +66,7 @@ def _request(
     display_name: str = "Stub Model",
     role: str = "generation",
     sha256: str | None = None,
+    catalog_model_id: str | None = None,
 ) -> DownloadRequest:
     return DownloadRequest(
         download_id=new_download_id(),
@@ -74,7 +75,7 @@ def _request(
         dest_dir=tmp_path / "models",
         files=(files if files is not None else (_spec(server, path, sha256=sha256),)),
         origin="catalog_download",
-        catalog_model_id=None,
+        catalog_model_id=catalog_model_id,
         source_url=None,
         revision=None,
         license_notice=None,
@@ -519,6 +520,98 @@ def test_progress_reports_declared_totals(stub_server: Any, manager_env: _Manage
     assert len(status.files) == 1
     assert status.files[0].bytes_downloaded == len(content)
     assert status.files[0].bytes_total == len(content)
+
+
+# --- S6-05: the model_source registry writes -------------------------------------
+
+
+def _source_rows(database: Any) -> list[dict[str, Any]]:
+    import json
+
+    from sqlalchemy import select
+
+    from controlgauge_service.db.models import ModelSource
+
+    with database.session() as session:
+        return [
+            {
+                "origin": row.origin,
+                "catalog_model_id": row.catalog_model_id,
+                "files": json.loads(row.files_json),
+            }
+            for row in session.scalars(select(ModelSource)).all()
+        ]
+
+
+def test_registration_writes_full_provenance(stub_server: Any, manager_env: _ManagerEnv) -> None:
+    """S6-05: the download's registration writes the 1:1 `model_source`
+    provenance in the SAME transaction -- catalog identity plus the
+    origin/verification vocabulary on the `model_file` row."""
+    server = stub_server
+    content = server.state.files.setdefault("/model.gguf", _gguf_body(b"provenance"))
+    manager = manager_env.manager
+    status = _wait_terminal(
+        manager,
+        manager.start(_request(server, manager_env.tmp_path, catalog_model_id="stub-entry-q4-k-m")),
+    )
+    assert status.state == "completed"
+    sources = _source_rows(manager_env.database)
+    assert len(sources) == 1
+    assert sources[0]["origin"] == "catalog_download"
+    assert sources[0]["catalog_model_id"] == "stub-entry-q4-k-m"
+    assert sources[0]["files"] == [
+        {
+            "filename": "model.gguf",
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "size_bytes": len(content),
+        }
+    ]
+    # The model_file row carries the same registry distinction.
+    with manager_env.database.session() as session:
+        from sqlalchemy import select
+
+        record = session.scalars(select(ModelFile)).one()
+        assert record.origin == "catalog_download"
+        assert record.verification == "catalog_manifest"
+
+
+def test_multi_file_registration_covers_every_shard_in_model_source(
+    stub_server: Any, manager_env: _ManagerEnv
+) -> None:
+    """The 7B shard provenance gap closes: both downloaded shards are in
+    `model_source.files_json`, while `model_file` still registers only
+    the primary (shard 1 -- the file llama-server is given)."""
+    server = stub_server
+    shard1 = server.state.files.setdefault("/shard-00001.gguf", _gguf_body(b"shard-one"))
+    shard2 = server.state.files.setdefault("/shard-00002.gguf", _gguf_body(b"shard-two"))
+    request = _request(
+        server,
+        manager_env.tmp_path,
+        files=(
+            _spec(server, "/shard-00001.gguf"),
+            _spec(server, "/shard-00002.gguf"),
+        ),
+        catalog_model_id="stub-sharded-entry",
+    )
+    status = _wait_terminal(manager_env.manager, manager_env.manager.start(request))
+    assert status.state == "completed"
+    sources = _source_rows(manager_env.database)
+    assert len(sources) == 1
+    assert sources[0]["files"] == [
+        {
+            "filename": "shard-00001.gguf",
+            "sha256": hashlib.sha256(shard1).hexdigest(),
+            "size_bytes": len(shard1),
+        },
+        {
+            "filename": "shard-00002.gguf",
+            "sha256": hashlib.sha256(shard2).hexdigest(),
+            "size_bytes": len(shard2),
+        },
+    ]
+    assert _db_rows(manager_env.database) == [
+        (hashlib.sha256(shard1).hexdigest(), "generation", len(shard1), "Stub Model")
+    ]
 
 
 def test_unknown_size_record_only_download_completes(
