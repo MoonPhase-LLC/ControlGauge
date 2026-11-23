@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from controlgauge_service.hardware import GpuInfo, HardwareInfo, detect_linux
+from controlgauge_service.hardware import GpuInfo, HardwareInfo, detect_linux, detect_windows
 from controlgauge_service.hardware import detect as detect_module
 from controlgauge_service.hardware.detect import (
     HARDWARE_CACHE_FILENAME,
@@ -160,14 +161,22 @@ def test_detection_complete_empty_gpus_is_not_incomplete() -> None:
 def test_detect_hardware_survives_failing_probes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    # The exploding probes must be planted on the backend detect_hardware
+    # will ACTUALLY dispatch to (sys.platform): patching only the Linux
+    # backend left the real Windows probes running on windows-latest and
+    # the os_name assertion failing there (fix-forward 4). The
+    # graceful-degradation contract below is platform-independent.
+    backend = detect_windows if sys.platform == "win32" else detect_linux
+    expected_os = "windows" if sys.platform == "win32" else "linux"
+
     def _explode() -> tuple[int, int]:
         raise RuntimeError("probe exploded")
 
-    monkeypatch.setattr(detect_linux, "memory", _explode)
-    monkeypatch.setattr(detect_linux, "gpus", _explode)
-    monkeypatch.setattr(detect_linux, "cpu", _explode)
+    monkeypatch.setattr(backend, "memory", _explode)
+    monkeypatch.setattr(backend, "gpus", _explode)
+    monkeypatch.setattr(backend, "cpu", _explode)
     info = detect_hardware(tmp_path)
-    assert info.os_name == "linux"
+    assert info.os_name == expected_os
     assert info.ram_total_bytes is None
     assert info.ram_available_bytes is None
     assert info.gpus == ()
