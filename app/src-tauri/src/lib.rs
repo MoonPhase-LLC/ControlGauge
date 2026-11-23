@@ -285,6 +285,28 @@ async fn check_model_health(
     service_api::check_model_health(&ready(&state).await?, &id).await
 }
 
+// --- Sprint 6 (S6-02): hardware detection commands ------------------------------
+//
+// Both answers are machine facts only -- never a path, URL, or credential
+// (T-10). `get_hardware` is structural with respect to the model runtime
+// (the service's cached snapshot when present); `refresh_hardware` is the
+// explicit re-detect. A cold `get_hardware` may run the service's bounded
+// local probes once, so both carry `service_api::HARDWARE_TIMEOUT`.
+
+#[tauri::command]
+async fn get_hardware(
+    state: tauri::State<'_, SupervisorHandle>,
+) -> Result<service_api::HardwareInfo, ServiceCallError> {
+    service_api::get_hardware(&ready(&state).await?).await
+}
+
+#[tauri::command]
+async fn refresh_hardware(
+    state: tauri::State<'_, SupervisorHandle>,
+) -> Result<service_api::HardwareInfo, ServiceCallError> {
+    service_api::refresh_hardware(&ready(&state).await?).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let supervisor_handle = SupervisorHandle::new();
@@ -324,7 +346,9 @@ pub fn run() {
             get_model,
             start_model,
             stop_model,
-            check_model_health
+            check_model_health,
+            get_hardware,
+            refresh_hardware
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();

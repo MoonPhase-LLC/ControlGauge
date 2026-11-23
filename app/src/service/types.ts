@@ -327,3 +327,34 @@ export type ModelImportResult = {
   provenance: string;
   warning: string;
 };
+
+// --- Sprint 6 hardware detection -------------------------------------------------
+// Mirror `app/src-tauri/src/supervisor/service_api.rs` (closed schemas). Machine
+// facts only: no path, URL, or credential ever appears in these shapes (T-10);
+// the disk figure is the free bytes *of* the model directory, never the path.
+
+/** One detected GPU. Unknown fields are null -- never guessed, never 0. */
+export type HardwareGpu = {
+  vendor: string;
+  name: string | null;
+  vram_bytes: number | null;
+};
+
+/**
+ * The closed machine-facts snapshot. An empty `gpus` list means "nothing
+ * detected" -- a valid result (e.g. Linux without nvidia-smi), never an error;
+ * `detection_complete` is false when any expected scalar field is unknown.
+ */
+export type HardwareInfo = {
+  os_name: string;
+  os_version: string | null;
+  cpu_model: string | null;
+  cpu_cores_logical: number | null;
+  ram_total_bytes: number | null;
+  ram_available_bytes: number | null;
+  gpus: HardwareGpu[];
+  model_dir_free_bytes: number | null;
+  detection_complete: boolean;
+  /** ISO 8601, UTC: the snapshot time, not a freshness claim. */
+  detected_at: string;
+};

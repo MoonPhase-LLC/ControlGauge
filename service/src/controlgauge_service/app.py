@@ -42,6 +42,7 @@ from .routes.challenge import CHALLENGE_PATH
 from .routes.challenge import router as challenge_router
 from .routes.errors import install_error_handlers
 from .routes.frameworks import router as frameworks_router
+from .routes.hardware import router as hardware_router
 from .routes.health import router as health_router
 from .routes.models import router as models_router
 
@@ -121,6 +122,9 @@ def create_app(
     # Sprint 5 model routes (S5-05): import/runtime control, behind the
     # same D-009 middleware as every other route.
     app.include_router(models_router)
+    # Sprint 6 hardware detection (S6-02): local-only machine facts,
+    # behind the same middleware; no new state objects needed.
+    app.include_router(hardware_router)
     if startup_challenge is not None:
         app.include_router(challenge_router)
 

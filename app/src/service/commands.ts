@@ -10,6 +10,7 @@ import type {
   ControlQuery,
   FrameworkSummary,
   HealthResponse,
+  HardwareInfo,
   ModelHealthStatus,
   ModelImportResult,
   ModelInventory,
@@ -135,4 +136,21 @@ export function stopModel(id: string): Promise<RuntimeStatus> {
  */
 export function checkModelHealth(id: string): Promise<ModelHealthStatus> {
   return invoke<ModelHealthStatus>("check_model_health", { id });
+}
+
+// --- Sprint 6 hardware detection ---------------------------------------------------
+
+/**
+ * The last detected hardware (structural: served from the service's cache when
+ * present). A cold cache triggers one fresh detection, which may run the
+ * platform's own bounded local probes; the explicit re-detect is
+ * `refreshHardware` -- staleness is never fixed by re-getting.
+ */
+export function getHardware(): Promise<HardwareInfo> {
+  return invoke<HardwareInfo>("get_hardware");
+}
+
+/** Explicit re-detection: always runs the probes and rewrites the service cache. */
+export function refreshHardware(): Promise<HardwareInfo> {
+  return invoke<HardwareInfo>("refresh_hardware");
 }

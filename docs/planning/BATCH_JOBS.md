@@ -540,14 +540,30 @@ cargo 106p/8f Linux (8 pre-existing failures byte-identical to main), Vitest 70/
   to a doc sentence.
 
 ### S6-02 — Hardware detection module + `/hardware` routes + Rust command
-- **Status:** planned.
+- **Status:** implemented 2026-11-23.
 - **Scope:** `service/src/controlgauge_service/hardware/` (`models.py`, `detect.py`,
   `detect_windows.py` DXGI+GlobalMemoryStatusEx via ctypes, `detect_linux.py` /proc/meminfo +
   nvidia-smi); cache `<data_dir>/hardware.json`; `GET /hardware` (structural) +
   `POST /hardware/refresh`; Rust `get_hardware`/`refresh_hardware` with `HARDWARE_TIMEOUT` 15 s;
   TS mirrors. Best-effort per field; `gpus: []` = nothing detected (never an error).
-- **Acceptance:** dev-box evidence recorded (os_name linux, real RAM/CPU, `gpus: []`, free-disk
-  bytes); mypy strict both platforms; no new dependency.
+- **Evidence (dev box, 2026-11-23):** `GET /hardware` 200 — `os_name` "linux", kernel
+  7.0.0-42-generic, 128 logical cores, RAM 1,081,232,535,552 B, **three** GPUs detected via the
+  real `nvidia-smi` path (NVIDIA RTX PRO 6000 Blackwell Max-Q, 102,641,958,912 B ≈ 95.6 GiB
+  each — the spec expected a no-GPU box, so real multi-GPU enumeration is validated here, and
+  the no-GPU case stays covered by the `parse_nvidia_smi`/route fixtures), disk free
+  341,069,848,576 B, `detection_complete` true; unauthenticated GET 401; corrupt/wrong-shape
+  cache → deleted + re-detected.
+- **Gates:** ruff + `ruff format --check` clean; mypy strict clean linux AND `--platform win32`
+  (the win32-only ctypes attributes are reached via `getattr` inside the probes); pytest
+  **757p/27sk** (706 baseline + 51 new: vendor table, nvidia-smi CSV parsing, detection_complete
+  semantics, probe-failure degradation, disk-ancestor walk, strict cache round-trip/corruption,
+  route auth/cache/refresh/503/no-path-leak/closed-schema); cargo fmt/clippy clean, cargo test
+  106p/8f (failing set byte-identical to main); `typecheck:test` + lint + Vitest **70/70**.
+- **Limitations recorded:** Windows DXGI + GlobalMemoryStatusEx paths are fixture-verified only
+  (no Windows box run them yet); Linux probes AMD/Intel as "nothing detected" (unknown, never
+  zero); `nvidia-smi` VRAM values are driver-reported totals.
+- **Acceptance:** dev-box evidence recorded above (real RAM/CPU/disk; multi-GPU via nvidia-smi);
+  mypy strict both platforms; no new dependency (`uv.lock` untouched).
 
 ### S6-03 — Curated catalog: in-repo manifest + strict loader + `/model-catalog` list + packaging
 - **Status:** planned.

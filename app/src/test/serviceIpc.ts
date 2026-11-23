@@ -6,6 +6,7 @@ import type {
   Assessment,
   ControlQuery,
   FrameworkSummary,
+  HardwareInfo,
   HealthResponse,
   ModelFile,
   ModelRole,
@@ -49,6 +50,20 @@ export const FRAMEWORK: FrameworkSummary = {
   current_release: RELEASE_SUMMARY,
 };
 
+/** S6-02 machine facts; served for both hardware commands (never a path). */
+export const HARDWARE: HardwareInfo = {
+  os_name: "windows",
+  os_version: "11",
+  cpu_model: "Test CPU",
+  cpu_cores_logical: 16,
+  ram_total_bytes: 64 * 1024 ** 3,
+  ram_available_bytes: 32 * 1024 ** 3,
+  gpus: [{ vendor: "nvidia", name: "Test GPU", vram_bytes: 32 * 1024 ** 3 }],
+  model_dir_free_bytes: 512 * 1024 ** 3,
+  detection_complete: true,
+  detected_at: "2026-11-02T12:00:00Z",
+};
+
 const DATA_COMMANDS = [
   "list_frameworks",
   "list_assessments",
@@ -64,6 +79,8 @@ const DATA_COMMANDS = [
   "start_model",
   "stop_model",
   "check_model_health",
+  "get_hardware",
+  "refresh_hardware",
 ] as const;
 type DataCommand = (typeof DATA_COMMANDS)[number];
 
@@ -268,6 +285,12 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
         }
         return { state: "ready", detail_code: null, checked_at: "2026-11-02T12:06:00Z", model_id: model.id };
       }
+      // --- Sprint 6 hardware detection (mirrors routes/hardware.py) --------
+      // GET = cache-or-detect, POST = always re-detect; the mock collapses
+      // both to the same snapshot (call counts still distinguish them).
+      case "get_hardware":
+      case "refresh_hardware":
+        return { ...HARDWARE, gpus: [...HARDWARE.gpus] };
     }
   }
 

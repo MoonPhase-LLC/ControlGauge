@@ -1037,6 +1037,77 @@ pub async fn check_model_health(
     .map(|(status, _)| status)
 }
 
+// --- Sprint 6 (S6-02): hardware detection ---------------------------------------
+
+/// A cold `GET /hardware` may run the platform probes once: the Linux
+/// `nvidia-smi` subprocess is capped at 5 s service-side, and 15 s leaves
+/// margin for a cold spawn plus the cache write. The default
+/// [`HTTP_REQUEST_TIMEOUT`] (10 s) is too tight for that worst case.
+pub const HARDWARE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// One detected GPU. Unknown fields are `None` -- never guessed, never 0.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct HardwareGpu {
+    pub vendor: String,
+    pub name: Option<String>,
+    pub vram_bytes: Option<u64>,
+}
+
+/// The closed machine-facts snapshot. No path, URL, or credential field
+/// exists in this schema (SECURITY T-10): the disk figure is the free
+/// bytes *of* the model directory, never the path itself. An empty
+/// `gpus` list means "nothing detected", a valid result -- never an
+/// error.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct HardwareInfo {
+    pub os_name: String,
+    pub os_version: Option<String>,
+    pub cpu_model: Option<String>,
+    pub cpu_cores_logical: Option<u64>,
+    pub ram_total_bytes: Option<u64>,
+    pub ram_available_bytes: Option<u64>,
+    pub gpus: Vec<HardwareGpu>,
+    pub model_dir_free_bytes: Option<u64>,
+    pub detection_complete: bool,
+    /// ISO 8601, UTC: the snapshot time, not a freshness claim.
+    pub detected_at: String,
+}
+
+/// `GET /hardware`: the service's cached detection when present, else one
+/// fresh detection (cached best-effort) -- hence [`HARDWARE_TIMEOUT`],
+/// never the default deadline.
+pub async fn get_hardware(connection: &ReadyConnection) -> Result<HardwareInfo, ServiceCallError> {
+    call_with(
+        connection,
+        Method::GET,
+        "/hardware",
+        None,
+        &[StatusCode::OK],
+        HARDWARE_TIMEOUT,
+    )
+    .await
+    .map(|(info, _)| info)
+}
+
+/// `POST /hardware/refresh`: the service's explicit re-detect
+/// (USER_FLOWS §2.4); staleness is never fixed by re-GETting.
+pub async fn refresh_hardware(
+    connection: &ReadyConnection,
+) -> Result<HardwareInfo, ServiceCallError> {
+    call_with(
+        connection,
+        Method::POST,
+        "/hardware/refresh",
+        None,
+        &[StatusCode::OK],
+        HARDWARE_TIMEOUT,
+    )
+    .await
+    .map(|(info, _)| info)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1451,5 +1522,8 @@ mod tests {
         assert!(MODEL_HEALTH_TIMEOUT.as_secs() >= 60 + 30);
         // Import: hashing a multi-GB file; bounded but generous.
         assert!(MODEL_IMPORT_TIMEOUT.as_secs() >= 120);
+        // Hardware: the nvidia-smi probe is capped at 5 s service-side;
+        // the deadline must cover a cold probe plus margin.
+        assert!(HARDWARE_TIMEOUT.as_secs() >= 5 + 5);
     }
 }
