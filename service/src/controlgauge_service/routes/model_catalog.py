@@ -21,14 +21,30 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
+from fastapi import Request as FastApiRequest
 from pydantic import BaseModel
 from sqlalchemy import select
+from starlette.responses import JSONResponse
 
+from ..config import resolve_model_dir
 from ..db import Database
 from ..db.models import ModelFile
-from ..model_catalog.manifest import CatalogEntry, CatalogManifest, entry_total_bytes, load_catalog
+from ..model_catalog.manifest import (
+    CatalogEntry,
+    CatalogManifest,
+    entry_total_bytes,
+    load_catalog,
+)
+from ..model_runtime.download import (
+    DownloadFileSpec,
+    DownloadManager,
+    DownloadRequest,
+    DownloadStatus,
+    new_download_id,
+    validate_catalog_urls,
+)
 from ..model_runtime.errors import ModelRuntimeError
-from .deps import get_database
+from .deps import get_database, get_downloads
 from .errors import ApiError
 
 logger = logging.getLogger("controlgauge_service.routes.model_catalog")
@@ -36,6 +52,7 @@ logger = logging.getLogger("controlgauge_service.routes.model_catalog")
 router = APIRouter()
 
 DatabaseDep = Annotated[Database, Depends(get_database)]
+DownloadsDep = Annotated[DownloadManager, Depends(get_downloads)]
 
 
 # --- response schemas (closed) ---------------------------------------------------
@@ -73,6 +90,32 @@ class CatalogEntryOut(BaseModel):
 class CatalogOut(BaseModel):
     catalog_version: str
     entries: list[CatalogEntryOut]
+
+
+class DownloadStartedOut(BaseModel):
+    """The 202 body of an approved download start: the poll id only."""
+
+    download_id: str
+
+
+class DownloadFileProgressOut(BaseModel):
+    """One file's byte counts. The filename is the REMOTE artifact name
+    from the manifest (catalog data, like `CatalogFileOut`) -- never a
+    local path (T-10)."""
+
+    filename: str
+    bytes_downloaded: int
+    bytes_total: int  # 0 = size not declared up front
+
+
+class DownloadStatusOut(BaseModel):
+    """Structural poll answer: state machine + byte counts. Never a path,
+    URL, or credential."""
+
+    download_id: str
+    state: str
+    files: list[DownloadFileProgressOut]
+    error_code: str | None
 
 
 # --- helpers -----------------------------------------------------------------------
@@ -129,20 +172,142 @@ def _to_out(
 
 # --- routes --------------------------------------------------------------------------
 
+#: Download/catalog codes -> HTTP status (alongside `_IMPORT_ERROR_STATUS`
+#: in `routes/models.py`; 502 transport / 507 storage follow the artifacts
+#: router's analogous choices).
+_DOWNLOAD_ERROR_STATUS: dict[str, int] = {
+    "catalog_entry_unknown": 404,
+    "catalog_unavailable": 503,
+    "download_active": 409,
+    "download_not_found": 404,
+    "download_url_unsupported": 422,
+    "download_checksum_mismatch": 422,
+    "download_size_mismatch": 422,
+    "download_network_error": 502,
+    "download_http_error": 502,
+    "disk_write_failed": 507,
+    "disk_space_insufficient": 507,
+}
+
+
+def _download_error(exc: ModelRuntimeError) -> ApiError:
+    return ApiError(_DOWNLOAD_ERROR_STATUS.get(exc.code, 422), exc.code, str(exc))
+
+
+def _load_manifest_or_503() -> CatalogManifest:
+    try:
+        return load_catalog()
+    except ModelRuntimeError as exc:
+        # Fail closed: an unreadable or invalid manifest is a fixed 503,
+        # never a partial list and never manifest content in an error.
+        raise ApiError(503, exc.code, str(exc)) from None
+
 
 @router.get("/model-catalog")
 def list_catalog(database: DatabaseDep) -> CatalogOut:
     """The shipped curated catalog with installed state. Structural: the
     manifest is local data and the installed check is one bounded DB
     read; live checks are explicit POSTs elsewhere."""
-    try:
-        manifest = load_catalog()
-    except ModelRuntimeError as exc:
-        # Fail closed: an unreadable or invalid manifest is a fixed 503,
-        # never a partial list and never manifest content in an error.
-        raise ApiError(503, exc.code, str(exc)) from None
+    manifest = _load_manifest_or_503()
     state = _installed_state(database, manifest)
     return CatalogOut(
         catalog_version=manifest.catalog_version,
         entries=[_to_out(entry, *state[entry.model_id]) for entry in manifest.entries],
+    )
+
+
+def _status_out(status: DownloadStatus) -> DownloadStatusOut:
+    return DownloadStatusOut(
+        download_id=status.download_id,
+        state=status.state,
+        files=[
+            DownloadFileProgressOut(
+                filename=entry_file.filename,
+                bytes_downloaded=entry_file.bytes_downloaded,
+                bytes_total=entry_file.bytes_total,
+            )
+            for entry_file in status.files
+        ],
+        error_code=status.error_code,
+    )
+
+
+@router.post("/model-catalog/downloads/{download_id}/cancel")
+def cancel_download(download_id: str, downloads: DownloadsDep) -> DownloadStatusOut:
+    """Request cancellation of a running download. The worker stops at
+    the next chunk boundary and retains the ``.part`` (a later attempt
+    resumes); cancelling an unknown id is 404, cancelling a terminal
+    download is a no-op returning its status."""
+    try:
+        return _status_out(downloads.cancel(download_id))
+    except ModelRuntimeError as exc:
+        raise _download_error(exc) from None
+
+
+@router.get("/model-catalog/downloads/{download_id}")
+def download_status(download_id: str, downloads: DownloadsDep) -> DownloadStatusOut:
+    """Structural poll of a download: in-memory snapshot, no child
+    contact, no network, no paths -- state + filenames + byte counts
+    only."""
+    try:
+        return _status_out(downloads.status(download_id))
+    except ModelRuntimeError as exc:
+        raise _download_error(exc) from None
+
+
+@router.post("/model-catalog/{model_id}/download")
+def start_catalog_download(
+    model_id: str, request: FastApiRequest, downloads: DownloadsDep
+) -> JSONResponse:
+    """THE approval action (S6-04): downloading a catalog entry happens
+    only behind this authenticated POST -- the UI confirms first, the
+    service treats the POST itself as the user's approval. Everything
+    before the thread starts is bounded local work (manifest load + URL
+    validation + disk path resolution); the transfer itself is polled
+    structurally."""
+    manifest = _load_manifest_or_503()
+    entry = next(
+        (candidate for candidate in manifest.entries if candidate.model_id == model_id), None
+    )
+    if entry is None:
+        raise ApiError(
+            404, "catalog_entry_unknown", str(ModelRuntimeError("catalog_entry_unknown"))
+        ) from None
+    try:
+        validate_catalog_urls(entry.files)
+    except ModelRuntimeError as exc:
+        raise _download_error(exc) from None
+
+    settings = request.app.state.settings
+    download_request = DownloadRequest(
+        download_id=new_download_id(),
+        display_name=entry.display_name,
+        role=entry.roles[0],
+        dest_dir=resolve_model_dir(settings),
+        files=tuple(
+            DownloadFileSpec(
+                filename=entry_file.filename,
+                url=entry_file.download_url,
+                size_bytes=entry_file.size_bytes,
+                sha256=entry_file.sha256,
+            )
+            for entry_file in entry.files
+        ),
+        origin="catalog_download",
+        catalog_model_id=entry.model_id,
+        source_url=entry.source.repository_url,
+        revision=entry.source.revision,
+        license_notice=entry.source.license,
+        verification="catalog_manifest",
+    )
+    try:
+        download_id = downloads.start(download_request)
+    except ModelRuntimeError as exc:
+        raise _download_error(exc) from None
+    logger.info(
+        "catalog_download_started",
+        extra={"download_id": download_id, "catalog_model_id": entry.model_id},
+    )
+    return JSONResponse(
+        DownloadStartedOut(download_id=download_id).model_dump(mode="json"), status_code=202
     )

@@ -358,3 +358,32 @@ export type HardwareInfo = {
   /** ISO 8601, UTC: the snapshot time, not a freshness claim. */
   detected_at: string;
 };
+
+// --- Sprint 6 secure downloads (S6-04) --------------------------------------------
+// Mirror `app/src-tauri/src/supervisor/service_api.rs` (closed schemas). A
+// download answer is a state machine + byte counts: the filename is the REMOTE
+// artifact name (a manifest or import-URL datum), and no local path, URL, or
+// credential ever appears in these shapes (SECURITY T-10).
+
+/** The 202 body of an approved download start: the poll id only. */
+export type DownloadStarted = {
+  download_id: string;
+};
+
+/** One file's byte counts. `bytes_total` 0 = size not declared up front. */
+export type DownloadFileProgress = {
+  filename: string;
+  bytes_downloaded: number;
+  bytes_total: number;
+};
+
+/**
+ * The structural poll answer: state machine + byte counts, without contacting
+ * the model children or the network. `error_code` is set only on `failed`.
+ */
+export type DownloadStatus = {
+  download_id: string;
+  state: "pending" | "downloading" | "verifying" | "completed" | "failed" | "cancelled";
+  files: DownloadFileProgress[];
+  error_code: string | null;
+};

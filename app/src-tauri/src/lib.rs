@@ -307,6 +307,59 @@ async fn refresh_hardware(
     service_api::refresh_hardware(&ready(&state).await?).await
 }
 
+// --- Sprint 6 (S6-04): secure downloads + URL import commands --------------------
+//
+// Download answers are state machines + byte counts -- never a path, URL,
+// or credential (T-10). The two start POSTs ARE the approval actions (the
+// UI confirms first): `start_catalog_download` for a curated entry,
+// `import_model_url` for a direct URL (which requires either an expected
+// checksum or the explicit unverified acknowledgment -- PD-026). Progress
+// is polled structurally; cancel retains the resumable `.part`.
+
+#[tauri::command]
+async fn start_catalog_download(
+    state: tauri::State<'_, SupervisorHandle>,
+    model_id: String,
+) -> Result<service_api::DownloadStarted, ServiceCallError> {
+    service_api::start_catalog_download(&ready(&state).await?, &model_id).await
+}
+
+#[tauri::command]
+async fn get_download_status(
+    state: tauri::State<'_, SupervisorHandle>,
+    download_id: String,
+) -> Result<service_api::DownloadStatus, ServiceCallError> {
+    service_api::get_download_status(&ready(&state).await?, &download_id).await
+}
+
+#[tauri::command]
+async fn cancel_download(
+    state: tauri::State<'_, SupervisorHandle>,
+    download_id: String,
+) -> Result<service_api::DownloadStatus, ServiceCallError> {
+    service_api::cancel_download(&ready(&state).await?, &download_id).await
+}
+
+#[tauri::command]
+async fn import_model_url(
+    state: tauri::State<'_, SupervisorHandle>,
+    url: String,
+    role: String,
+    display_name: Option<String>,
+    expected_sha256: Option<String>,
+    acknowledge_unverified: bool,
+) -> Result<service_api::DownloadStarted, ServiceCallError> {
+    service_api::import_model_url(
+        &ready(&state).await?,
+        &url,
+        &role,
+        display_name.as_deref(),
+        expected_sha256.as_deref(),
+        acknowledge_unverified,
+    )
+    .await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let supervisor_handle = SupervisorHandle::new();
@@ -348,7 +401,11 @@ pub fn run() {
             stop_model,
             check_model_health,
             get_hardware,
-            refresh_hardware
+            refresh_hardware,
+            start_catalog_download,
+            get_download_status,
+            cancel_download,
+            import_model_url
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();

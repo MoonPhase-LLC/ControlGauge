@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import http.server
 import os
 import shutil
 import socket
+import struct
 import sys
+import threading
+import time
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -251,3 +256,130 @@ def seed_data_dir(catalog_template: Path) -> SeedDataDir:
         return data_dir
 
     return _seed
+
+
+# --- S6-04: the loopback download stub -------------------------------------------
+
+GGUF_HEAD_V3 = b"GGUF" + struct.pack("<I", 3)
+
+
+def _gguf_body(seed: bytes, size: int = 4096) -> bytes:
+    """A tiny file that passes the container sniff: GGUF v3 head + pad."""
+    payload = GGUF_HEAD_V3 + seed
+    return payload + b"\x00" * (size - len(payload))
+
+
+@dataclass
+class _StubState:
+    """Per-server behavior the tests arrange before/while downloading."""
+
+    files: dict[str, bytes] = field(default_factory=dict)
+    #: Paths answered with this status instead of file content.
+    status: dict[str, int] = field(default_factory=dict)
+    #: Paths answered with a 302 to this location.
+    redirect: dict[str, str] = field(default_factory=dict)
+    ignore_range: bool = False
+    #: Paths dropped mid-body (connection reset, no clean EOF).
+    drop: set[str] = field(default_factory=set)
+    #: Path -> seconds of sleep per 1 KiB chunk (a slow trickle).
+    trickle: dict[str, float] = field(default_factory=dict)
+    #: Mid-stream gate for deterministic cancel tests: for these paths,
+    #: a Range-less (fresh) request serves the first GATE_PREFIX bytes,
+    #: then BLOCKS until `gate` is set (bounded). A resumed request
+    #: (Range present) is never gated.
+    gate_paths: set[str] = field(default_factory=set)
+    gate: threading.Event = field(default_factory=threading.Event)
+    gate_prefix: int = 0
+    range_headers_seen: list[str] = field(default_factory=list)
+    request_count: dict[str, int] = field(default_factory=dict)
+
+
+class _StubHandler(http.server.BaseHTTPRequestHandler):
+    server_version = "Stub/1"
+
+    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+        pass  # never log request lines (they carry the stub's paths)
+
+    def do_GET(self) -> None:  # noqa: N802 - http.server API
+        state: _StubState = self.server.state  # type: ignore[attr-defined]
+        path = self.path.split("?", 1)[0]
+        state.request_count[path] = state.request_count.get(path, 0) + 1
+        if path in state.redirect:
+            self.send_response(302)
+            self.send_header("Location", state.redirect[path])
+            self.end_headers()
+            return
+        if path in state.status:
+            self.send_response(state.status[path])
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        content = state.files.get(path)
+        if content is None:
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        range_header = self.headers.get("Range")
+        if range_header:
+            state.range_headers_seen.append(range_header)
+        start = 0
+        if range_header and not state.ignore_range and range_header.startswith("bytes="):
+            start = int(range_header[len("bytes=") :].split("-", 1)[0])
+            body = content[start:]
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {start}-{len(content) - 1}/{len(content)}")
+        else:
+            body = content
+            self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if path in state.trickle:
+            for offset in range(0, len(body), 1024):
+                self.wfile.write(body[offset : offset + 1024])
+                self.wfile.flush()
+                time.sleep(state.trickle[path])
+            return
+        if path in state.gate_paths and range_header is None:
+            # Serve the prefix, then block until the test opens the gate
+            # (the download's first >=1 MiB chunk has been yielded and
+            # written by then -- the cancel lands deterministically
+            # mid-stream, not on a timing race).
+            self.wfile.write(body[: state.gate_prefix])
+            self.wfile.flush()
+            state.gate.wait(timeout=5.0)
+            self.wfile.write(body[state.gate_prefix :])
+            self.wfile.flush()
+            return
+        if path in state.drop:
+            half = len(body) // 2
+            self.wfile.write(body[:half])
+            self.wfile.flush()
+            self.connection.close()
+            return
+        self.wfile.write(body)
+
+
+def _url(server: Any, path: str) -> str:
+    return f"http://127.0.0.1:{server.server_address[1]}{path}"
+
+
+class _StubServer(http.server.ThreadingHTTPServer):
+    """ThreadingHTTPServer carrying the per-test `_StubState`."""
+
+    state: _StubState
+
+
+@pytest.fixture()
+def stub_server() -> Any:
+    """A loopback HTTP stub for download tests: KB-scale fixtures, no
+    external network (loopback connections pass the offline guard). The
+    tests arrange behavior through `server.state` (`_StubState`)."""
+    server = _StubServer(("127.0.0.1", 0), _StubHandler)
+    server.state = _StubState()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield server
+    server.shutdown()
+    server.server_close()
+    thread.join(timeout=5.0)

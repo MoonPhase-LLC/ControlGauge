@@ -8,6 +8,8 @@ import type {
   ControlDetail,
   ControlList,
   ControlQuery,
+  DownloadStarted,
+  DownloadStatus,
   FrameworkSummary,
   HealthResponse,
   HardwareInfo,
@@ -153,4 +155,54 @@ export function getHardware(): Promise<HardwareInfo> {
 /** Explicit re-detection: always runs the probes and rewrites the service cache. */
 export function refreshHardware(): Promise<HardwareInfo> {
   return invoke<HardwareInfo>("refresh_hardware");
+}
+
+// --- Sprint 6 secure downloads (S6-04) ----------------------------------------------
+
+/**
+ * Starts downloading a curated-catalog entry. This POST IS the user's approval
+ * (the UI confirms first); the transfer runs in the service's background and
+ * is polled structurally with `getDownloadStatus`.
+ */
+export function startCatalogDownload(modelId: string): Promise<DownloadStarted> {
+  return invoke<DownloadStarted>("start_catalog_download", { modelId });
+}
+
+/**
+ * Structural poll of a download: state machine + byte counts, never a path
+ * (SECURITY T-10). Answers immediately from the service's in-memory records.
+ */
+export function getDownloadStatus(downloadId: string): Promise<DownloadStatus> {
+  return invoke<DownloadStatus>("get_download_status", { downloadId });
+}
+
+/**
+ * Requests cancellation; the worker stops at the next chunk boundary and the
+ * resumable `.part` is retained. Cancelling a terminal download is a no-op
+ * returning its status.
+ */
+export function cancelDownload(downloadId: string): Promise<DownloadStatus> {
+  return invoke<DownloadStatus>("cancel_download", { downloadId });
+}
+
+/**
+ * Starts a direct-URL model download (this POST IS the approval). Either an
+ * expected checksum (enforced against the computed digest before anything is
+ * registered) or the explicit `acknowledgeUnverified` acknowledgment is
+ * required (PD-026); progress is polled with `getDownloadStatus`.
+ */
+export function importModelUrl(args: {
+  url: string;
+  role: ModelRole;
+  displayName?: string;
+  expectedSha256?: string;
+  acknowledgeUnverified?: boolean;
+}): Promise<DownloadStarted> {
+  return invoke<DownloadStarted>("import_model_url", {
+    url: args.url,
+    role: args.role,
+    displayName: args.displayName ?? null,
+    expectedSha256: args.expectedSha256 ?? null,
+    acknowledgeUnverified: args.acknowledgeUnverified ?? false,
+  });
 }

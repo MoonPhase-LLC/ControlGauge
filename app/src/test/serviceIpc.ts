@@ -5,6 +5,7 @@ import type {
   ApiFieldError,
   Assessment,
   ControlQuery,
+  DownloadStatus,
   FrameworkSummary,
   HardwareInfo,
   HealthResponse,
@@ -81,6 +82,10 @@ const DATA_COMMANDS = [
   "check_model_health",
   "get_hardware",
   "refresh_hardware",
+  "start_catalog_download",
+  "get_download_status",
+  "cancel_download",
+  "import_model_url",
 ] as const;
 type DataCommand = (typeof DATA_COMMANDS)[number];
 
@@ -107,6 +112,7 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
   const frameworks: FrameworkSummary[] = [FRAMEWORK];
   const assessments: Assessment[] = [];
   const models: ModelFile[] = [];
+  const downloads: DownloadStatus[] = [];
   const runtime: Record<ModelRole, RuntimeStatus | null> = { generation: null, embedding: null };
   // One-shot: the next health check for a role's occupant answers
   // `unhealthy` with this detail code (an `unhealthy` answer is a resolved
@@ -115,6 +121,20 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
   const failures = new Map<DataCommand, unknown>();
   const held = new Map<DataCommand, Deferred<void>[]>();
   let seq = 0;
+
+  /** Registers a synthetic in-flight download (newest first) and answers
+   * the 202 shape. `bytesTotal` 0 mirrors "size not declared up front". */
+  function beginDownload(filename: string, bytesTotal: number): { download_id: string } {
+    seq++;
+    const download: DownloadStatus = {
+      download_id: String(seq).padStart(32, "b"),
+      state: "downloading",
+      files: [{ filename, bytes_downloaded: 0, bytes_total: bytesTotal }],
+      error_code: null,
+    };
+    downloads.unshift(download);
+    return { download_id: download.download_id };
+  }
 
   function serve(cmd: DataCommand, args: Record<string, unknown>): unknown {
     switch (cmd) {
@@ -291,6 +311,61 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
       case "get_hardware":
       case "refresh_hardware":
         return { ...HARDWARE, gpus: [...HARDWARE.gpus] };
+      // --- Sprint 6 secure downloads (mirrors routes/model_catalog.py and
+      // routes/models.py import-url) ----------------------------------------
+      // Starts register a synthetic `downloading` record; the test drives
+      // its progress by mutating the exposed `downloads` store.
+      case "start_catalog_download": {
+        const modelId = String(args.modelId ?? "");
+        if (!modelId) {
+          throw apiError(404, "catalog_entry_unknown", "The catalog entry was not found.");
+        }
+        return beginDownload("model.gguf", 1_000_000_000);
+      }
+      case "get_download_status": {
+        const found = downloads.find((d) => d.download_id === args.download_id);
+        if (!found) throw apiError(404, "download_not_found", "The download was not found.");
+        return { ...found, files: [...found.files] };
+      }
+      case "cancel_download": {
+        const found = downloads.find((d) => d.download_id === args.download_id);
+        if (!found) throw apiError(404, "download_not_found", "The download was not found.");
+        if (found.state !== "failed" && found.state !== "cancelled" && found.state !== "completed") {
+          found.state = "cancelled";
+        }
+        return { ...found, files: [...found.files] };
+      }
+      case "import_model_url": {
+        const url = String(args.url ?? "");
+        const role = String(args.role ?? "");
+        if (!/^https:\/\//.test(url) && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(url)) {
+          throw apiError(422, "download_url_unsupported", "The request is not valid.", [
+            { field: "url", code: "unsupported_url", message: "Provide an https URL." },
+          ]);
+        }
+        if (role !== "generation" && role !== "embedding") {
+          throw apiError(422, "validation_failed", "The request is not valid.", [
+            { field: "role", code: "invalid_role", message: "Choose a known model role." },
+          ]);
+        }
+        const hasChecksum = typeof args.expectedSha256 === "string" && args.expectedSha256.length === 64;
+        if (!hasChecksum && args.acknowledgeUnverified !== true) {
+          throw apiError(422, "expected_checksum_required", "The request is not valid.", [
+            {
+              field: "expected_sha256",
+              code: "expected_checksum_required",
+              message: "Provide a checksum or acknowledge the unverified download.",
+            },
+          ]);
+        }
+        let filename = "model.gguf";
+        try {
+          filename = new URL(url).pathname.split("/").pop() || filename;
+        } catch {
+          // unreachable: the scheme check above already gated the shape
+        }
+        return beginDownload(filename, 0);
+      }
     }
   }
 
@@ -335,6 +410,7 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
     frameworks,
     assessments,
     models,
+    downloads,
     runtime,
     /** Makes the next health check of a role's occupant answer `unhealthy`. */
     setUnhealthyHealthNext(detailCode: string) {

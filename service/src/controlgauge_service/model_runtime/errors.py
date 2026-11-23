@@ -11,6 +11,32 @@ callers branch on ``exc.code``.
 
 from __future__ import annotations
 
+#: Sprint 6 (S6-04) download-surface codes. ``download_cancelled`` is a
+#: terminal STATE in a poll response, deliberately not an error code here.
+DOWNLOAD_ERROR_CODES = (
+    "download_active",
+    "download_not_found",
+    "download_checksum_mismatch",
+    "download_size_mismatch",
+    "download_network_error",
+    "download_http_error",
+    "download_url_unsupported",
+    "disk_write_failed",
+    "disk_space_insufficient",
+    "expected_checksum_mismatch",
+    "expected_checksum_required",
+)
+
+#: Sprint 6 (S6-03/S6-04) curated-catalog codes.
+CATALOG_ERROR_CODES = (
+    "catalog_entry_unknown",
+    "catalog_unavailable",
+)
+
+#: Every Sprint 6 code (the batch-by-batch union; S6-05 adds the registry
+#: surface).
+SPRINT6_ERROR_CODES = DOWNLOAD_ERROR_CODES + CATALOG_ERROR_CODES
+
 MODEL_RUNTIME_ERROR_CODES = (
     "runtime_binary_missing",
     "model_file_missing",
@@ -38,12 +64,9 @@ MODEL_RUNTIME_ERROR_CODES = (
     "model_file_too_large",
     "invalid_gguf_magic",
     "invalid_gguf_version",
-    # Sprint 6 (S6-03): the curated catalog manifest failed to load
-    # (missing, oversized, malformed, or failing strict validation) -- the
-    # catalog is unavailable, never partially loaded. The remaining
-    # Sprint 6 codes assemble into DOWNLOAD_ERROR_CODES / CATALOG_ERROR_CODES
-    # / REGISTRY_ERROR_CODES as S6-04/S6-05 build their surfaces.
-    "catalog_unavailable",
+    # Sprint 6: catalog + download surfaces (S6-03/S6-04). All carry fixed
+    # messages and never a path, URL, or filename (T-10).
+    *SPRINT6_ERROR_CODES,
 )
 
 _MESSAGES: dict[str, str] = {
@@ -71,7 +94,20 @@ _MESSAGES: dict[str, str] = {
     "model_file_too_large": "The file is larger than the supported model size limit.",
     "invalid_gguf_magic": "The file does not look like a GGUF model file.",
     "invalid_gguf_version": "The GGUF file version is not supported.",
+    # Sprint 6 catalog + download surfaces (S6-03/S6-04).
     "catalog_unavailable": "The model catalog is not available.",
+    "catalog_entry_unknown": "The catalog entry was not found.",
+    "download_active": "A download is already in progress.",
+    "download_not_found": "The download was not found.",
+    "download_checksum_mismatch": "The downloaded file failed checksum verification.",
+    "download_size_mismatch": "The downloaded file size does not match the expected size.",
+    "download_network_error": "The download failed due to a network error.",
+    "download_http_error": "The download server reported an error.",
+    "download_url_unsupported": "The download URL is not supported.",
+    "disk_write_failed": "Writing the downloaded file failed.",
+    "disk_space_insufficient": "There is not enough disk space for the download.",
+    "expected_checksum_mismatch": "The file's checksum does not match the expected value.",
+    "expected_checksum_required": ("A checksum or explicit unverified acknowledgment is required."),
 }
 
 

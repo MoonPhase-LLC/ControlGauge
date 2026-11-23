@@ -1108,6 +1108,285 @@ pub async fn refresh_hardware(
     .map(|(info, _)| info)
 }
 
+// --- Sprint 6 (S6-04): secure downloads + URL imports -----------------------------
+
+/// The catalog download-start POST does bounded local work before the
+/// transfer thread starts (manifest load, URL validation, the disk
+/// pre-flight) -- well under the default deadline normally, but 30 s
+/// covers a cold first parse on a loaded machine with margin. The
+/// default [`HTTP_REQUEST_TIMEOUT`] (10 s) is too tight to guarantee.
+pub const MODEL_CATALOG_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The URL-import start POST is the same bounded-local class (URL rule,
+/// display-name cleaning, disk pre-flight). Pattern:
+/// [`MODEL_CATALOG_TIMEOUT`].
+pub const DOWNLOAD_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Poll and cancel are in-memory snapshots service-side (no child
+/// contact, no network). Tight by design: a wedged service must surface
+/// in the UI's poll loop fast instead of hanging each request for the
+/// default deadline.
+pub const DOWNLOAD_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The 202 body of an approved download start: the poll id only.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DownloadStarted {
+    pub download_id: String,
+}
+
+/// One file's byte counts. The filename is the REMOTE artifact name (a
+/// manifest or import-URL datum, like the catalog's own fields) -- never
+/// a local path (SECURITY T-10).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DownloadFileProgress {
+    pub filename: String,
+    pub bytes_downloaded: u64,
+    /// 0 = size not declared up front (URL imports).
+    pub bytes_total: u64,
+}
+
+/// The structural poll answer: state machine + byte counts. Never a
+/// path, URL, or credential. `state` is one of the service's closed set
+/// (pending | downloading | verifying | completed | failed | cancelled);
+/// `error_code` is set only on `failed`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DownloadStatus {
+    pub download_id: String,
+    pub state: String,
+    pub files: Vec<DownloadFileProgress>,
+    pub error_code: Option<String>,
+}
+
+/// The manifest's identifier shape for catalog model ids
+/// (`^[a-z0-9][a-z0-9.-]*$`, bounded): the Rust side only keeps junk
+/// from being sent; the service re-validates against the loaded
+/// manifest.
+fn is_catalog_model_id(model_id: &str) -> bool {
+    let mut chars = model_id.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_lowercase() || c.is_ascii_digit() => {}
+        _ => return false,
+    }
+    model_id.len() <= 100
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
+}
+
+/// `/model-catalog/{model_id}/download` for a catalog id, or
+/// `InvalidArgument`.
+fn catalog_download_path(model_id: &str) -> Result<String, ServiceCallError> {
+    if !is_catalog_model_id(model_id) {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    Ok(format!("/model-catalog/{model_id}/download"))
+}
+
+/// The service mints download ids as uuid4 hex: 32 lowercase hex chars.
+fn is_download_id(download_id: &str) -> bool {
+    download_id.len() == 32
+        && download_id
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+}
+
+/// `/model-catalog/downloads/{download_id}[/{action}]` for an opaque
+/// download id, or `InvalidArgument`.
+fn download_path(download_id: &str, action: Option<&str>) -> Result<String, ServiceCallError> {
+    if !is_download_id(download_id) {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    let base = format!("/model-catalog/downloads/{download_id}");
+    Ok(match action {
+        Some(action) => format!("{base}/{action}"),
+        None => base,
+    })
+}
+
+/// The user-URL rule, restated from `download.py::validate_user_url`:
+/// https anywhere, or http to a loopback host (the local-test case).
+/// The service re-validates; this keeps every non-loopback plaintext
+/// URL from ever leaving the app.
+fn is_valid_import_url(url: &str) -> bool {
+    if url.len() > 2048 {
+        return false;
+    }
+    if let Some(rest) = url.strip_prefix("https://") {
+        return !rest.is_empty() && !rest.starts_with('/');
+    }
+    if let Some(rest) = url.strip_prefix("http://") {
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+        let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+        let host = if let Some(inner) = host.strip_prefix('[') {
+            // Bracketed IPv6: never split on the colons inside.
+            inner.split_once(']').map_or("", |(h, _)| h)
+        } else {
+            host.split_once(':').map_or(host, |(h, _)| h)
+        };
+        return matches!(
+            host.to_ascii_lowercase().as_str(),
+            "127.0.0.1" | "::1" | "localhost"
+        );
+    }
+    false
+}
+
+#[derive(Serialize)]
+struct ImportUrlBody<'a> {
+    url: &'a str,
+    role: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_name: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expected_sha256: Option<&'a str>,
+    acknowledge_unverified: bool,
+}
+
+/// Builds the URL-import request after validating every caller-supplied
+/// part: the URL rule, a known role, an optional bounded display name,
+/// and the PD-026 authorization rule -- either an expected checksum
+/// (64 lowercase hex) or the explicit unverified acknowledgment. The
+/// service re-validates everything; this only keeps junk from being
+/// sent.
+fn import_url_request(
+    url: &str,
+    role: &str,
+    display_name: Option<&str>,
+    expected_sha256: Option<&str>,
+    acknowledge_unverified: bool,
+) -> Result<RequestBody, ServiceCallError> {
+    let valid_role = matches!(role, "generation" | "embedding");
+    let valid_name = match display_name {
+        Some(name) => !name.is_empty() && name.len() <= 255,
+        None => true,
+    };
+    let valid_sha = match expected_sha256 {
+        Some(sha) => {
+            sha.len() == 64
+                && sha
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+        }
+        None => true,
+    };
+    if !is_valid_import_url(url) || !valid_role || !valid_name || !valid_sha {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    if expected_sha256.is_none() && !acknowledge_unverified {
+        // PD-026: an elevated-trust action needs explicit authorization.
+        // Refuse locally instead of paying the service round-trip.
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    let body = ImportUrlBody {
+        url,
+        role,
+        display_name,
+        expected_sha256,
+        acknowledge_unverified,
+    };
+    serde_json::to_vec(&body)
+        .map(|bytes| RequestBody {
+            bytes,
+            content_type: "application/json",
+            max_bytes: MAX_API_REQUEST_BYTES,
+            filename_header: None,
+        })
+        .map_err(|_| ServiceCallError::InvalidArgument)
+}
+
+/// Starts a curated-catalog download: the explicit approval POST (the
+/// UI confirms first). The transfer itself is polled structurally via
+/// [`get_download_status`] -- this answers 202 as soon as the bounded
+/// local work is done, hence [`MODEL_CATALOG_TIMEOUT`].
+pub async fn start_catalog_download(
+    connection: &ReadyConnection,
+    model_id: &str,
+) -> Result<DownloadStarted, ServiceCallError> {
+    let path = catalog_download_path(model_id)?;
+    call_with(
+        connection,
+        Method::POST,
+        &path,
+        None,
+        &[StatusCode::ACCEPTED],
+        MODEL_CATALOG_TIMEOUT,
+    )
+    .await
+    .map(|(started, _)| started)
+}
+
+/// Structural poll of a download: state + byte counts, never a path
+/// (T-10). An in-memory snapshot service-side, hence the tight
+/// [`DOWNLOAD_POLL_TIMEOUT`].
+pub async fn get_download_status(
+    connection: &ReadyConnection,
+    download_id: &str,
+) -> Result<DownloadStatus, ServiceCallError> {
+    let path = download_path(download_id, None)?;
+    call_with(
+        connection,
+        Method::GET,
+        &path,
+        None,
+        &[StatusCode::OK],
+        DOWNLOAD_POLL_TIMEOUT,
+    )
+    .await
+    .map(|(status, _)| status)
+}
+
+/// Requests cancellation; the worker stops at the next chunk boundary
+/// and retains the `.part` (a later attempt resumes). Cancelling a
+/// terminal download answers its status (a no-op), an unknown id is 404.
+pub async fn cancel_download(
+    connection: &ReadyConnection,
+    download_id: &str,
+) -> Result<DownloadStatus, ServiceCallError> {
+    let path = download_path(download_id, Some("cancel"))?;
+    call_with(
+        connection,
+        Method::POST,
+        &path,
+        None,
+        &[StatusCode::OK],
+        DOWNLOAD_POLL_TIMEOUT,
+    )
+    .await
+    .map(|(status, _)| status)
+}
+
+/// Starts a direct-URL model download (S6-04). The POST is the explicit
+/// approval; either an expected checksum (enforced before registration)
+/// or the explicit unverified acknowledgment is required (PD-026).
+/// Progress is polled via [`get_download_status`].
+pub async fn import_model_url(
+    connection: &ReadyConnection,
+    url: &str,
+    role: &str,
+    display_name: Option<&str>,
+    expected_sha256: Option<&str>,
+    acknowledge_unverified: bool,
+) -> Result<DownloadStarted, ServiceCallError> {
+    let body = import_url_request(
+        url,
+        role,
+        display_name,
+        expected_sha256,
+        acknowledge_unverified,
+    )?;
+    call_with(
+        connection,
+        Method::POST,
+        "/models/import-url",
+        Some(body),
+        &[StatusCode::ACCEPTED],
+        DOWNLOAD_START_TIMEOUT,
+    )
+    .await
+    .map(|(started, _)| started)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1512,6 +1791,139 @@ mod tests {
     }
 
     #[test]
+    fn download_paths_validate_ids_and_catalog_model_ids() {
+        let id = "0f8fad5bd9cb469fa16570867728950e";
+        assert_eq!(
+            download_path(id, None).unwrap(),
+            format!("/model-catalog/downloads/{id}")
+        );
+        assert_eq!(
+            download_path(id, Some("cancel")).unwrap(),
+            format!("/model-catalog/downloads/{id}/cancel")
+        );
+        for bad in [
+            "0F8FAD5B-D9CB-469F-A165-70867728950E", // the UUID form is not the hex id
+            "0f8fad5b d9cb469fa16570867728950e",
+            "not-a-download-id",
+            "",
+            "../../../models",
+            "0f8fad5bd9cb469fa16570867728950", // 31 chars
+        ] {
+            assert_eq!(
+                download_path(bad, None).err(),
+                Some(ServiceCallError::InvalidArgument),
+                "{bad:?}"
+            );
+        }
+        assert_eq!(
+            catalog_download_path("generic-model-v1.5-q4").unwrap(),
+            "/model-catalog/generic-model-v1.5-q4/download"
+        );
+        for bad in [
+            "",
+            "Generic",
+            "model/slash",
+            "-leading",
+            ".leading",
+            &"x".repeat(101),
+        ] {
+            assert_eq!(
+                catalog_download_path(bad).err(),
+                Some(ServiceCallError::InvalidArgument),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn import_url_request_validates_and_encodes() {
+        let body = import_url_request(
+            "https://example.com/models/generic.gguf",
+            "embedding",
+            Some("Generic Model"),
+            Some(&"a".repeat(64)),
+            false,
+        )
+        .expect("valid request");
+        let json: serde_json::Value = serde_json::from_slice(&body.bytes).unwrap();
+        assert_eq!(json["url"], "https://example.com/models/generic.gguf");
+        assert_eq!(json["role"], "embedding");
+        assert_eq!(json["display_name"], "Generic Model");
+        assert_eq!(json["expected_sha256"], "a".repeat(64));
+        assert_eq!(json["acknowledge_unverified"], false);
+
+        // Optionals omitted when absent; the loopback http rule holds.
+        let body = import_url_request("http://127.0.0.1:8/x.gguf", "generation", None, None, true)
+            .expect("valid request");
+        let json: serde_json::Value = serde_json::from_slice(&body.bytes).unwrap();
+        assert!(json.get("display_name").is_none());
+        assert!(json.get("expected_sha256").is_none());
+        assert_eq!(json["acknowledge_unverified"], true);
+        for url in ["http://localhost/x.gguf", "http://[::1]:9/x.gguf"] {
+            assert!(
+                import_url_request(url, "generation", None, None, true).is_ok(),
+                "{url:?}"
+            );
+        }
+
+        for (url, role, name, sha, ack) in [
+            ("http://example.com/x.gguf", "generation", None, None, true), // plaintext non-loopback
+            (
+                "http://localhost@evil.example/x.gguf",
+                "generation",
+                None,
+                None,
+                true,
+            ), // userinfo trick
+            ("https:///no-host.gguf", "generation", None, None, true),
+            ("ftp://example.com/x.gguf", "generation", None, None, true),
+            ("", "generation", None, None, true),
+            ("https://example.com/x.gguf", "embeddingx", None, None, true), // bad role
+            (
+                "https://example.com/x.gguf",
+                "generation",
+                Some(""),
+                None,
+                true,
+            ),
+            (
+                "https://example.com/x.gguf",
+                "generation",
+                Some(&"x".repeat(256)),
+                None,
+                true,
+            ),
+            (
+                "https://example.com/x.gguf",
+                "generation",
+                None,
+                Some("ABCD"),
+                true,
+            ), // bad shape
+            (
+                "https://example.com/x.gguf",
+                "generation",
+                None,
+                Some(&"A".repeat(64)),
+                true,
+            ), // uppercase
+            (
+                "https://example.com/x.gguf",
+                "generation",
+                None,
+                None,
+                false,
+            ), // PD-026: neither granted
+        ] {
+            assert_eq!(
+                import_url_request(url, role, name, sha, ack).err(),
+                Some(ServiceCallError::InvalidArgument),
+                "{url:?} {role:?}"
+            );
+        }
+    }
+
+    #[test]
     fn model_timeout_constants_cover_the_service_budgets() {
         // The service's own start timeout tops out at
         // DEFAULT_START_TIMEOUT_GENERATION_S = 600 s; the Rust deadline
@@ -1525,5 +1937,13 @@ mod tests {
         // Hardware: the nvidia-smi probe is capped at 5 s service-side;
         // the deadline must cover a cold probe plus margin.
         assert!(HARDWARE_TIMEOUT.as_secs() >= 5 + 5);
+        // Download starts: bounded local work (manifest load + URL rule +
+        // disk pre-flight) that must still outlive the default deadline
+        // on a cold, loaded machine.
+        assert!(MODEL_CATALOG_TIMEOUT >= HTTP_REQUEST_TIMEOUT);
+        assert!(DOWNLOAD_START_TIMEOUT >= HTTP_REQUEST_TIMEOUT);
+        // Poll/cancel are in-memory snapshots: tight by design so a
+        // wedged service surfaces fast in the UI's poll loop.
+        assert!(DOWNLOAD_POLL_TIMEOUT <= HTTP_REQUEST_TIMEOUT);
     }
 }

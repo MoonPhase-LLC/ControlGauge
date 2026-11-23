@@ -604,18 +604,80 @@ cargo 106p/8f Linux (8 pre-existing failures byte-identical to main), Vitest 70/
   validation, no network in the default run).
 
 ### S6-04 — Secure download + verification (catalog + URL imports) + progress + resume
-- **Status:** planned.
-- **Scope:** `model_runtime/download.py` (streamed SHA-256 fail-closed pre-registration, Range
-  `.part` resume, one active download, https-only no-downgrade, `trust_env=False` +
-  retries=0); `POST /model-catalog/{id}/download` (the approval record) + poll + cancel routes;
-  `POST /models/import-url` (expected checksum or explicit unverified acknowledgment);
-  `expected_sha256` enforcement on local import; Sprint 5 fold-in: import validation order
-  becomes shape → existence → extension → display name → sniff; `DownloadManager` in both
-  entry points; Rust commands + closed schemas + deadline constants; TS mirrors. Registration
-  writes `model_file` only (S6-05 backfills `model_source` + migration 0006).
-- **Acceptance:** checksum mismatch provably registers nothing; resume proven on a real Range
-  exchange; nothing downloads at startup; env-gated nomic E2E (download → verify → register →
-  start → health → stop) passes with `CONTROLGAUGE_TEST_ALLOW_DOWNLOAD=1`.
+- **Status:** implemented 2026-11-22.
+- **Scope:** `model_runtime/download.py` — `DownloadManager` (exactly one active download,
+  daemon worker per start, in-memory records pruned to the 32 most recent terminal ones,
+  states pending→downloading→verifying→completed|failed|cancelled, `active()` as the
+  structural approval-gate proof, `shutdown()` cancel+join beside `stop_all()` in BOTH entry
+  points) and `download_file` (streamed incremental SHA-256 into `<name>.part`; `Range:
+  bytes=<n>-` resume that pre-hashes the existing part, 200-to-a-Range restarts from zero with
+  the hasher reset; an oversized part is deleted and restarted; exact-size gate then digest
+  gate fail-closed BEFORE the `.part`→final rename; cancel checked per chunk and RETAINS the
+  part, verification mismatches delete it; disk pre-flight through a `shutil.disk_usage` seam —
+  known size gates `size-existing`, unknown size gates `MIN_MODEL_FILE_BYTES`; httpx
+  `trust_env=False`, `HTTPTransport(retries=0)`, redirects followed with a cap of 5 and a
+  response hook refusing any non-initial `http://` hop — no downgrade; GET only, no user data
+  in any request). `model_runtime/registry.py` — `persist_model_import` (+retry variant)
+  extracted verbatim from the S5-05 import closure so the import route and download
+  registration share one duplicate-aware writer. Routes: `POST /model-catalog/{model_id}/download`
+  (THE approval POST; 202 `DownloadStartedOut`; 404 `catalog_entry_unknown`; 409
+  `download_active`), `GET /model-catalog/downloads/{id}` (structural poll: state + remote
+  filenames + byte counts, never a path), `POST .../cancel` (registered before the param
+  route); `POST /models/import-url` (`URLImportRequest`: `expected_sha256` XOR
+  `acknowledge_unverified`, else 422 `expected_checksum_required` — PD-026's explicit
+  authorization; filename = URL path's last segment, never percent-decoded, fail-closed vs
+  traversal/control chars/`DISALLOWED_NAME_CHARS`/255 and must end `.gguf`); local import
+  gains enforced `expected_sha256` (422 `expected_checksum_mismatch` with the COMPUTED hash in
+  `fields` — structural, T-10-allowed) and the Sprint 5 review fold-in: validation order is
+  now shape → existence → extension → display name → sniff (two ordering tests);
+  `ImportResult.provenance` widened to `unverified_import|user_checksum` (display channel
+  only — no DB column until S6-05). `errors.py`: `DOWNLOAD_ERROR_CODES` (11 fixed messages)
+  + `CATALOG_ERROR_CODES` spliced into `MODEL_RUNTIME_ERROR_CODES` as `SPRINT6_ERROR_CODES`;
+  `download_cancelled` deliberately a state, not a code. `app.py` gains the `downloads`
+  parameter (the `model_runtime` pattern). Rust: `MODEL_CATALOG_TIMEOUT`/`DOWNLOAD_START_TIMEOUT`
+  (30 s, asserted ≥ the 10 s default) + `DOWNLOAD_POLL_TIMEOUT` (5 s, asserted ≤ default —
+  poll/cancel are in-memory snapshots), closed schemas `DownloadStarted`/`DownloadFileProgress`/
+  `DownloadStatus` (`deny_unknown_fields`), commands `start_catalog_download`/
+  `get_download_status`/`cancel_download`/`import_model_url` with Rust-side URL-rule/role/
+  checksum/PD-026 gating, deadline assertions extended, two argument-validation tests; lib.rs
+  registration. NO new capability grants (app-defined commands only). TS: types/commands
+  mirrors + serviceIpc mock cases pinning the URL rule and the checksum-or-ack contract.
+- **Evidence (2026-11-22):** 58 new offline tests over the S6-03 baseline — 32 loopback
+  download-manager tests (fresh, Range resume byte-identical, 200-to-Range restart, oversized
+  part, checksum mismatch registers NOTHING and leaves no final file, size mismatch, HTTP 500,
+  mid-body connection drop, https-only + loopback-http URL matrix, redirect to http refused,
+  redirect-loop cap, disk-space seam, GGUF-sniff refusal before registration, deterministic
+  gated cancel mid-stream then resume to completion, duplicate refresh, slot conflict,
+  shutdown, multi-file registers the primary only, progress byte counts, record-only URL
+  import, and `test_nothing_downloads_without_approval`), 9 models-api additions (ordering
+  tests, checksum match/mismatch, import-url contract, disk-space seam), 14 error-code
+  tests; pytest **852p/32sk**. Env-gated E2E `test_download_integration.py` **PASSED live**
+  with `CONTROLGAUGE_TEST_ALLOW_DOWNLOAD=1` (two runs, ~17 s wall): approval POST → real
+  84 MB nomic download from HF → registered row sha256 == the S6-03 manifest pin →
+  start/health/stop of the REAL embedding model from the downloaded file → catalog
+  `installed=true` → rerun takes the duplicate path. Connect auditor allowed only loopback +
+  `*.huggingface.co`/`*.hf.co` by resolved IP.
+- **Gates:** ruff + `ruff format --check` clean; mypy strict clean linux AND `--platform
+  win32`; pytest 852p/32sk (source guard green after app/src + Rust changes); cargo fmt/clippy
+  `-D warnings` clean; cargo test **108p/8f** — failing set byte-identical to the pre-existing
+  known set (child_death ×4, lost_authenticated_connection,
+  service_api_round_trip_against_real_python_child, shutdown ×2), +2 new passing Rust tests;
+  `typecheck:test` + eslint clean; vitest **70/70**.
+- **Limitations recorded:** multi-shard entries register the primary (shard 1) `model_file`
+  row only — S6-05's `model_source` carries the full file set; `verification` is in-memory
+  until migration 0006 (S6-05); download records are in-memory, so after an app restart an
+  orphaned `.part` is picked up by the next attempt of the same file (resume semantics
+  documented, records are not); no host allowlist by design (HF CDN redirect targets churn) —
+  the integrity control is the fail-closed checksum, the transport control is https-only with
+  no-downgrade, and no user data rides any request; `iter_bytes` yields at 1 MiB granularity,
+  so cancel lands at chunk boundaries (small loopback fixtures complete inside one chunk —
+  the cancel tests use a deterministic mid-stream gate, not timing); one concurrent download
+  in V0.1 (no queue).
+- **Acceptance:** checksum verification provably fail-closed (mismatch test: no DB row, no
+  final file); resume proven on a real Range exchange; nothing downloads at startup (approval
+  gate test asserts `DownloadManager.active() is None` on a fresh app); the poll route never
+  contacts the runtime and never exposes paths; env-gated nomic E2E (download → verify →
+  register → start → health → stop) passes with `CONTROLGAUGE_TEST_ALLOW_DOWNLOAD=1`.
 
 ### S6-05 — User-managed registry + external-endpoint backend abstraction + migration 0006 + N5 fix
 - **Status:** planned.

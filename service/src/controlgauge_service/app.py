@@ -34,6 +34,7 @@ from .config import Settings
 from .credentials import CredentialStore
 from .db import Database
 from .evidence.ingest import IngestionService
+from .model_runtime.download import DownloadManager
 from .model_runtime.manager import ModelRuntimeManager
 from .routes.artifacts import router as artifacts_router
 from .routes.assessments import router as assessments_router
@@ -59,13 +60,16 @@ def create_app(
     database: Database | None = None,
     ingestion: IngestionService | None = None,
     model_runtime: ModelRuntimeManager | None = None,
+    downloads: DownloadManager | None = None,
 ) -> FastAPI:
     """`database` is the migrated local database (Sprint 2). Both process
     entry points always pass one; it is optional here only so tests of
     routes that never touch storage need no database. Data routes answer
     503 `database_unavailable` without one. `model_runtime` is the
     Sprint 5 per-capability manager (S5-02); both entry points construct
-    one and call `stop_all()` beside `ingestion.stop()` at shutdown."""
+    one and call `stop_all()` beside `ingestion.stop()` at shutdown.
+    `downloads` is the Sprint 6 download manager (S6-04); both entry
+    points construct one and call `shutdown()` beside `stop_all()`."""
     resolved_settings = settings if settings is not None else Settings()
     docs_enabled = resolved_settings.environment == "development"
 
@@ -99,6 +103,8 @@ def create_app(
     app.state.ingestion = ingestion
     #: Sprint 5 model runtime; model routes answer 503 without it.
     app.state.model_runtime = model_runtime
+    #: Sprint 6 download manager; download routes answer 503 without it.
+    app.state.downloads = downloads
 
     # Outermost of our own middleware: every request, including ones to
     # undefined paths, is checked before routing ever occurs. The

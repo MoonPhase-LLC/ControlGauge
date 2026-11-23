@@ -39,15 +39,16 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from ..config import Settings, resolve_model_dir
 from ..db import Database
-from ..db.base import utc_now
 from ..db.models import ModelFile
 from ..evidence.filetype import DISALLOWED_NAME_CHARS
 from ..model_runtime import gguf
@@ -58,10 +59,18 @@ from ..model_runtime.config import (
     EmbeddingServerConfig,
     GenerationServerConfig,
 )
+from ..model_runtime.download import (
+    DownloadFileSpec,
+    DownloadManager,
+    DownloadRequest,
+    new_download_id,
+    validate_user_url,
+)
 from ..model_runtime.errors import ModelRuntimeError
 from ..model_runtime.manager import ModelRuntimeManager
 from ..model_runtime.protocols import HealthStatus, Role
-from .deps import get_database, get_model_runtime
+from ..model_runtime.registry import persist_model_import_with_retry
+from .deps import get_database, get_downloads, get_model_runtime
 from .errors import ApiError
 
 logger = logging.getLogger("controlgauge_service.routes.models")
@@ -112,7 +121,11 @@ class ModelFileOut(BaseModel):
 class ImportResult(BaseModel):
     model: ModelFileOut
     duplicate: bool
-    provenance: Literal["unverified_import"]
+    #: ``unverified_import`` (local file, no expectation declared) or
+    #: ``user_checksum`` (the caller declared and the import ENFORCED a
+    #: checksum). Catalog downloads register through the same persist path
+    #: but never answer through this schema (S6-04).
+    provenance: Literal["unverified_import", "user_checksum"]
     warning: str
 
 
@@ -149,6 +162,28 @@ class ImportRequest(BaseModel):
     path: StrictStr
     role: Literal["generation", "embedding"]
     display_name: StrictStr | None = None
+    #: When supplied, ENFORCED against the computed hash (422
+    #: ``expected_checksum_mismatch`` with the computed hash in `fields` --
+    #: a computed structural value, allowed by T-10). S6-04 records the
+    #: verification in the response's ``provenance``; the S6-05 migration
+    #: adds the persisted column.
+    expected_sha256: StrictStr | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class URLImportRequest(BaseModel):
+    """A direct-URL model import (S6-04). Either a checksum is expected
+    (enforced; ``verification="user_checksum"``) or the unverified
+    download is explicitly acknowledged (``verification="none"``) --
+    missing both is 422 ``expected_checksum_required`` (PD-026's explicit
+    authorization for elevated-trust actions)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: StrictStr = Field(max_length=2048)
+    role: Literal["generation", "embedding"]
+    display_name: StrictStr | None = None
+    expected_sha256: StrictStr | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    acknowledge_unverified: bool = False
 
 
 class StartOptions(BaseModel):
@@ -184,6 +219,18 @@ _IMPORT_ERROR_STATUS: dict[str, int] = {
     "model_file_too_large": 413,
     "invalid_gguf_magic": 415,
     "invalid_gguf_version": 415,
+    # S6-04 checksum + download-surface codes reachable from this router.
+    "expected_checksum_mismatch": 422,
+    "expected_checksum_required": 422,
+    "download_url_unsupported": 422,
+    "download_active": 409,
+    "download_not_found": 404,
+    "download_checksum_mismatch": 422,
+    "download_size_mismatch": 422,
+    "download_network_error": 502,
+    "download_http_error": 502,
+    "disk_write_failed": 507,
+    "disk_space_insufficient": 507,
 }
 
 #: Start/stop-time runtime codes -> HTTP status. ``runtime_binary_missing``
@@ -408,6 +455,33 @@ def _get_record(database: Database, canonical: str) -> ModelFile:
     return record
 
 
+#: Longest downloaded filename (classic filesystem name bound).
+URL_FILENAME_MAX_CHARS = 255
+
+
+def _url_filename(url: str) -> str:
+    """The local filename for a direct-URL download: the URL path's last
+    segment only, fail-closed against traversal, control characters, and
+    non-GGUF names (the import extension rule, applied up front). The
+    segment is used as-is -- never percent-decoded -- so an encoded
+    separator can never become a path crossing. The URL is never echoed
+    (T-10)."""
+    path = urlsplit(url).path
+    name = path.rsplit("/", 1)[-1] if "/" in path else path
+    if (
+        not name
+        or name in {".", ".."}
+        or "\\" in name
+        or name.startswith(".")
+        or len(name) > URL_FILENAME_MAX_CHARS
+        or DISALLOWED_NAME_CHARS.search(name)
+    ):
+        raise ModelRuntimeError("download_url_unsupported")
+    if not name.lower().endswith(".gguf"):
+        raise ModelRuntimeError("unsupported_file_type")
+    return name
+
+
 # --- routes ---------------------------------------------------------------------
 
 
@@ -415,9 +489,20 @@ def _get_record(database: Database, canonical: str) -> ModelFile:
 def import_model(payload: ImportRequest, database: DatabaseDep) -> JSONResponse:
     """Import a user-provided GGUF path: validate the untrusted container
     shape (never parse further, never execute), hash it, persist one
-    record. Validation order mirrors `routes/artifacts.py`."""
+    record.
+
+    Validation order (S6-04, resolving the Sprint 5 review finding):
+    path shape -> existence/regular-file (stat, before any open) ->
+    extension -> display name -> container sniff. A missing file is a
+    404 even when the extension is also wrong; a FIFO is refused from
+    its stat entry before an open can block."""
     try:
         path = _check_import_path_shape(payload.path)
+    except ModelRuntimeError as exc:
+        raise _import_error(exc) from None
+
+    try:
+        head, size = _read_head_and_size(path)
     except ModelRuntimeError as exc:
         raise _import_error(exc) from None
 
@@ -440,53 +525,37 @@ def import_model(payload: ImportRequest, database: DatabaseDep) -> JSONResponse:
         raise _import_error(exc) from None
 
     try:
-        head, size = _read_head_and_size(path)
         gguf.validate_gguf_head(head, size)
     except ModelRuntimeError as exc:
         raise _import_error(exc) from None
 
     digest = _stream_sha256(path)
     role: Role = payload.role
+    if payload.expected_sha256 is not None and digest != payload.expected_sha256:
+        # Fail closed BEFORE any persistence; the computed hash is a
+        # structural value and may travel in the error fields (T-10).
+        raise ApiError(
+            422,
+            "expected_checksum_mismatch",
+            str(ModelRuntimeError("expected_checksum_mismatch")),
+            fields=[
+                {
+                    "field": "expected_sha256",
+                    "code": "invalid",
+                    "message": f"Computed SHA-256: {digest}",
+                }
+            ],
+        ) from None
 
-    def persist() -> tuple[ModelFileOut, bool]:
-        with database.session(write=True) as session:
-            existing = session.scalar(
-                select(ModelFile).where(ModelFile.sha256_hash == digest, ModelFile.role == role)
-            )
-            if existing is not None:
-                # Same content, same role: refresh the verification
-                # timestamp and (if the file moved) its location.
-                existing.path = str(path)
-                existing.last_verified_at = utc_now()
-                return _to_out(existing), True
-            record = ModelFile(
-                id=str(uuid.uuid4()),
-                role=role,
-                display_name=display_name,
-                path=str(path),
-                sha256_hash=digest,
-                size_bytes=size,
-                imported_at=utc_now(),
-            )
-            session.add(record)
-            session.flush()
-            return _to_out(record), False
-
-    try:
-        out, duplicate = persist()
-    except IntegrityError:
-        # A concurrent import of the same file won the race (unique
-        # sha256+role): refresh the winner like a duplicate.
-        with database.session(write=True) as session:
-            winner = session.scalar(
-                select(ModelFile).where(ModelFile.sha256_hash == digest, ModelFile.role == role)
-            )
-            if winner is None:
-                raise
-            winner.path = str(path)
-            winner.last_verified_at = utc_now()
-            session.flush()
-            out, duplicate = _to_out(winner), True
+    record, duplicate = persist_model_import_with_retry(
+        database,
+        role=role,
+        display_name=display_name,
+        path=str(path),
+        sha256=digest,
+        size_bytes=size,
+    )
+    out = _to_out(record)
 
     # Structural outcome only -- never the path, name, or content (T-10).
     logger.info(
@@ -501,10 +570,80 @@ def import_model(payload: ImportRequest, database: DatabaseDep) -> JSONResponse:
     body = ImportResult(
         model=out,
         duplicate=duplicate,
-        provenance="unverified_import",
+        provenance=(
+            "user_checksum" if payload.expected_sha256 is not None else "unverified_import"
+        ),
         warning=IMPORT_PROVENANCE_WARNING,
     )
     return JSONResponse(body.model_dump(mode="json"), status_code=200 if duplicate else 201)
+
+
+class DownloadStartedOut(BaseModel):
+    """The 202 body of an approved download start: the poll id only."""
+
+    download_id: str
+
+
+@router.post("/models/import-url")
+def import_model_url(
+    payload: URLImportRequest,
+    request: Request,
+    database: DatabaseDep,
+    downloads: Annotated[DownloadManager, Depends(get_downloads)],
+) -> JSONResponse:
+    """Start a direct-URL model download (S6-04). The POST is the
+    explicit approval; the download runs in the background through the
+    same manager as catalog downloads and is polled at
+    `/model-catalog/downloads/{id}`. Either a checksum is expected
+    (enforced before registration) or the unverified download is
+    explicitly acknowledged -- PD-026's authorization rule for
+    elevated-trust actions."""
+    try:
+        validate_user_url(payload.url)
+    except ModelRuntimeError as exc:
+        raise _import_error(exc) from None
+    if payload.expected_sha256 is None and not payload.acknowledge_unverified:
+        raise _import_error(ModelRuntimeError("expected_checksum_required"))
+
+    filename = _url_filename(payload.url)
+    try:
+        display_name = (
+            _clean_display_name(payload.display_name)
+            if payload.display_name is not None
+            else _clean_display_name(filename)
+        )
+    except ModelRuntimeError as exc:
+        raise _import_error(exc) from None
+
+    settings: Settings = request.app.state.settings
+    download_request = DownloadRequest(
+        download_id=new_download_id(),
+        display_name=display_name,
+        role=payload.role,
+        dest_dir=resolve_model_dir(settings),
+        files=(
+            DownloadFileSpec(
+                filename=filename,
+                url=payload.url,
+                size_bytes=0,  # size unknown up front: no exact-size gate
+                sha256=payload.expected_sha256,
+            ),
+        ),
+        origin="url_import",
+        catalog_model_id=None,
+        source_url=payload.url,
+        revision=None,
+        license_notice=None,
+        verification="user_checksum" if payload.expected_sha256 is not None else "none",
+    )
+    try:
+        download_id = downloads.start(download_request)
+    except ModelRuntimeError as exc:
+        raise _import_error(exc) from None
+    logger.info("url_import_started", extra={"download_id": download_id, "role": payload.role})
+    return JSONResponse(
+        DownloadStartedOut(download_id=download_id).model_dump(mode="json"), status_code=202
+    )
 
 
 @router.get("/models")
