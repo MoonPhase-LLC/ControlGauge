@@ -29,12 +29,14 @@ from controlgauge_service.db.models import ModelFile
 from controlgauge_service.evidence.filetype import UploadRejected, clean_filename
 from controlgauge_service.model_runtime import manager as manager_module
 from controlgauge_service.model_runtime.config import (
+    MAX_MODEL_FILE_BYTES,
     EmbeddingServerConfig,
     GenerationServerConfig,
 )
 from controlgauge_service.model_runtime.errors import ModelRuntimeError
 from controlgauge_service.model_runtime.manager import ModelRuntimeManager
 from controlgauge_service.model_runtime.protocols import HealthStatus, ModelDescriptor
+from controlgauge_service.routes import models as models_routes
 from controlgauge_service.routes.models import (
     IMPORT_PROVENANCE_WARNING,
     _clean_display_name,
@@ -191,14 +193,44 @@ def test_import_rejects_undersized_file(model_env: SimpleNamespace, tmp_path: Pa
     assert response.json()["error"]["code"] == "model_file_too_small"
 
 
-def test_import_rejects_oversized(model_env: SimpleNamespace, tmp_path: Path) -> None:
-    """A sparse file just over the sanity bound: instant to create, refused
-    at stat time -- long before any hashing."""
-    from controlgauge_service.model_runtime import config as model_config
+def test_import_rejects_oversized(
+    model_env: SimpleNamespace, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The route refuses any file whose stat size exceeds the sanity bound,
+    at stat time -- long before any hashing. The oversized size is injected
+    through the ``_read_head_and_size`` seam instead of materializing a
+    256 GiB file: ``truncate()`` is a free sparse hole on Linux, but the
+    Windows file-extension path eagerly consumes disk, which exhausted CI
+    runners mid-suite (ENOSPC, 2026-11-18 and 2026-11-23). A POSIX-only
+    companion below proves the same refusal against a real sparse file."""
+    path = _write_gguf(tmp_path / "huge.gguf")
+    real_head, real_size = models_routes._read_head_and_size(path)
+    assert real_size < MAX_MODEL_FILE_BYTES
+    monkeypatch.setattr(
+        models_routes,
+        "_read_head_and_size",
+        lambda _path: (real_head, MAX_MODEL_FILE_BYTES + 1),
+    )
+    response = _import(model_env.client, path)
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "model_file_too_large"
 
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="NTFS extends non-sparse files eagerly; a 256 GiB truncate exhausts the disk "
+    "(POSIX sparse holes are free)",
+)
+def test_import_rejects_oversized_real_sparse_file_posix(
+    model_env: SimpleNamespace, tmp_path: Path
+) -> None:
+    """End-to-end form of the oversized refusal with a REAL sparse file
+    (free on POSIX filesystems): refused from its stat size, before any
+    hashing. Windows coverage for the same decision lives in the seam test
+    above."""
     path = _write_gguf(tmp_path / "huge.gguf")
     with path.open("rb+") as fh:
-        fh.truncate(model_config.MAX_MODEL_FILE_BYTES + 1)
+        fh.truncate(MAX_MODEL_FILE_BYTES + 1)
     response = _import(model_env.client, path)
     assert response.status_code == 413
     assert response.json()["error"]["code"] == "model_file_too_large"
