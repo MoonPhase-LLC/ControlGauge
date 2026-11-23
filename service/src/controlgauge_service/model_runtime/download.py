@@ -468,7 +468,7 @@ class DownloadManager:
             # Worker-thread boundary: a bug must fail the download, never
             # kill the thread silently. Fixed event + fixed code; no
             # exception text (it may carry local paths, T-10).
-            logger.exception("download_unexpected_failure", extra={"download_id": download_id})
+            logger.error("download_unexpected_failure", extra={"download_id": download_id})
             self._update(download_id, state=_STATE_FAILED, error_code="download_network_error")
         finally:
             with self._lock:

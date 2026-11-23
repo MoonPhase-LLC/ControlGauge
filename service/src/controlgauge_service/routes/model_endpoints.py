@@ -359,9 +359,10 @@ def delete_endpoint(
 
 @router.post("/model-endpoints/{endpoint_id}/health")
 def check_endpoint_health(endpoint_id: str, database: DatabaseDep) -> EndpointOut:
-    """A live bounded check for EVERY declared capability; the worst
-    result is recorded on the row (`ready` only when all pass --
-    `endpoint_health_state` maps a failure's detail code onto
+    """A live bounded check of the declared capabilities, probed in
+    deterministic order and stopped at the FIRST failure; that failure's
+    result is recorded on the row (`ready` only when every capability
+    passes -- `endpoint_health_state` maps the failure's detail code onto
     ``unreachable`` vs ``unhealthy``)."""
     row = _get_endpoint(database, endpoint_id)
     failure: str | None = None

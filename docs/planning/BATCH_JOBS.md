@@ -857,8 +857,9 @@ cargo 106p/8f Linux (8 pre-existing failures byte-identical to main), Vitest 70/
   `model_source` rows `origin=catalog_download`/`verification=catalog_manifest`, start →
   real embed health (768-dim) → stop, rerun takes the duplicate path.
 - **Gates:** ruff + `ruff format --check` clean; mypy strict clean linux AND
-  `--platform win32` (136 files each); pytest **936 passed / 36 skipped** offline (936
-  baseline + the new module's 3 env-gated skips). Rust/TS untouched by this batch — the
+  `--platform win32` (136 files each); pytest **936 passed / 36 skipped** offline (the
+  S6-07 passed baseline of 936 stands unchanged; the new module's 3 tests are all env-gated
+  skips offline — skipped 33 → 36). Rust/TS untouched by this batch — the
   S6-07 baselines stand (cargo **112p/8f** with the documented failing set; vitest **85/85**;
   Playwright **4/4**).
 - **Limitations recorded:** the multi-GPU RECOMMENDATION path on real hardware is exercised

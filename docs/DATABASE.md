@@ -534,3 +534,9 @@ Implementation notes (S6-05):
   `planning/BATCH_JOBS.md`): the `model_source → model_file` FK is ON DELETE RESTRICT, making row
   deletion a designed two-step operation deferred to a later batch. Endpoint credentials are not
   stored (`OPEN_QUESTIONS.md` A-6).
+- **Deferred tightening (reviewer hygiene notes, 2026-11-23):** the `catalog_model_id` format
+  (`^[a-z0-9][a-z0-9.-]*$`, ≤100 chars) is enforced at the manifest-loader/API validation layer,
+  not as a DB CHECK, and external-endpoint duplicate prevention is application-level (a 409
+  before the probe), which leaves an app-level TOCTOU window. A UNIQUE index on the endpoint
+  identity column plus CHECK constraints for both are planned with the next migration that
+  touches these tables.
