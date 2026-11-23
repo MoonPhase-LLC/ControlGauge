@@ -566,15 +566,42 @@ cargo 106p/8f Linux (8 pre-existing failures byte-identical to main), Vitest 70/
   mypy strict both platforms; no new dependency (`uv.lock` untouched).
 
 ### S6-03 — Curated catalog: in-repo manifest + strict loader + `/model-catalog` list + packaging
-- **Status:** planned.
-- **Scope:** repo-root `models_catalog/` (`catalog.json`, `profiles.json`) with REAL revision
-  pins + per-file SHA-256s fetched from HF at dev time (provenance table in
+- **Status:** implemented 2026-11-23.
+- **Scope:** repo-root `models_catalog/` (`catalog.json` — four PD-026 entries:
+  Qwen2.5 1.5B/7B/14B Instruct Q4_K_M FAST/BALANCED/ACCURATE + nomic-embed-text-v1.5 Q4_K_M
+  with `embedding_dimensions` 768/L2/cosine and `kv_cache_bytes_per_token` 0; `profiles.json` —
+  consumer-cpu / workstation-32gb / enterprise-288gb) with REAL revision pins + per-file
+  SHA-256s fetched from the HF API at curation time (provenance table + drift policy in
   `docs/MODEL_CATALOG.md`); strict fail-closed loader (`model_catalog/manifest.py`, the
-  `framework_catalog.py` pattern); `GET /model-catalog` structural list with installed state;
-  `scripts/package-windows.ps1` `--add-data` + bundle assertion; service README re-verify notes.
-  Manifest lives OUTSIDE the `test_model_agnostic_source_guard` scan trees.
-- **Acceptance:** all four PD-026 entries with real pins; env-gated HF match test passes live;
-  manifest loads on Windows CI (pure JSON validation).
+  `framework_catalog.py` pattern: `extra="forbid"`, frozen, 256 KiB cap, any refusal = fixed
+  `catalog_unavailable`, download URLs must embed the entry's literal revision and end with the
+  declared filename); `GET /model-catalog` structural list — installed state from
+  `model_file.sha256_hash` matches (partial shard set reports its rows but is NOT installed;
+  S6-05 swaps the lookup to `model_source`, schema identical); `catalog_unavailable` added to
+  `MODEL_RUNTIME_ERROR_CODES` (503, mirrors the database_unavailable family);
+  `scripts/package-windows.ps1` `--add-data models_catalog` + byte-identical bundle assertions;
+  service README "Model catalog" section. Manifest lives OUTSIDE the
+  `test_model_agnostic_source_guard` scan trees (guard re-run green).
+- **Evidence (2026-11-23):** env-gated live drift detector
+  `test_catalog_matches_huggingface.py` **4/4 PASSED** with `CONTROLGAUGE_TEST_ALLOW_DOWNLOAD=1`
+  — every declared file's size + SHA-256 matches `api/models/<repo>/revision/<sha>?blobs=true`
+  at the pinned revision (1.5B `91cad511…`, 7B `bb5d59e0…`, 14B `b466e1f8…`, nomic
+  `0188c9bf…`; raw fetches of 2026-11-22 archived in `/tmp/opencode/s6/`). License recorded per
+  card: all four repos declare `apache-2.0` (the 14B GGUF card is Apache, NOT the Qwen research
+  license the spec anticipated — recorded what the card says; nomic repo has no LICENSE file,
+  so its `license_url` is the model card).
+- **Gates:** ruff + `ruff format --check` clean; mypy strict clean linux AND `--platform win32`;
+  pytest **794p/31sk** (757 baseline + 37 new: content guard incl. DEV_MODELS.md §1
+  cross-check on shard-1 + nomic pins, 15+ loader refusal tests against mutated copies of the
+  real manifest, root resolution incl. faked `_MEIPASS`, route auth/shape-under-offline-guard/
+  totals/installed-state matrix/503 fail-closed). Rust/TS untouched (no cargo/vitest run).
+- **Limitations recorded:** all four entries ship `evaluation.status: "unevaluated"`
+  (fail-closed until the Sprint 14 suite); `installed` is a SHA-256 proxy until S6-05's
+  `model_source` registry; pins are immutable `resolve/<sha>/` URLs — upstream deletion
+  fail-closes at download time and the entry must be re-curated (no auto-update, ever).
+- **Acceptance:** all four PD-026 entries with real pins served by the structural route;
+  env-gated HF match test passes live on this box; manifest loads everywhere (pure JSON
+  validation, no network in the default run).
 
 ### S6-04 — Secure download + verification (catalog + URL imports) + progress + resume
 - **Status:** planned.

@@ -38,6 +38,12 @@ MODEL_RUNTIME_ERROR_CODES = (
     "model_file_too_large",
     "invalid_gguf_magic",
     "invalid_gguf_version",
+    # Sprint 6 (S6-03): the curated catalog manifest failed to load
+    # (missing, oversized, malformed, or failing strict validation) -- the
+    # catalog is unavailable, never partially loaded. The remaining
+    # Sprint 6 codes assemble into DOWNLOAD_ERROR_CODES / CATALOG_ERROR_CODES
+    # / REGISTRY_ERROR_CODES as S6-04/S6-05 build their surfaces.
+    "catalog_unavailable",
 )
 
 _MESSAGES: dict[str, str] = {
@@ -65,6 +71,7 @@ _MESSAGES: dict[str, str] = {
     "model_file_too_large": "The file is larger than the supported model size limit.",
     "invalid_gguf_magic": "The file does not look like a GGUF model file.",
     "invalid_gguf_version": "The GGUF file version is not supported.",
+    "catalog_unavailable": "The model catalog is not available.",
 }
 
 

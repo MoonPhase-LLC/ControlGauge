@@ -124,6 +124,25 @@ framework-agnostic: identifiers come from a control's unclassed `label` property
 `id`) and are never parsed. A first import of the shipped catalog takes about 1.5 s; later
 starts only verify (about 20 ms).
 
+## Model catalog (Sprint 6)
+
+`models_catalog/` at the repository root ships the curated model catalog (`catalog.json`) and the
+synthetic recommendation profiles (`profiles.json`) as data -- outside the source trees, the same
+way `frameworks/` is. `model_catalog/manifest.py` loads both strictly (`extra="forbid"`, 256 KiB
+cap): a manifest that does not validate fail-closes the catalog (`GET /model-catalog` answers 503
+`catalog_unavailable`), never partially loads. The manifest pins each entry to an exact Hugging
+Face commit (40-hex revision embedded in every `resolve/<sha>/` download URL) with per-file sizes
+and SHA-256s; downloads (S6-04) verify against those pins before anything is registered.
+
+To re-verify the pins against upstream (dev time, network required): fetch
+`https://huggingface.co/api/models/<repo>/revision/<sha>?blobs=true` for each `source.revision`
+and check every declared file's `size` and `lfs.sha256` against the manifest --
+`tests/test_catalog_matches_huggingface.py` does exactly this when run with
+`CONTROLGAUGE_TEST_ALLOW_DOWNLOAD=1`. Pin values are never hand-edited; a catalog change is an
+owner-approved manifest update recorded in `docs/MODEL_CATALOG.md` (provenance table). The
+Windows bundle carries `models_catalog\` beside `frameworks\` (`scripts/package-windows.ps1`
+asserts byte-identical copies).
+
 ## Evidence ingestion (Sprint 4)
 
 Uploads (`routes/artifacts.py`) are checked in this order before anything is stored: the

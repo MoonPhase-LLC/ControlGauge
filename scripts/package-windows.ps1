@@ -75,6 +75,13 @@ $pyiArgs += @('--add-data', "$migrations;controlgauge_service\migrations")
 foreach ($meta in Get-ChildItem (Join-Path $repo 'frameworks') -Recurse -Filter 'framework.json') {
     $pyiArgs += @('--add-data', "$($meta.Directory.FullName);frameworks\$($meta.Directory.Name)")
 }
+# Model catalog (Sprint 6): the curated catalog + recommendation profiles
+# ship as data beside the frameworks. `model_catalog/manifest.py` reads
+# `<bundle>/_internal/models_catalog/` the same way; a manifest that does
+# not validate fail-closes the catalog (S6-03), so the bundle assertions
+# below pin exact byte copies.
+$modelsCatalog = Join-Path $repo 'models_catalog'
+$pyiArgs += @('--add-data', "$modelsCatalog;models_catalog")
 $pyiArgs += (Join-Path $service 'packaging\pyinstaller_entry.py')
 Invoke-Native 'Freeze the service (PyInstaller --onedir)' { & $python @pyiArgs }
 
@@ -108,6 +115,17 @@ if (-not (Test-Path (Join-Path $bundledMigrations 'env.py') -PathType Leaf) -or
 }
 $bundledManifests = @(Get-ChildItem (Join-Path $bundle '_internal\frameworks') -Recurse -Filter 'framework.json' -ErrorAction SilentlyContinue)
 if ($bundledManifests.Count -eq 0) { throw 'bundle is missing framework metadata' }
+# Model catalog (Sprint 6): both manifests must ship, byte-identical to the
+# repo copies -- the service fail-closes on any mismatch (S6-03), so a bad
+# copy here would ship an app with no catalog.
+foreach ($catalogFile in 'catalog.json', 'profiles.json') {
+    $bundled = Join-Path $bundle ('_internal\models_catalog\' + $catalogFile)
+    if (-not (Test-Path $bundled -PathType Leaf)) { throw "bundle is missing models_catalog\$catalogFile" }
+    $repoCopy = Join-Path $modelsCatalog $catalogFile
+    if ((Get-FileHash -Algorithm SHA256 $bundled).Hash -ne (Get-FileHash -Algorithm SHA256 $repoCopy).Hash) {
+        throw "bundled models_catalog\$catalogFile does not match the repository copy"
+    }
+}
 # Every pinned source a manifest declares must be in the bundle, byte-identical:
 # the service refuses a catalog whose hash does not match, so a bad copy here
 # would ship an app with no catalog.

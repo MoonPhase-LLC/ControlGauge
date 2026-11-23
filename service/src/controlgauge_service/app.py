@@ -44,6 +44,7 @@ from .routes.errors import install_error_handlers
 from .routes.frameworks import router as frameworks_router
 from .routes.hardware import router as hardware_router
 from .routes.health import router as health_router
+from .routes.model_catalog import router as model_catalog_router
 from .routes.models import router as models_router
 
 logger = logging.getLogger("controlgauge_service")
@@ -125,6 +126,9 @@ def create_app(
     # Sprint 6 hardware detection (S6-02): local-only machine facts,
     # behind the same middleware; no new state objects needed.
     app.include_router(hardware_router)
+    # Sprint 6 curated catalog (S6-03): structural listing of the shipped
+    # manifest + installed state, behind the same middleware.
+    app.include_router(model_catalog_router)
     if startup_challenge is not None:
         app.include_router(challenge_router)
 
