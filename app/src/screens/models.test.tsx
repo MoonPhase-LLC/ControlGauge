@@ -45,6 +45,12 @@ async function openModels(
   return { ipc, user };
 }
 
+/** The "Import a model" card, scoped so sibling sections don't collide. */
+function importCard() {
+  const title = screen.getByText("Import a model");
+  return within(title.closest('[data-slot="card"]') as HTMLElement);
+}
+
 function seedModel(ipc: ServiceIpcMock, overrides: Partial<ModelFile> = {}): ModelFile {
   const model: ModelFile = {
     id: MODEL_ID,
@@ -66,19 +72,23 @@ function seedModel(ipc: ServiceIpcMock, overrides: Partial<ModelFile> = {}): Mod
 }
 
 describe("model management", () => {
-  it("renders the import form and an empty state, calling only list_models", async () => {
+  it("renders the registry form and an empty state, calling only structural queries", async () => {
     const { ipc } = await openModels();
-    expect(screen.getByRole("heading", { level: 1, name: "Models" })).toBeVisible();
-    expect(screen.getByRole("combobox", { name: "Role" })).toHaveValue("generation");
+    expect(screen.getByRole("heading", { level: 1, name: "My models" })).toBeVisible();
+    expect(importCard().getByRole("combobox", { name: "Role" })).toHaveValue("generation");
     expect(screen.getByRole("button", { name: "Choose GGUF file…" })).toBeVisible();
-    expect(screen.getByText("No models imported")).toBeVisible();
-    // StrictMode double-runs the first query; nothing else is ever called.
-    expect(ipc.calls.data.some((c) => c.cmd !== "list_models")).toBe(false);
+    expect(screen.getByText("No models registered")).toBeVisible();
+    // StrictMode double-runs the first query; the rest are the screen's
+    // structural reads (inventory, hardware snapshot, endpoint list).
+    const unexpected = ipc.calls.data.filter(
+      (c) => c.cmd !== "list_models" && c.cmd !== "get_hardware" && c.cmd !== "list_endpoints",
+    );
+    expect(unexpected).toEqual([]);
   });
 
   it("opens the dialog and imports the picked file for the chosen role", async () => {
     const { ipc, user } = await openModels();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Role" }), "embedding");
+    await user.selectOptions(importCard().getByRole("combobox", { name: "Role" }), "embedding");
     openDialog.mockResolvedValue("/home/user/models/embedding-model.gguf");
     await user.click(screen.getByRole("button", { name: "Choose GGUF file…" }));
     await settle();
@@ -216,7 +226,7 @@ describe("model management", () => {
     await user.click(within(alert).getByRole("button", { name: "Try again" }));
     await settle();
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByText("No models imported")).toBeVisible();
+    expect(screen.getByText("No models registered")).toBeVisible();
     expect(ipc.models).toEqual([]);
   });
 
@@ -233,8 +243,47 @@ describe("model management", () => {
     expect(alert).toHaveTextContent("The model could not be imported");
     expect(alert).toHaveTextContent("not_gguf");
     // Nothing was imported and the form is usable again.
-    expect(screen.getByText("No models imported")).toBeVisible();
+    expect(screen.getByText("No models registered")).toBeVisible();
     expect(screen.getByRole("button", { name: "Choose GGUF file…" })).toBeEnabled();
     expect(ipc.models).toEqual([]);
+  });
+
+  it("shows origin and verification badges per registry entry (PD-026)", async () => {
+    await openModels((mock) => {
+      seedModel(mock, { origin: "local_import", verification: "none" });
+      seedModel(mock, {
+        id: "00000000-0000-4000-8000-000000000002",
+        role: "embedding",
+        display_name: "catalog-model.gguf",
+        origin: "catalog_download",
+        verification: "catalog_manifest",
+      });
+      seedModel(mock, {
+        id: "00000000-0000-4000-8000-000000000003",
+        role: "generation",
+        display_name: "url-model.gguf",
+        origin: "url_import",
+        verification: "user_checksum",
+      });
+    });
+    const list = screen.getByRole("list", { name: "Imported models" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(3);
+    // Newest first (the registry lists unshifted entries).
+
+    const url = within(items[0]);
+    expect(url.getByText("URL import")).toBeVisible();
+    expect(url.getByText("Checksum verified")).toBeVisible();
+    expect(url.getByText(PROVENANCE_WARNING)).toBeVisible();
+
+    const catalog = within(items[1]);
+    expect(catalog.getByText("Catalog download")).toBeVisible();
+    expect(catalog.getByText("Catalog verified")).toBeVisible();
+    // A catalog download is verified: no provenance warning on its entry.
+    expect(catalog.queryByRole("note")).toBeNull();
+
+    const local = within(items[2]);
+    expect(local.getByText("Local import")).toBeVisible();
+    expect(local.getByText("Unverified")).toBeVisible();
   });
 });

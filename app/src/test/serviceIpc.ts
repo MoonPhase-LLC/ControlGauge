@@ -4,11 +4,15 @@ import { vi } from "vitest";
 import type {
   ApiFieldError,
   Assessment,
+  AttachResult,
+  CatalogEntry,
   ControlQuery,
   DownloadStatus,
+  Endpoint,
   FrameworkSummary,
   HardwareInfo,
   HealthResponse,
+  ModelCatalog,
   ModelFile,
   ModelRole,
   RecommendationReport,
@@ -153,6 +157,143 @@ export const RECOMMENDATIONS: RecommendationReport = {
   ],
 };
 
+/**
+ * S6-07 curated catalog fixture. Synthetic ids/urls only (the model-agnostic
+ * source guard bans dev-model names in app/src); the ids match the
+ * RECOMMENDATIONS fixture so recommendation badges join across screens.
+ * The large generation entry mirrors the shipped catalog's honest
+ * "evaluation pending" disclosure.
+ */
+export const CATALOG: ModelCatalog = {
+  catalog_version: "2026.11.test",
+  entries: [
+    {
+      model_id: "catalog-gen-small",
+      display_name: "Test Gen Small",
+      format: "gguf",
+      backend: "llama-cpp",
+      roles: ["generation"],
+      tier: "fast",
+      recommended: true,
+      recommendation_withheld_reason: null,
+      context_window: 32768,
+      curated_context_tokens: 8192,
+      max_input_tokens: 28672,
+      max_output_tokens: 4096,
+      total_bytes: 1_117_320_736,
+      license: "apache-2.0",
+      revision: "a".repeat(64),
+      repository_url: "https://models.example.test/catalog-gen-small",
+      embedding_dimensions: null,
+      installed: false,
+      installed_model_ids: [],
+      evaluation_status: "evaluated",
+      files: [{ filename: "catalog-gen-small-q4_k_m.gguf", size_bytes: 1_117_320_736, sha256: "1".repeat(64) }],
+    },
+    {
+      model_id: "catalog-gen-medium",
+      display_name: "Test Gen Medium",
+      format: "gguf",
+      backend: "llama-cpp",
+      roles: ["generation"],
+      tier: "balanced",
+      recommended: true,
+      recommendation_withheld_reason: null,
+      context_window: 32768,
+      curated_context_tokens: 8192,
+      max_input_tokens: 28672,
+      max_output_tokens: 4096,
+      total_bytes: 4_683_073_632,
+      license: "apache-2.0",
+      revision: "b".repeat(64),
+      repository_url: "https://models.example.test/catalog-gen-medium",
+      embedding_dimensions: null,
+      installed: false,
+      installed_model_ids: [],
+      evaluation_status: "evaluated",
+      files: [
+        { filename: "catalog-gen-medium-q4_k_m-00001-of-00002.gguf", size_bytes: 4_000_000_000, sha256: "2".repeat(64) },
+        { filename: "catalog-gen-medium-q4_k_m-00002-of-00002.gguf", size_bytes: 683_073_632, sha256: "3".repeat(64) },
+      ],
+    },
+    {
+      model_id: "catalog-gen-large",
+      display_name: "Test Gen Large",
+      format: "gguf",
+      backend: "llama-cpp",
+      roles: ["generation"],
+      tier: "accurate",
+      recommended: true,
+      recommendation_withheld_reason: null,
+      context_window: 32768,
+      curated_context_tokens: 8192,
+      max_input_tokens: 28672,
+      max_output_tokens: 4096,
+      total_bytes: 8_988_110_496,
+      license: "apache-2.0",
+      revision: "c".repeat(64),
+      repository_url: "https://models.example.test/catalog-gen-large",
+      embedding_dimensions: null,
+      installed: false,
+      installed_model_ids: [],
+      evaluation_status: "evaluation_suite_pending",
+      files: [
+        { filename: "catalog-gen-large-q4_k_m-00001-of-00002.gguf", size_bytes: 8_000_000_000, sha256: "4".repeat(64) },
+        { filename: "catalog-gen-large-q4_k_m-00002-of-00002.gguf", size_bytes: 988_110_496, sha256: "5".repeat(64) },
+      ],
+    },
+    {
+      model_id: "catalog-embed-default",
+      display_name: "Test Embed Default",
+      format: "gguf",
+      backend: "llama-cpp",
+      roles: ["embedding"],
+      tier: null,
+      recommended: true,
+      recommendation_withheld_reason: null,
+      context_window: 2048,
+      curated_context_tokens: 2048,
+      max_input_tokens: 2048,
+      max_output_tokens: null,
+      total_bytes: 84_106_624,
+      license: "apache-2.0",
+      revision: "d".repeat(64),
+      repository_url: "https://models.example.test/catalog-embed-default",
+      embedding_dimensions: 768,
+      installed: true,
+      installed_model_ids: ["00000000-0000-4000-8000-00000000000a"],
+      evaluation_status: "evaluated",
+      files: [{ filename: "catalog-embed-default-q4_k_m.gguf", size_bytes: 84_106_624, sha256: "6".repeat(64) }],
+    },
+  ] as CatalogEntry[],
+};
+
+/** S6-07 external endpoints: one health-checked, one never checked. */
+export const ENDPOINTS: Endpoint[] = [
+  {
+    id: "00000000-0000-4000-8000-0000000000e1",
+    display_name: "Checked endpoint",
+    backend: "llama-cpp",
+    base_url_host_only: "http://127.0.0.1:8081",
+    capabilities: "generation,embedding",
+    registered_at: "2026-11-02T12:00:00Z",
+    last_health_at: "2026-11-02T12:05:00Z",
+    last_health_state: "healthy",
+    last_health_code: null,
+  },
+  {
+    id: "00000000-0000-4000-8000-0000000000e2",
+    display_name: "Unchecked endpoint",
+    backend: "llama-cpp",
+    base_url_host_only: "http://localhost:8082",
+    capabilities: "embedding",
+    registered_at: "2026-11-02T12:01:00Z",
+    last_health_at: null,
+    last_health_state: null,
+    last_health_code: null,
+  },
+];
+
 const DATA_COMMANDS = [
   "list_frameworks",
   "list_assessments",
@@ -172,6 +313,12 @@ const DATA_COMMANDS = [
   "refresh_hardware",
   "get_recommendations",
   "get_profile_recommendations",
+  "get_model_catalog",
+  "list_endpoints",
+  "register_endpoint",
+  "check_endpoint_health",
+  "attach_endpoint",
+  "delete_endpoint",
   "start_catalog_download",
   "get_download_status",
   "cancel_download",
@@ -203,6 +350,9 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
   const assessments: Assessment[] = [];
   const models: ModelFile[] = [];
   const downloads: DownloadStatus[] = [];
+  const endpoints: Endpoint[] = [...ENDPOINTS];
+  // Mutable so tests can stage infeasible/unknown verdicts for badge tests.
+  let recommendations: RecommendationReport = RECOMMENDATIONS;
   const runtime: Record<ModelRole, RuntimeStatus | null> = { generation: null, embedding: null };
   // One-shot: the next health check for a role's occupant answers
   // `unhealthy` with this detail code (an `unhealthy` answer is a resolved
@@ -375,10 +525,18 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
         return status;
       }
       case "stop_model": {
-        const model = models.find((m) => m.id === args.id);
-        if (!model) throw apiError(404, "model_not_found", "The model was not found.");
         const status: RuntimeStatus = { state: "stopped", detail_code: null, checked_at: null, model_id: null };
-        runtime[model.role as ModelRole] = status;
+        const model = models.find((m) => m.id === args.id);
+        if (model) {
+          runtime[model.role as ModelRole] = status;
+          return status;
+        }
+        // S6-05: the stop route detaches an attached endpoint too (its
+        // registry id is the role's model_id).
+        const endpointId = String(args.id ?? "");
+        const role = (Object.keys(runtime) as ModelRole[]).find((r) => runtime[r]?.model_id === endpointId);
+        if (!role) throw apiError(404, "model_not_found", "The model was not found.");
+        runtime[role] = status;
         return status;
       }
       case "check_model_health": {
@@ -407,7 +565,7 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
       // Pure computation in production; the mock serves the pinned
       // all-recommended fixture. Unknown profile ids 404 like the service.
       case "get_recommendations":
-        return { ...RECOMMENDATIONS, entries: [...RECOMMENDATIONS.entries], pairs: [...RECOMMENDATIONS.pairs] };
+        return { ...recommendations, entries: [...recommendations.entries], pairs: [...recommendations.pairs] };
       case "get_profile_recommendations": {
         const profileId = String(args.profileId ?? "");
         if (profileId === "consumer-cpu") {
@@ -436,24 +594,103 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
         }
         throw apiError(404, "profile_unknown", "The requested recommendation profile does not exist.");
       }
+      // --- Sprint 6 catalog + endpoints (mirrors routes/model_catalog.py
+      // and routes/model_endpoints.py) --------------------------------------
+      case "get_model_catalog":
+        return {
+          catalog_version: CATALOG.catalog_version,
+          entries: CATALOG.entries.map((e) => ({
+            ...e,
+            roles: [...e.roles],
+            installed_model_ids: [...e.installed_model_ids],
+            files: e.files.map((f) => ({ ...f })),
+          })),
+        };
+      case "list_endpoints":
+        return { endpoints: endpoints.map((e) => ({ ...e })) };
+      case "register_endpoint": {
+        const baseUrl = String(args.baseUrl ?? "");
+        // Service-side mirror of the loopback rule; the screen blocks
+        // non-loopback input client-side before this can fire.
+        const parsed = new URL(baseUrl);
+        if (!["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname)) {
+          throw apiError(422, "validation_failed", "The request is not valid.", [
+            { field: "base_url", code: "registry_endpoint_not_loopback", message: "Endpoints must be local addresses." },
+          ]);
+        }
+        if (endpoints.some((e) => e.base_url_host_only === parsed.origin)) {
+          throw apiError(409, "registry_duplicate", "That endpoint address is already registered.");
+        }
+        seq++;
+        const created: Endpoint = {
+          id: `00000000-0000-4000-8000-${String(seq).padStart(12, "0")}`,
+          display_name: String(args.displayName ?? "Endpoint"),
+          backend: String(args.backend ?? "llama-cpp"),
+          base_url_host_only: parsed.origin,
+          capabilities: String(args.capabilities ?? "generation"),
+          registered_at: "2026-11-02T12:07:00Z",
+          last_health_at: null,
+          last_health_state: null,
+          last_health_code: null,
+        };
+        endpoints.unshift(created);
+        return { ...created };
+      }
+      case "check_endpoint_health": {
+        const found = endpoints.find((e) => e.id === args.endpointId);
+        if (!found) throw apiError(404, "endpoint_not_found", "The endpoint was not found.");
+        found.last_health_at = "2026-11-02T12:08:00Z";
+        found.last_health_state = "healthy";
+        found.last_health_code = null;
+        return { ...found };
+      }
+      case "attach_endpoint": {
+        const found = endpoints.find((e) => e.id === args.endpointId);
+        if (!found) throw apiError(404, "endpoint_not_found", "The endpoint was not found.");
+        const role = String(args.role ?? "");
+        if (!found.capabilities.split(",").includes(role)) {
+          throw apiError(422, "validation_failed", "The request is not valid.", [
+            { field: "role", code: "endpoint_capability_missing", message: "The endpoint does not serve that role." },
+          ]);
+        }
+        runtime[role as ModelRole] = {
+          state: "ready",
+          detail_code: null,
+          checked_at: "2026-11-02T12:08:00Z",
+          model_id: found.id,
+        };
+        const result: AttachResult = { role, state: "ready", model_id: found.id };
+        return result;
+      }
+      case "delete_endpoint": {
+        const index = endpoints.findIndex((e) => e.id === args.endpointId);
+        if (index < 0) throw apiError(404, "endpoint_not_found", "The endpoint was not found.");
+        const attached = Object.values(runtime).some((s) => s?.model_id === endpoints[index].id);
+        if (attached) throw apiError(409, "endpoint_attached", "Stop the endpoint before removing it.");
+        endpoints.splice(index, 1);
+        return { deleted: true };
+      }
       // --- Sprint 6 secure downloads (mirrors routes/model_catalog.py and
       // routes/models.py import-url) ----------------------------------------
       // Starts register a synthetic `downloading` record; the test drives
       // its progress by mutating the exposed `downloads` store.
       case "start_catalog_download": {
         const modelId = String(args.modelId ?? "");
-        if (!modelId) {
+        const entry = CATALOG.entries.find((e) => e.model_id === modelId);
+        if (!entry) {
           throw apiError(404, "catalog_entry_unknown", "The catalog entry was not found.");
         }
-        return beginDownload("model.gguf", 1_000_000_000);
+        // The service downloads every declared file; the mock tracks the
+        // first (fixtures have at most two shards).
+        return beginDownload(entry.files[0].filename, entry.files[0].size_bytes);
       }
       case "get_download_status": {
-        const found = downloads.find((d) => d.download_id === args.download_id);
+        const found = downloads.find((d) => d.download_id === args.downloadId);
         if (!found) throw apiError(404, "download_not_found", "The download was not found.");
         return { ...found, files: [...found.files] };
       }
       case "cancel_download": {
-        const found = downloads.find((d) => d.download_id === args.download_id);
+        const found = downloads.find((d) => d.download_id === args.downloadId);
         if (!found) throw apiError(404, "download_not_found", "The download was not found.");
         if (found.state !== "failed" && found.state !== "cancelled" && found.state !== "completed") {
           found.state = "cancelled";
@@ -536,6 +773,11 @@ export function mockServiceIpc(initial: SupervisorState = { state: "ready" }) {
     assessments,
     models,
     downloads,
+    endpoints,
+    /** Replaces the recommendation report served for the detected machine. */
+    setRecommendations(report: RecommendationReport) {
+      recommendations = report;
+    },
     runtime,
     /** Makes the next health check of a role's occupant answer `unhealthy`. */
     setUnhealthyHealthNext(detailCode: string) {

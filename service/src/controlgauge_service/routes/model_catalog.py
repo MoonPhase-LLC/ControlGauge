@@ -67,6 +67,16 @@ class CatalogFileOut(BaseModel):
     sha256: str
 
 
+class CatalogFileOut(BaseModel):
+    """One declared file. The SHA-256 is a computed content identity
+    (allowed structural metadata, T-10) and the filename is the REMOTE
+    artifact name -- never a local path."""
+
+    filename: str
+    size_bytes: int
+    sha256: str
+
+
 class CatalogEntryOut(BaseModel):
     model_id: str
     display_name: str
@@ -88,6 +98,9 @@ class CatalogEntryOut(BaseModel):
     installed: bool
     installed_model_ids: list[str]
     evaluation_status: str
+    #: The declared per-file details the download approval dialog shows
+    #: (S6-07): the user approves exactly these files and digests.
+    files: list[CatalogFileOut]
 
 
 class CatalogOut(BaseModel):
@@ -194,6 +207,14 @@ def _to_out(
         installed=installed,
         installed_model_ids=installed_model_ids,
         evaluation_status=entry.evaluation.status,
+        files=[
+            CatalogFileOut(
+                filename=entry_file.filename,
+                size_bytes=entry_file.size_bytes,
+                sha256=entry_file.sha256,
+            )
+            for entry_file in entry.files
+        ],
     )
 
 

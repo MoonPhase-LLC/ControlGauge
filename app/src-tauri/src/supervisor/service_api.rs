@@ -1203,6 +1203,297 @@ pub async fn get_profile_recommendations(
     .map(|(report, _)| report)
 }
 
+// --- Sprint 6 (S6-07): catalog listing + external endpoints ------------------------
+
+/// One downloadable file of a catalog entry. The SHA-256 is a computed
+/// content identity (allowed structural metadata, T-10).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogFile {
+    pub filename: String,
+    pub size_bytes: u64,
+    pub sha256: String,
+}
+
+/// One curated catalog entry with its installed state. The
+/// `repository_url` and `revision` are manifest data the approval
+/// dialog shows verbatim; everything else is closed structural shape.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogEntry {
+    pub model_id: String,
+    pub display_name: String,
+    pub format: String,
+    pub backend: String,
+    pub roles: Vec<String>,
+    pub tier: Option<String>,
+    pub recommended: bool,
+    pub recommendation_withheld_reason: Option<String>,
+    pub context_window: u64,
+    pub curated_context_tokens: u64,
+    pub max_input_tokens: u64,
+    pub max_output_tokens: Option<u64>,
+    pub total_bytes: u64,
+    pub license: String,
+    pub revision: String,
+    pub repository_url: String,
+    pub embedding_dimensions: Option<u64>,
+    pub installed: bool,
+    pub installed_model_ids: Vec<String>,
+    pub evaluation_status: String,
+    /// The declared per-file details the approval dialog shows (S6-07):
+    /// the user approves exactly these files and digests.
+    pub files: Vec<CatalogFile>,
+}
+
+/// The closed `GET /model-catalog` answer: the shipped manifest plus
+/// one local database read -- structural (S6-03).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelCatalog {
+    pub catalog_version: String,
+    pub entries: Vec<CatalogEntry>,
+}
+
+/// `GET /model-catalog`: the curated listing with installed state.
+/// Structural on the service side (manifest load + one DB read), hence
+/// [`MODEL_CATALOG_TIMEOUT`].
+pub async fn get_model_catalog(
+    connection: &ReadyConnection,
+) -> Result<ModelCatalog, ServiceCallError> {
+    call_with(
+        connection,
+        Method::GET,
+        "/model-catalog",
+        None,
+        &[StatusCode::OK],
+        MODEL_CATALOG_TIMEOUT,
+    )
+    .await
+    .map(|(catalog, _)| catalog)
+}
+
+/// One registered external endpoint. `base_url_host_only` is the
+/// normalized `scheme://host:port` form -- loopback by construction,
+/// with no path/userinfo/query remainder to leak (T-10).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Endpoint {
+    pub id: String,
+    pub display_name: String,
+    pub backend: String,
+    pub base_url_host_only: String,
+    pub capabilities: String,
+    /// ISO 8601, UTC.
+    pub registered_at: String,
+    pub last_health_at: Option<String>,
+    pub last_health_state: Option<String>,
+    pub last_health_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EndpointList {
+    pub endpoints: Vec<Endpoint>,
+}
+
+/// The registration POST body. No credential field exists (V0.1
+/// registers unauthenticated loopback endpoints only).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EndpointCreate<'a> {
+    pub display_name: &'a str,
+    pub backend: &'a str,
+    pub base_url: &'a str,
+    pub capabilities: &'a str,
+}
+
+/// The attach POST body.
+#[derive(Debug, Serialize)]
+pub struct EndpointAttach<'a> {
+    pub role: &'a str,
+}
+
+/// The 200 body of a successful attach: the role is now occupied by
+/// the endpoint (its registry id is the role's `model_id`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AttachResult {
+    pub role: String,
+    pub state: String,
+    pub model_id: String,
+}
+
+/// The service mints endpoint ids as uuid4 strings (36 chars, 4 dashes).
+fn is_endpoint_id(endpoint_id: &str) -> bool {
+    let bytes = endpoint_id.as_bytes();
+    if bytes.len() != 36 {
+        return false;
+    }
+    for (index, b) in bytes.iter().enumerate() {
+        match (index, b) {
+            (8 | 13 | 18 | 23, b'-') => {}
+            (_, b'0'..=b'9' | b'a'..=b'f') => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
+fn endpoint_path(endpoint_id: &str, suffix: Option<&str>) -> Result<String, ServiceCallError> {
+    if !is_endpoint_id(endpoint_id) {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    Ok(match suffix {
+        None => format!("/model-endpoints/{endpoint_id}"),
+        Some(suffix) => format!("/model-endpoints/{endpoint_id}/{suffix}"),
+    })
+}
+
+/// `GET /model-endpoints`: the registered endpoints with their RECORDED
+/// last health result -- structural, never a live probe.
+pub async fn list_endpoints(
+    connection: &ReadyConnection,
+) -> Result<EndpointList, ServiceCallError> {
+    call_with(
+        connection,
+        Method::GET,
+        "/model-endpoints",
+        None,
+        &[StatusCode::OK],
+        HTTP_REQUEST_TIMEOUT,
+    )
+    .await
+    .map(|(list, _)| list)
+}
+
+/// The endpoint registration POST runs a bounded REAL health probe
+/// server-side (`ENDPOINT_HEALTH_TIMEOUT_S` = 10 s per capability
+/// before the 502 refusal), so the client deadline must comfortably
+/// outlive it.
+pub const ENDPOINT_REGISTER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The live health-check POST runs the same bounded probe server-side.
+pub const ENDPOINT_HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// The attach POST is bounded local work (provider construction +
+/// manager switch), but the switch may stop an occupied role first --
+/// the same class as a start's tail, so it keeps a wide deadline.
+pub const ENDPOINT_ATTACH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// The registration POST body bytes: closed JSON, camelCase. Shape
+/// validation happens here (the service owns the loopback rule and the
+/// bounded probe; a malformed shape is refused before any round trip).
+fn endpoint_create_request(create: &EndpointCreate<'_>) -> Result<RequestBody, ServiceCallError> {
+    let shape_ok = !create.display_name.is_empty()
+        && create.display_name.len() <= 255
+        && matches!(create.backend, "llama_cpp" | "openai_compatible")
+        && matches!(create.capabilities, "generation" | "embedding" | "both")
+        && !create.base_url.is_empty()
+        && create.base_url.len() <= 500;
+    if !shape_ok {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    serde_json::to_vec(create)
+        .map(|bytes| RequestBody {
+            bytes,
+            content_type: "application/json",
+            max_bytes: MAX_API_REQUEST_BYTES,
+            filename_header: None,
+        })
+        .map_err(|_| ServiceCallError::InvalidArgument)
+}
+
+/// `POST /model-endpoints`: the explicit registration (validate URL →
+/// bounded probe → persist; probe failure is a 502 refusal with NO
+/// row). 201 answers with the registered endpoint.
+pub async fn register_endpoint(
+    connection: &ReadyConnection,
+    create: &EndpointCreate<'_>,
+) -> Result<Endpoint, ServiceCallError> {
+    let body = endpoint_create_request(create)?;
+    call_with(
+        connection,
+        Method::POST,
+        "/model-endpoints",
+        Some(body),
+        &[StatusCode::CREATED],
+        ENDPOINT_REGISTER_TIMEOUT,
+    )
+    .await
+    .map(|(endpoint, _)| endpoint)
+}
+
+/// `POST /model-endpoints/{id}/health`: the live bounded check; the
+/// worst result is recorded on the row.
+pub async fn check_endpoint_health(
+    connection: &ReadyConnection,
+    endpoint_id: &str,
+) -> Result<Endpoint, ServiceCallError> {
+    let path = endpoint_path(endpoint_id, Some("health"))?;
+    call_with(
+        connection,
+        Method::POST,
+        &path,
+        None,
+        &[StatusCode::OK],
+        ENDPOINT_HEALTH_TIMEOUT,
+    )
+    .await
+    .map(|(endpoint, _)| endpoint)
+}
+
+/// `POST /model-endpoints/{id}/attach`: make the endpoint a role's
+/// occupant (the switch contract applies; `start()` is never called).
+pub async fn attach_endpoint(
+    connection: &ReadyConnection,
+    endpoint_id: &str,
+    role: &str,
+) -> Result<AttachResult, ServiceCallError> {
+    let path = endpoint_path(endpoint_id, Some("attach"))?;
+    if !matches!(role, "generation" | "embedding") {
+        return Err(ServiceCallError::InvalidArgument);
+    }
+    let body = serde_json::to_vec(&EndpointAttach { role })
+        .map(|bytes| RequestBody {
+            bytes,
+            content_type: "application/json",
+            max_bytes: MAX_API_REQUEST_BYTES,
+            filename_header: None,
+        })
+        .map_err(|_| ServiceCallError::InvalidArgument)?;
+    call_with(
+        connection,
+        Method::POST,
+        &path,
+        Some(body),
+        &[StatusCode::OK],
+        ENDPOINT_ATTACH_TIMEOUT,
+    )
+    .await
+    .map(|(result, _)| result)
+}
+
+/// `DELETE /model-endpoints/{id}`: unregister; refused 409 while the
+/// endpoint occupies a role (detach via the role stop first). In-memory
+/// DB work only: the default deadline.
+pub async fn delete_endpoint(
+    connection: &ReadyConnection,
+    endpoint_id: &str,
+) -> Result<(), ServiceCallError> {
+    let path = endpoint_path(endpoint_id, None)?;
+    call_with::<serde_json::Value>(
+        connection,
+        Method::DELETE,
+        &path,
+        None,
+        &[StatusCode::OK],
+        HTTP_REQUEST_TIMEOUT,
+    )
+    .await
+    .map(|_| ())
+}
+
 // --- Sprint 6 (S6-04): secure downloads + URL imports -----------------------------
 
 /// The catalog download-start POST does bounded local work before the
@@ -1488,6 +1779,8 @@ mod tests {
 
     const ASSESSMENT: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
     const MODEL: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    /// A uuid-shaped endpoint id (the service mints `str(uuid4())`).
+    const ENDPOINT: &str = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 
     #[test]
     fn upload_request_validates_and_encodes() {
@@ -1861,6 +2154,97 @@ mod tests {
         });
         extra["gpu_names"] = serde_json::json!(["RTX"]);
         assert!(serde_json::from_value::<RecommendationReport>(extra).is_err());
+    }
+
+    #[test]
+    fn endpoint_and_catalog_schemas_are_closed() {
+        // --- Sprint 6 (S6-07): endpoints + the catalog listing ----------
+        let endpoint = serde_json::json!({
+            "id": ENDPOINT, "display_name": "Dev llama-server",
+            "backend": "llama_cpp", "base_url_host_only": "http://127.0.0.1:8080",
+            "capabilities": "generation", "registered_at": "2026-11-22T12:00:00Z",
+            "last_health_at": "2026-11-22T12:01:00Z", "last_health_state": "ready",
+            "last_health_code": null
+        });
+        assert!(serde_json::from_value::<Endpoint>(endpoint.clone()).is_ok());
+        let mut extra_endpoint = endpoint.clone();
+        extra_endpoint["base_url"] = serde_json::json!("http://127.0.0.1:8080/some/path");
+        // The host-only shape is closed: no full URL field is tolerated.
+        assert!(serde_json::from_value::<Endpoint>(extra_endpoint).is_err());
+        let list = serde_json::json!({ "endpoints": [endpoint] });
+        assert!(serde_json::from_value::<EndpointList>(list).is_ok());
+        let attach =
+            serde_json::json!({ "role": "generation", "state": "ready", "model_id": ENDPOINT });
+        assert!(serde_json::from_value::<AttachResult>(attach).is_ok());
+
+        let catalog = serde_json::json!({
+            "catalog_version": "1.0.0",
+            "entries": [{
+                "model_id": "generic-model", "display_name": "Generic Model",
+                "format": "gguf", "backend": "llama_cpp", "roles": ["generation"],
+                "tier": "balanced", "recommended": true,
+                "recommendation_withheld_reason": null,
+                "context_window": 32768u64, "curated_context_tokens": 8192u64,
+                "max_input_tokens": 8192u64, "max_output_tokens": 512u64,
+                "total_bytes": 1u64, "license": "apache-2.0",
+                "revision": "0123456789abcdef0123456789abcdef01234567",
+                "repository_url": "https://example.invalid/org/repo",
+                "embedding_dimensions": null, "installed": false,
+                "installed_model_ids": [], "evaluation_status": "unevaluated",
+                "files": [{"filename": "generic.gguf", "size_bytes": 1u64, "sha256": "ab".repeat(32)}]
+            }]
+        });
+        assert!(serde_json::from_value::<ModelCatalog>(catalog).is_ok());
+    }
+
+    #[test]
+    fn endpoint_request_validation_refuses_bad_shapes() {
+        let ok = EndpointCreate {
+            display_name: "Dev",
+            backend: "llama_cpp",
+            base_url: "http://127.0.0.1:8080",
+            capabilities: "both",
+        };
+        assert!(endpoint_create_request(&ok).is_ok());
+        let loopback_blocked_service_side = EndpointCreate {
+            display_name: "Dev",
+            backend: "llama_cpp",
+            base_url: "http://10.0.0.5:8080", // shape-valid; the service refuses
+            capabilities: "generation",
+        };
+        assert!(endpoint_create_request(&loopback_blocked_service_side).is_ok());
+        let bad_backend = EndpointCreate {
+            backend: "vendor_x",
+            ..ok
+        };
+        assert!(endpoint_create_request(&bad_backend).is_err());
+        let bad_capabilities = EndpointCreate {
+            capabilities: "audio",
+            ..EndpointCreate {
+                display_name: "Dev",
+                backend: "llama_cpp",
+                base_url: "http://127.0.0.1:8080",
+                capabilities: "both",
+            }
+        };
+        assert!(endpoint_create_request(&bad_capabilities).is_err());
+
+        // Path interpolation is guarded: only uuid-shaped endpoint ids.
+        assert!(endpoint_path(ENDPOINT, None).is_ok());
+        assert!(endpoint_path(ENDPOINT, Some("health")).is_ok());
+        assert!(endpoint_path("../etc", None).is_err());
+        assert!(endpoint_path("not-a-uuid", None).is_err());
+    }
+
+    #[test]
+    fn endpoint_deadlines_outlive_the_bounded_server_probe() {
+        // The registration/health probes are ENDPOINT_HEALTH_TIMEOUT_S =
+        // 10 s per capability server-side; the client deadlines must
+        // comfortably outlive them (D-026).
+        assert!(ENDPOINT_REGISTER_TIMEOUT >= HTTP_REQUEST_TIMEOUT);
+        assert!(ENDPOINT_REGISTER_TIMEOUT.as_secs() >= 10 + 10);
+        assert!(ENDPOINT_HEALTH_TIMEOUT >= HTTP_REQUEST_TIMEOUT);
+        assert!(ENDPOINT_ATTACH_TIMEOUT >= HTTP_REQUEST_TIMEOUT);
     }
 
     #[test]

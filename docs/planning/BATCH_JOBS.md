@@ -759,14 +759,69 @@ cargo 106p/8f Linux (8 pre-existing failures byte-identical to main), Vitest 70/
   credentials landed as `OPEN_QUESTIONS.md` A-6 (architecture, not UX).
 
 ### S6-07 — UI: tiers, catalog, download approval + progress, registry, endpoints, hardware
-- **Status:** planned.
-- **Scope:** `ModelCatalogScreen` (FAST/BALANCED/ACCURATE tiers, recommendation badges,
-  network-capable labeling); `DownloadDialog` (approval gate) + `DownloadProgress` (750 ms
-  poll); `HardwareSummaryCard`; `EndpointSection`; `UrlImportSection`; registry origin/
-  verification badges on the models screen; Vitest + Playwright additions.
-- **Acceptance:** curated vs user-managed visible without reading code; no model identity
-  hardcoded (source guard stays green); operator-gated manual UI acceptance run recorded as the
-  standing open item.
+- **Status:** DONE (2026-11-22).
+- **Scope delivered:** `ModelCatalogScreen` — fixed FAST/BALANCED/ACCURATE tier sections plus an
+  "Embedding" section for tier-null entries, per-entry recommendation badge from the S6-06 report
+  (`Recommended`/`Feasible`/`Not feasible`/`Needs hardware info`; missing verdict → unknown),
+  size/license/short-revision metadata, `Installed` badge, honest `evaluation_suite_pending` note,
+  fixed network-capable disclosure (ARCHITECTURE §11: browsing offline, download is the one
+  network step), fixed copy pointing CUSTOM-tier/own-source models at the Models screen, 503
+  `hardware_unavailable` rendered as a muted note (not an error); `DownloadDialog` — the approval
+  gate rendering repository URL + full revision verbatim as INERT text (T-21, never a link) and
+  per-file name/size/SHA-256, destination note + fixed network sentence, confirm = the one POST,
+  cancel = no request; `DownloadProgress` — 750 ms `setInterval` poll gated to
+  pending/downloading/verifying (cleared on terminal + unmount), per-file `formatBytes` byte
+  counts, completed status, failed → fixed-code ErrorNotice with retry (re-fires the already
+  approved download), transport failure → ErrorNotice with poll restart; `HardwareSummaryCard` —
+  closed `/hardware` snapshot + Re-detect, `gpus: []` renders "No GPU detected — CPU-only
+  recommendations", unknown scalars render "Not detected", `detection_complete: false` honest
+  note; `EndpointSection` — register form (display name, backend select, base URL with the fixed
+  loopback helper text, capability checkboxes), client-side loopback enforcement with fixed
+  messages BEFORE any request, fixed security note (local addresses only; no credentials stored),
+  list with last-health badge (healthy/unreachable/unhealthy/Not checked), Check health,
+  per-capability "Use for generation/embedding" (attach), occupant "Stop" via the role stop
+  route (endpoint registry id = role model_id), Remove (409 `endpoint_attached` while in use);
+  `UrlImportSection` — URL + role + optional 64-hex checksum + required "This source is not
+  verified" acknowledgment to submit without one (disabled button mirrors the service contract),
+  fixed provenance disclosure, reuses `DownloadProgress`; `ModelManagementScreen` — header "My
+  models", origin badge (`Catalog download`/`Local import`/`URL import`) + verification badge
+  (`Unverified`/`Checksum verified`/`Catalog verified`) per entry, PROVENANCE_WARNING updated
+  (no "coming in a later release"; contrasts with catalog-verified downloads) and skipped for
+  `catalog_download` entries, mounts the three new sections, empty state mentions the catalog;
+  `App.tsx` — nav entry `model-catalog` "Model catalog" (distinct id: `catalog` is taken by the
+  framework catalog), View union + section/viewFor/switch; Rust side (this batch):
+  `get_model_catalog` command + `CatalogFile`/`CatalogEntry`/`ModelCatalog` structs, five
+  endpoint commands with deadlines asserted ≥ the 10 s default (`ENDPOINT_REGISTER_TIMEOUT` 30 s,
+  health/attach 20 s, list/delete default; D-026), `Endpoint`/`EndpointList`/`AttachResult`
+  mirrors, uuid-shape guard on path interpolation, closed-schema tests; service: `CatalogEntryOut`
+  gains `files` (closed-schema extension; ENTRY_FIELDS pin updated); TS types/commands mirrors +
+  serviceIpc mock for every new command.
+- **Evidence:** vitest **85/85** (15 new: `modelCatalog.test.tsx` 7 — tiers from fixture,
+  verdict-badge mapping incl. unknown, 503 degrade-to-note, approval dialog shows URL/revision/
+  SHA and does NOT call `start_catalog_download` until confirm (cancel = zero requests), poll
+  starts/stops on terminal state with fake timers, failed → fixed-code ErrorNotice + working
+  retry, not-ready gate; `endpoints.test.tsx` 7 — loopback block client-side (non-loopback AND
+  https refused before any request), malformed/blank address refusals, register with declared
+  capabilities, attach with the right role + occupant Stop via role stop, health badge states +
+  Check health update, 409 `endpoint_attached` Remove refusal; `models.test.tsx` +1 origin/
+  verification badge test incl. no-warning-on-catalog-download); Playwright **4/4** (new
+  `catalog-screen.spec`: tiers visible, approval interaction, cancel sends nothing, confirm fires
+  exactly one `start_catalog_download`; models smoke updated to "My models" + import-card
+  scoping); two latent mock bugs found and fixed by the new tests (download args used
+  `download_id` instead of the camelCase wire key; `start_catalog_download` ignored the entry's
+  real filenames; mock `stop_model` now mirrors the S6-05 endpoint-detach extension).
+- **Gates:** cargo fmt --check + clippy `-D warnings` clean; cargo test **112p/8f** — failing set
+  exactly the known one; `typecheck:test` + eslint clean; vitest **85/85**; `npm run build` exit
+  0; Playwright **4/4**; service pytest **936p/33sk** offline (source guard green — fixtures use
+  synthetic ids `catalog-gen-*`/`catalog-embed-*` only).
+- **Limitations recorded:** manual UI acceptance run (import→download→start→health→stop from the
+  built app) is operator-gated and recorded as the sprint's open item; download progress is
+  per-file byte counts — no speed/ETA in V0.1; Windows detection displays fixture-verified code
+  until the owner's machine run; endpoint attach while another model occupies the role performs
+  the documented stop-then-attach switch (UI shows only the occupant's Stop after the switch);
+  tier sections are fixed frontend labels — a catalog with a new tier value would need a UI
+  release (closed vocabulary, fail-visible); approval dialog shows the repository URL as inert
+  text, not a link (no network egress from a click).
 
 ### S6-08 — Sprint 6 exit validation
 - **Status:** planned.

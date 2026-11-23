@@ -47,6 +47,7 @@ ENTRY_FIELDS = frozenset(
         "license",
         "revision",
         "repository_url",
+        "files",
         "embedding_dimensions",
         "installed",
         "installed_model_ids",

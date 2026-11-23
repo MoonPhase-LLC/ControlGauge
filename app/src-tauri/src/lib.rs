@@ -324,6 +324,64 @@ async fn get_profile_recommendations(
     service_api::get_profile_recommendations(&ready(&state).await?, &profile_id).await
 }
 
+// --- Sprint 6 (S6-07): catalog listing + external endpoints ----------------------
+
+#[tauri::command]
+async fn get_model_catalog(
+    state: tauri::State<'_, SupervisorHandle>,
+) -> Result<service_api::ModelCatalog, ServiceCallError> {
+    service_api::get_model_catalog(&ready(&state).await?).await
+}
+
+#[tauri::command]
+async fn list_endpoints(
+    state: tauri::State<'_, SupervisorHandle>,
+) -> Result<service_api::EndpointList, ServiceCallError> {
+    service_api::list_endpoints(&ready(&state).await?).await
+}
+
+#[tauri::command]
+async fn register_endpoint(
+    state: tauri::State<'_, SupervisorHandle>,
+    display_name: String,
+    backend: String,
+    base_url: String,
+    capabilities: String,
+) -> Result<service_api::Endpoint, ServiceCallError> {
+    let create = service_api::EndpointCreate {
+        display_name: &display_name,
+        backend: &backend,
+        base_url: &base_url,
+        capabilities: &capabilities,
+    };
+    service_api::register_endpoint(&ready(&state).await?, &create).await
+}
+
+#[tauri::command]
+async fn check_endpoint_health(
+    state: tauri::State<'_, SupervisorHandle>,
+    endpoint_id: String,
+) -> Result<service_api::Endpoint, ServiceCallError> {
+    service_api::check_endpoint_health(&ready(&state).await?, &endpoint_id).await
+}
+
+#[tauri::command]
+async fn attach_endpoint(
+    state: tauri::State<'_, SupervisorHandle>,
+    endpoint_id: String,
+    role: String,
+) -> Result<service_api::AttachResult, ServiceCallError> {
+    service_api::attach_endpoint(&ready(&state).await?, &endpoint_id, &role).await
+}
+
+#[tauri::command]
+async fn delete_endpoint(
+    state: tauri::State<'_, SupervisorHandle>,
+    endpoint_id: String,
+) -> Result<(), ServiceCallError> {
+    service_api::delete_endpoint(&ready(&state).await?, &endpoint_id).await
+}
+
 // --- Sprint 6 (S6-04): secure downloads + URL import commands --------------------
 //
 // Download answers are state machines + byte counts -- never a path, URL,
@@ -421,6 +479,12 @@ pub fn run() {
             refresh_hardware,
             get_recommendations,
             get_profile_recommendations,
+            get_model_catalog,
+            list_endpoints,
+            register_endpoint,
+            check_endpoint_health,
+            attach_endpoint,
+            delete_endpoint,
             start_catalog_download,
             get_download_status,
             cancel_download,

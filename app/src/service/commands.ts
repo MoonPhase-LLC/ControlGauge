@@ -4,15 +4,19 @@ import type {
   ArtifactList,
   Assessment,
   AssessmentList,
+  AttachResult,
   CatalogRelease,
   ControlDetail,
   ControlList,
   ControlQuery,
   DownloadStarted,
   DownloadStatus,
+  Endpoint,
+  EndpointList,
   FrameworkSummary,
   HealthResponse,
   HardwareInfo,
+  ModelCatalog,
   ModelHealthStatus,
   ModelImportResult,
   ModelInventory,
@@ -175,6 +179,61 @@ export function getRecommendations(): Promise<RecommendationReport> {
  */
 export function getProfileRecommendations(profileId: string): Promise<RecommendationReport> {
   return invoke<RecommendationReport>("get_profile_recommendations", { profileId });
+}
+
+// --- Sprint 6 catalog listing + external endpoints (S6-07) ---------------------------
+
+/**
+ * The curated catalog with installed state (manifest + one local DB read on
+ * the service side -- structural, no network).
+ */
+export function getModelCatalog(): Promise<ModelCatalog> {
+  return invoke<ModelCatalog>("get_model_catalog");
+}
+
+/** Every registered external endpoint (structural: a local DB read). */
+export async function listEndpoints(): Promise<Endpoint[]> {
+  const result = await invoke<EndpointList>("list_endpoints");
+  return result.endpoints;
+}
+
+/**
+ * Registers an external endpoint. Loopback-only is enforced on both sides
+ * (client-side pre-check + service validation); no credential field exists.
+ */
+export function registerEndpoint(args: {
+  displayName: string;
+  backend: string;
+  baseUrl: string;
+  capabilities: string;
+}): Promise<Endpoint> {
+  return invoke<Endpoint>("register_endpoint", {
+    displayName: args.displayName,
+    backend: args.backend,
+    baseUrl: args.baseUrl,
+    capabilities: args.capabilities,
+  });
+}
+
+/**
+ * One bounded real health check. An `unreachable`/`unhealthy` answer is a
+ * resolved status, not a rejection; only transport/service failures reject.
+ */
+export function checkEndpointHealth(endpointId: string): Promise<Endpoint> {
+  return invoke<Endpoint>("check_endpoint_health", { endpointId });
+}
+
+/**
+ * Attaches the endpoint to a role (generation or embedding). The role must be
+ * one of the endpoint's declared capabilities.
+ */
+export function attachEndpoint(endpointId: string, role: ModelRole): Promise<AttachResult> {
+  return invoke<AttachResult>("attach_endpoint", { endpointId, role });
+}
+
+/** Removes the registration. An endpoint in active use must be stopped first. */
+export async function deleteEndpoint(endpointId: string): Promise<void> {
+  await invoke<Record<string, unknown>>("delete_endpoint", { endpointId });
 }
 
 // --- Sprint 6 secure downloads (S6-04) ----------------------------------------------

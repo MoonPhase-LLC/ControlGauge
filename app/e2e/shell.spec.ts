@@ -101,10 +101,12 @@ test("models screen renders with mocked service", async ({ page }) => {
   const nav = page.getByRole("navigation", { name: "Main" });
   await nav.getByRole("button", { name: "Models", exact: true }).click();
 
-  await expect(page.getByRole("heading", { level: 1, name: "Models" })).toBeFocused();
-  await expect(page.getByText("No models imported")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "My models" })).toBeFocused();
+  await expect(page.getByText("No models registered")).toBeVisible();
   await expect(page.getByRole("button", { name: "Choose GGUF file…" })).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "Role" })).toHaveValue("generation");
+  // The registry screen now carries several sections; scope to the import card.
+  const importCard = page.locator('[data-slot="card"]', { hasText: "Import a model" });
+  await expect(importCard.getByRole("combobox", { name: "Role" })).toHaveValue("generation");
 
   expect(problems).toEqual([]);
 });

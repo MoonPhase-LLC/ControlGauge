@@ -439,3 +439,81 @@ export type RecommendationReport = {
   entries: EntryVerdict[];
   pairs: PairVerdict[];
 };
+
+// --- Sprint 6 catalog listing + external endpoints (S6-07) --------------------------
+// Mirror `app/src-tauri/src/supervisor/service_api.rs` (closed schemas). The
+// catalog entry carries the manifest's `repository_url`/`revision` (shown
+// verbatim in the approval dialog) and computed content digests -- both allowed
+// structural metadata; no credential ever appears (T-10).
+
+/** One downloadable file of a catalog entry: the user approves exactly these. */
+export type CatalogFile = {
+  filename: string;
+  size_bytes: number;
+  sha256: string;
+};
+
+/**
+ * One curated catalog entry with its installed state. `tier` is the closed
+ * fast|balanced|accurate vocabulary (null for embedding models);
+ * `evaluation_status` the closed `evaluated|evaluation_suite_pending` one.
+ */
+export type CatalogEntry = {
+  model_id: string;
+  display_name: string;
+  format: string;
+  backend: string;
+  roles: string[];
+  tier: string | null;
+  recommended: boolean;
+  recommendation_withheld_reason: string | null;
+  context_window: number;
+  curated_context_tokens: number;
+  max_input_tokens: number;
+  max_output_tokens: number | null;
+  total_bytes: number;
+  license: string;
+  revision: string;
+  repository_url: string;
+  embedding_dimensions: number | null;
+  installed: boolean;
+  installed_model_ids: string[];
+  evaluation_status: string;
+  files: CatalogFile[];
+};
+
+/** The closed `GET /model-catalog` answer: manifest + installed state. */
+export type ModelCatalog = {
+  catalog_version: string;
+  entries: CatalogEntry[];
+};
+
+/**
+ * One registered external endpoint. `base_url_host_only` is the normalized
+ * `scheme://host:port` form -- loopback by construction, with no path
+ * remainder to leak (T-10). Health fields are null until first check.
+ */
+export type Endpoint = {
+  id: string;
+  display_name: string;
+  backend: string;
+  base_url_host_only: string;
+  capabilities: string;
+  /** ISO 8601, UTC. */
+  registered_at: string;
+  last_health_at: string | null;
+  last_health_state: string | null;
+  last_health_code: string | null;
+};
+
+/** The closed `GET /model-endpoints` answer. */
+export type EndpointList = {
+  endpoints: Endpoint[];
+};
+
+/** The 200 body of a successful attach: the role is now served by the endpoint. */
+export type AttachResult = {
+  role: string;
+  state: string;
+  model_id: string;
+};
