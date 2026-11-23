@@ -8,11 +8,13 @@ into the child.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
 
 from controlgauge_service.model_runtime.args import (
+    _ENV_ALLOWLIST,
     CREDENTIAL_ENV_VAR,
     build_child_env,
     build_server_args,
@@ -107,7 +109,15 @@ def test_build_child_env_contains_only_allowlist_plus_credential(
     env = build_child_env("test-credential-value")
 
     assert env[CREDENTIAL_ENV_VAR] == "test-credential-value"
-    assert set(env) == {"HOME", "LANG", "PATH", "TMPDIR", CREDENTIAL_ENV_VAR}
+    # The invariant is the ALLOWLIST bound, not a POSIX key set: on a
+    # Windows runner the allowlisted SystemRoot/ComSpec/PATHEXT/TEMP/TMP
+    # are set in this process's environment and are correctly copied
+    # (a healthy Windows child needs them -- args.py module docs), so
+    # the exact key set is platform-dependent. What must hold on every
+    # platform: nothing outside the allowlist plus the credential, and
+    # every variable this test set explicitly does arrive.
+    assert set(env) <= set(_ENV_ALLOWLIST) | {CREDENTIAL_ENV_VAR}
+    assert {"HOME", "LANG", "PATH", "TMPDIR", CREDENTIAL_ENV_VAR} <= set(env)
     assert not any(key.startswith("CONTROLGAUGE_") for key in env)
     assert "LLAMA_ARG_MODEL" not in env
     assert "AWS_SECRET_ACCESS_KEY" not in env
@@ -126,11 +136,20 @@ def test_build_child_env_credential_present_exactly_once(
 
 def test_build_child_env_survives_empty_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """A stripped environment still yields a usable child env with the
-    credential (Windows SystemRoot arrives via the allowlist when set)."""
+    credential. The POSIX keys are deleted; the Windows keys are NOT
+    strippable this way and correctly arrive via the allowlist on a
+    Windows runner (a healthy Windows child needs them) -- so the
+    platform-independent assertion is the allowlist bound, with the
+    exact POSIX set pinned on POSIX only."""
     for key in ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP"):
         monkeypatch.delenv(key, raising=False)
 
     env = build_child_env("test-credential-value")
 
     assert env[CREDENTIAL_ENV_VAR] == "test-credential-value"
-    assert set(env) == {CREDENTIAL_ENV_VAR}
+    assert set(env) <= set(_ENV_ALLOWLIST) | {CREDENTIAL_ENV_VAR}
+    if sys.platform == "win32":
+        # What a healthy Windows child requires arrives even here.
+        assert {"SystemRoot", "ComSpec"} <= set(env)
+    else:
+        assert set(env) == {CREDENTIAL_ENV_VAR}
