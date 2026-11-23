@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ClipboardList, Cpu, House, Library, Settings } from "lucide-react";
+import { ClipboardList, Cpu, House, Library, Package, Settings } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { SidebarNav, type NavItem } from "@/components/layout/SidebarNav";
 import { ServiceStatusIndicator } from "@/components/service/ServiceStatus";
@@ -8,6 +8,7 @@ import { AssessmentsScreen } from "@/screens/AssessmentsScreen";
 import { CatalogScreen, EMPTY_FILTERS, type CatalogFilters } from "@/screens/CatalogScreen";
 import { ControlDetailScreen } from "@/screens/ControlDetailScreen";
 import { HomeScreen } from "@/screens/HomeScreen";
+import { ModelCatalogScreen } from "@/screens/ModelCatalogScreen";
 import { ModelManagementScreen } from "@/screens/ModelManagementScreen";
 import { NewAssessmentScreen } from "@/screens/NewAssessmentScreen";
 import { useLocalService } from "@/service/useLocalService";
@@ -16,6 +17,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "home", label: "Home", icon: House, available: true },
   { id: "assessments", label: "Assessments", icon: ClipboardList, available: true },
   { id: "catalog", label: "Framework catalog", icon: Library, available: true },
+  { id: "model-catalog", label: "Model catalog", icon: Package, available: true },
   { id: "models", label: "Models", icon: Cpu, available: true },
   // Placeholder for a future screen; not navigable yet (see SidebarNav).
   { id: "settings", label: "Settings", icon: Settings, available: false },
@@ -28,6 +30,7 @@ type View =
   | { screen: "assessment"; id: string }
   | { screen: "catalog" }
   | { screen: "control"; id: string }
+  | { screen: "model-catalog" }
   | { screen: "models" };
 
 /** Which navigation item a view belongs to. */
@@ -38,6 +41,8 @@ function section(view: View): string {
     case "catalog":
     case "control":
       return "catalog";
+    case "model-catalog":
+      return "model-catalog";
     case "models":
       return "models";
     default:
@@ -48,6 +53,7 @@ function section(view: View): string {
 function viewFor(navId: string): View {
   if (navId === "home") return { screen: "home" };
   if (navId === "catalog") return { screen: "catalog" };
+  if (navId === "model-catalog") return { screen: "model-catalog" };
   if (navId === "models") return { screen: "models" };
   return { screen: "assessments" };
 }
@@ -131,6 +137,9 @@ function App() {
           onOpenControl={(id) => go({ screen: "control", id })}
         />
       );
+      break;
+    case "model-catalog":
+      content = <ModelCatalogScreen status={service.status} focusOnMount={navigated} />;
       break;
     case "models":
       content = <ModelManagementScreen status={service.status} focusOnMount={navigated} />;

@@ -51,6 +51,7 @@ from .credentials import CredentialStore
 from .db import DatabaseInitError, initialize_database
 from .evidence.ingest import start_ingestion
 from .logging_config import configure_logging
+from .model_runtime.download import DownloadManager
 from .model_runtime.manager import ModelRuntimeManager
 
 logger = logging.getLogger("controlgauge_service.supervised")
@@ -187,15 +188,18 @@ def main() -> None:
 
     # Sprint 5: the per-capability model runtime is constructed with the
     # app and stopped beside ingestion in the `finally` below, so no
-    # llama-server child outlives this process. `None` until the app is
-    # fully wired -- the shutdown path must tolerate that.
+    # llama-server child outlives this process. Sprint 6 (S6-04): the
+    # download manager joins the same shutdown sequence. `None` until the
+    # app is fully wired -- the shutdown path must tolerate that.
     model_runtime: ModelRuntimeManager | None = None
+    downloads: DownloadManager | None = None
 
     try:
         settings = Settings(host=host, port=port, session_token=None)
         credential_store = CredentialStore()
         challenge_state = StartupChallengeState(secret=secret, host=host, port=port)
         model_runtime = ModelRuntimeManager(settings.llama_server)
+        downloads = DownloadManager(database)
 
         app = create_app(
             settings,
@@ -205,6 +209,7 @@ def main() -> None:
             database=database,
             ingestion=ingestion,
             model_runtime=model_runtime,
+            downloads=downloads,
         )
 
         logger.info(
@@ -254,6 +259,8 @@ def main() -> None:
     finally:
         if model_runtime is not None:
             model_runtime.stop_all()
+        if downloads is not None:
+            downloads.shutdown()
         if ingestion is not None:
             ingestion.stop()
         database.dispose()

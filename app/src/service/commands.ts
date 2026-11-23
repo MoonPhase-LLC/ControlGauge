@@ -4,18 +4,26 @@ import type {
   ArtifactList,
   Assessment,
   AssessmentList,
+  AttachResult,
   CatalogRelease,
   ControlDetail,
   ControlList,
   ControlQuery,
+  DownloadStarted,
+  DownloadStatus,
+  Endpoint,
+  EndpointList,
   FrameworkSummary,
   HealthResponse,
+  HardwareInfo,
+  ModelCatalog,
   ModelHealthStatus,
   ModelImportResult,
   ModelInventory,
   ModelRole,
   ModelSummary,
   NewAssessment,
+  RecommendationReport,
   RuntimeStatus,
   SectionList,
   SupervisorState,
@@ -135,4 +143,145 @@ export function stopModel(id: string): Promise<RuntimeStatus> {
  */
 export function checkModelHealth(id: string): Promise<ModelHealthStatus> {
   return invoke<ModelHealthStatus>("check_model_health", { id });
+}
+
+// --- Sprint 6 hardware detection ---------------------------------------------------
+
+/**
+ * The last detected hardware (structural: served from the service's cache when
+ * present). A cold cache triggers one fresh detection, which may run the
+ * platform's own bounded local probes; the explicit re-detect is
+ * `refreshHardware` -- staleness is never fixed by re-getting.
+ */
+export function getHardware(): Promise<HardwareInfo> {
+  return invoke<HardwareInfo>("get_hardware");
+}
+
+/** Explicit re-detection: always runs the probes and rewrites the service cache. */
+export function refreshHardware(): Promise<HardwareInfo> {
+  return invoke<HardwareInfo>("refresh_hardware");
+}
+
+// --- Sprint 6 recommendations (S6-06) -----------------------------------------------
+
+/**
+ * The hardware-aware recommendation report for THIS machine (pure
+ * computation over the shipped catalog + the service's cached hardware
+ * snapshot). Structural: never contacts a model child or the network.
+ */
+export function getRecommendations(): Promise<RecommendationReport> {
+  return invoke<RecommendationReport>("get_recommendations");
+}
+
+/**
+ * The same math on a synthetic profile (the 32 GB / 288 GB owner
+ * targets). Unknown profile ids are a service 404 `profile_unknown`.
+ */
+export function getProfileRecommendations(profileId: string): Promise<RecommendationReport> {
+  return invoke<RecommendationReport>("get_profile_recommendations", { profileId });
+}
+
+// --- Sprint 6 catalog listing + external endpoints (S6-07) ---------------------------
+
+/**
+ * The curated catalog with installed state (manifest + one local DB read on
+ * the service side -- structural, no network).
+ */
+export function getModelCatalog(): Promise<ModelCatalog> {
+  return invoke<ModelCatalog>("get_model_catalog");
+}
+
+/** Every registered external endpoint (structural: a local DB read). */
+export async function listEndpoints(): Promise<Endpoint[]> {
+  const result = await invoke<EndpointList>("list_endpoints");
+  return result.endpoints;
+}
+
+/**
+ * Registers an external endpoint. Loopback-only is enforced on both sides
+ * (client-side pre-check + service validation); no credential field exists.
+ */
+export function registerEndpoint(args: {
+  displayName: string;
+  backend: string;
+  baseUrl: string;
+  capabilities: string;
+}): Promise<Endpoint> {
+  return invoke<Endpoint>("register_endpoint", {
+    displayName: args.displayName,
+    backend: args.backend,
+    baseUrl: args.baseUrl,
+    capabilities: args.capabilities,
+  });
+}
+
+/**
+ * One bounded real health check. An `unreachable`/`unhealthy` answer is a
+ * resolved status, not a rejection; only transport/service failures reject.
+ */
+export function checkEndpointHealth(endpointId: string): Promise<Endpoint> {
+  return invoke<Endpoint>("check_endpoint_health", { endpointId });
+}
+
+/**
+ * Attaches the endpoint to a role (generation or embedding). The role must be
+ * one of the endpoint's declared capabilities.
+ */
+export function attachEndpoint(endpointId: string, role: ModelRole): Promise<AttachResult> {
+  return invoke<AttachResult>("attach_endpoint", { endpointId, role });
+}
+
+/** Removes the registration. An endpoint in active use must be stopped first. */
+export async function deleteEndpoint(endpointId: string): Promise<void> {
+  await invoke<Record<string, unknown>>("delete_endpoint", { endpointId });
+}
+
+// --- Sprint 6 secure downloads (S6-04) ----------------------------------------------
+
+/**
+ * Starts downloading a curated-catalog entry. This POST IS the user's approval
+ * (the UI confirms first); the transfer runs in the service's background and
+ * is polled structurally with `getDownloadStatus`.
+ */
+export function startCatalogDownload(modelId: string): Promise<DownloadStarted> {
+  return invoke<DownloadStarted>("start_catalog_download", { modelId });
+}
+
+/**
+ * Structural poll of a download: state machine + byte counts, never a path
+ * (SECURITY T-10). Answers immediately from the service's in-memory records.
+ */
+export function getDownloadStatus(downloadId: string): Promise<DownloadStatus> {
+  return invoke<DownloadStatus>("get_download_status", { downloadId });
+}
+
+/**
+ * Requests cancellation; the worker stops at the next chunk boundary and the
+ * resumable `.part` is retained. Cancelling a terminal download is a no-op
+ * returning its status.
+ */
+export function cancelDownload(downloadId: string): Promise<DownloadStatus> {
+  return invoke<DownloadStatus>("cancel_download", { downloadId });
+}
+
+/**
+ * Starts a direct-URL model download (this POST IS the approval). Either an
+ * expected checksum (enforced against the computed digest before anything is
+ * registered) or the explicit `acknowledgeUnverified` acknowledgment is
+ * required (PD-026); progress is polled with `getDownloadStatus`.
+ */
+export function importModelUrl(args: {
+  url: string;
+  role: ModelRole;
+  displayName?: string;
+  expectedSha256?: string;
+  acknowledgeUnverified?: boolean;
+}): Promise<DownloadStarted> {
+  return invoke<DownloadStarted>("import_model_url", {
+    url: args.url,
+    role: args.role,
+    displayName: args.displayName ?? null,
+    expectedSha256: args.expectedSha256 ?? null,
+    acknowledgeUnverified: args.acknowledgeUnverified ?? false,
+  });
 }

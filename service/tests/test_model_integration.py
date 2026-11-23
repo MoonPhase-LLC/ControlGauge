@@ -20,11 +20,13 @@ import math
 import os
 import re
 import signal
+import socket
+import subprocess
 import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -41,7 +43,7 @@ from controlgauge_service.model_runtime.config import (
 )
 from controlgauge_service.model_runtime.errors import ModelRuntimeError
 from controlgauge_service.model_runtime.manager import ModelRuntimeManager
-from controlgauge_service.model_runtime.protocols import GenerationUsage
+from controlgauge_service.model_runtime.protocols import GenerationCapable, GenerationUsage
 from controlgauge_service.model_runtime.provider import LlamaCppProvider
 from controlgauge_service.model_runtime.schemas import (
     ENUM_SCHEMA,
@@ -725,7 +727,7 @@ def test_integration_dimension_pinned_to_record(models_api: _ModelsApi) -> None:
     )
     assert restarted.status_code == 200, restarted.text
 
-    provider = models_api.manager.get("embedding")
+    provider = cast(LlamaCppProvider, models_api.manager.get("embedding"))
     assert provider is not None
     config = provider._config
     assert isinstance(config, EmbeddingServerConfig)
@@ -921,7 +923,7 @@ def test_integration_sprint5_exit_flow_offline(exit_flow: _ExitFlow) -> None:
     assert health.status_code == 200, health.text
     assert health.json()["state"] == "ready"
 
-    generation_provider = harness.manager.get("generation")
+    generation_provider = cast(LlamaCppProvider, harness.manager.get("generation"))
     assert generation_provider is not None
     generation_handle = generation_provider._handle
     generation_pid = generation_handle.pid if generation_handle is not None else None
@@ -969,7 +971,7 @@ def test_integration_sprint5_exit_flow_offline(exit_flow: _ExitFlow) -> None:
     assert started.status_code == 200, started.text
     assert started.json()["state"] == "ready"
 
-    embedding_provider = harness.manager.get("embedding")
+    embedding_provider = cast(LlamaCppProvider, harness.manager.get("embedding"))
     assert embedding_provider is not None
     embedding_handle = embedding_provider._handle
     embedding_pid = embedding_handle.pid if embedding_handle is not None else None
@@ -1005,3 +1007,117 @@ def test_integration_sprint5_exit_flow_offline(exit_flow: _ExitFlow) -> None:
 
     # 7) The baselines ride the test log (visible with ``pytest -s``).
     print(_format_baselines(generation_runs, embed_wall_ms, generation_rss_mib, embedding_rss_mib))
+
+
+# --- S6-05: the external-endpoint path against the real engine ------------------
+
+
+def test_integration_external_endpoint_llama_server_round_trip(tmp_path: Path) -> None:
+    """S6-05 env-gated: the OpenAI-compatible external-endpoint path
+    against a REAL engine. A standalone llama-server (no credential --
+    the V0.1 external-endpoint shape) is registered through
+    `POST /model-endpoints` (the bounded real probe runs a true
+    generation), attached as the generation role, used for one
+    structured generation through the manager, health-checked, and
+    detached via the role stop route. Proves the second provider kind is
+    a real, working backend -- not an interface-only seam."""
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    argv = [
+        str(MODEL_ENV.server),
+        "-m",
+        str(MODEL_ENV.generation),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--no-webui",
+    ]
+    proc = subprocess.Popen(  # noqa: S603 - the pinned dev binary from MODEL_ENV
+        argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env={**os.environ}
+    )
+    try:
+        # Wait for the standalone server's readiness (auth-exempt
+        # /health, the b12480 contract) -- loading the dev 7B takes tens
+        # of seconds on CPU.
+        deadline = time.monotonic() + 300.0
+        ready = False
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                pytest.fail("standalone llama-server exited during startup")
+            try:
+                probe = httpx.get(f"http://127.0.0.1:{port}/health", trust_env=False, timeout=5.0)
+            except httpx.TransportError:
+                time.sleep(0.5)
+                continue
+            if probe.status_code == 200:
+                ready = True
+                break
+            time.sleep(0.5)
+        assert ready, "standalone llama-server did not become ready in time"
+
+        database = initialize_database(tmp_path)
+        manager = ModelRuntimeManager(tmp_path / "llama-server")
+        app = create_app(
+            Settings(session_token=VALID_TOKEN), database=database, model_runtime=manager
+        )
+        client = TestClient(app)
+        headers = {"Authorization": f"Bearer {VALID_TOKEN}"}
+        try:
+            registered = client.post(
+                "/model-endpoints",
+                headers=headers,
+                json={
+                    "display_name": "Dev llama-server",
+                    "backend": "llama_cpp",
+                    "base_url": f"http://127.0.0.1:{port}",
+                    "capabilities": "generation",
+                },
+            )
+            assert registered.status_code == 201, registered.text
+            endpoint_id: str = registered.json()["id"]
+            # The registration probe was a REAL generation.
+            assert registered.json()["last_health_state"] == "ready"
+
+            attached = client.post(
+                f"/model-endpoints/{endpoint_id}/attach",
+                headers=headers,
+                json={"role": "generation"},
+            )
+            assert attached.status_code == 200, attached.text
+            inventory = client.get("/models", headers=headers)
+            assert inventory.json()["runtime"]["generation"]["model_id"] == endpoint_id
+
+            provider = cast(GenerationCapable, manager.get("generation"))
+            assert provider is not None
+            generation = provider.generate(_HEALTH_PROMPT, _OK_SCHEMA, timeout_s=120.0)
+            assert generation.data == {"ok": True}
+
+            health = client.post(f"/model-endpoints/{endpoint_id}/health", headers=headers)
+            assert health.status_code == 200, health.text
+            assert health.json()["last_health_state"] == "ready"
+
+            detached = client.post(f"/models/{endpoint_id}/stop", headers=headers)
+            assert detached.status_code == 200, detached.text
+            assert (
+                client.get("/models", headers=headers).json()["runtime"]["generation"]["model_id"]
+                is None
+            )
+
+            # Detach closes OUR client; the endpoint itself is not ours
+            # to kill and keeps serving its owner.
+            still_up = httpx.get(f"http://127.0.0.1:{port}/health", trust_env=False, timeout=10.0)
+            assert still_up.status_code == 200
+        finally:
+            client.close()
+            database.dispose()
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=15.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5.0)

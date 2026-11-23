@@ -285,6 +285,156 @@ async fn check_model_health(
     service_api::check_model_health(&ready(&state).await?, &id).await
 }
 
+// --- Sprint 6 (S6-02): hardware detection commands ------------------------------
+//
+// Both answers are machine facts only -- never a path, URL, or credential
+// (T-10). `get_hardware` is structural with respect to the model runtime
+// (the service's cached snapshot when present); `refresh_hardware` is the
+// explicit re-detect. A cold `get_hardware` may run the service's bounded
+// local probes once, so both carry `service_api::HARDWARE_TIMEOUT`.
+
+#[tauri::command]
+async fn get_hardware(
+    state: tauri::State<'_, SupervisorHandle>,
+) -> Result<service_api::HardwareInfo, ServiceCallError> {
+    service_api::get_hardware(&ready(&state).await?).await
+}
+
+#[tauri::command]
+async fn refresh_hardware(
+    state: tauri::State<'_, SupervisorHandle>,
+) -> Result<service_api::HardwareInfo, ServiceCallError> {
+    service_api::refresh_hardware(&ready(&state).await?).await
+}
+
+// --- Sprint 6 (S6-06): hardware-aware recommendations ----------------------------
+
+#[tauri::command]
+async fn get_recommendations(
+    state: tauri::State<'_, SupervisorHandle>,
+) -> Result<service_api::RecommendationReport, ServiceCallError> {
+    service_api::get_recommendations(&ready(&state).await?).await
+}
+
+#[tauri::command]
+async fn get_profile_recommendations(
+    state: tauri::State<'_, SupervisorHandle>,
+    profile_id: String,
+) -> Result<service_api::RecommendationReport, ServiceCallError> {
+    service_api::get_profile_recommendations(&ready(&state).await?, &profile_id).await
+}
+
+// --- Sprint 6 (S6-07): catalog listing + external endpoints ----------------------
+
+#[tauri::command]
+async fn get_model_catalog(
+    state: tauri::State<'_, SupervisorHandle>,
+) -> Result<service_api::ModelCatalog, ServiceCallError> {
+    service_api::get_model_catalog(&ready(&state).await?).await
+}
+
+#[tauri::command]
+async fn list_endpoints(
+    state: tauri::State<'_, SupervisorHandle>,
+) -> Result<service_api::EndpointList, ServiceCallError> {
+    service_api::list_endpoints(&ready(&state).await?).await
+}
+
+#[tauri::command]
+async fn register_endpoint(
+    state: tauri::State<'_, SupervisorHandle>,
+    display_name: String,
+    backend: String,
+    base_url: String,
+    capabilities: String,
+) -> Result<service_api::Endpoint, ServiceCallError> {
+    let create = service_api::EndpointCreate {
+        display_name: &display_name,
+        backend: &backend,
+        base_url: &base_url,
+        capabilities: &capabilities,
+    };
+    service_api::register_endpoint(&ready(&state).await?, &create).await
+}
+
+#[tauri::command]
+async fn check_endpoint_health(
+    state: tauri::State<'_, SupervisorHandle>,
+    endpoint_id: String,
+) -> Result<service_api::Endpoint, ServiceCallError> {
+    service_api::check_endpoint_health(&ready(&state).await?, &endpoint_id).await
+}
+
+#[tauri::command]
+async fn attach_endpoint(
+    state: tauri::State<'_, SupervisorHandle>,
+    endpoint_id: String,
+    role: String,
+) -> Result<service_api::AttachResult, ServiceCallError> {
+    service_api::attach_endpoint(&ready(&state).await?, &endpoint_id, &role).await
+}
+
+#[tauri::command]
+async fn delete_endpoint(
+    state: tauri::State<'_, SupervisorHandle>,
+    endpoint_id: String,
+) -> Result<(), ServiceCallError> {
+    service_api::delete_endpoint(&ready(&state).await?, &endpoint_id).await
+}
+
+// --- Sprint 6 (S6-04): secure downloads + URL import commands --------------------
+//
+// Download answers are state machines + byte counts -- never a path, URL,
+// or credential (T-10). The two start POSTs ARE the approval actions (the
+// UI confirms first): `start_catalog_download` for a curated entry,
+// `import_model_url` for a direct URL (which requires either an expected
+// checksum or the explicit unverified acknowledgment -- PD-026). Progress
+// is polled structurally; cancel retains the resumable `.part`.
+
+#[tauri::command]
+async fn start_catalog_download(
+    state: tauri::State<'_, SupervisorHandle>,
+    model_id: String,
+) -> Result<service_api::DownloadStarted, ServiceCallError> {
+    service_api::start_catalog_download(&ready(&state).await?, &model_id).await
+}
+
+#[tauri::command]
+async fn get_download_status(
+    state: tauri::State<'_, SupervisorHandle>,
+    download_id: String,
+) -> Result<service_api::DownloadStatus, ServiceCallError> {
+    service_api::get_download_status(&ready(&state).await?, &download_id).await
+}
+
+#[tauri::command]
+async fn cancel_download(
+    state: tauri::State<'_, SupervisorHandle>,
+    download_id: String,
+) -> Result<service_api::DownloadStatus, ServiceCallError> {
+    service_api::cancel_download(&ready(&state).await?, &download_id).await
+}
+
+#[tauri::command]
+async fn import_model_url(
+    state: tauri::State<'_, SupervisorHandle>,
+    url: String,
+    role: String,
+    display_name: Option<String>,
+    expected_sha256: Option<String>,
+    acknowledge_unverified: bool,
+) -> Result<service_api::DownloadStarted, ServiceCallError> {
+    service_api::import_model_url(
+        &ready(&state).await?,
+        &url,
+        &role,
+        display_name.as_deref(),
+        expected_sha256.as_deref(),
+        acknowledge_unverified,
+    )
+    .await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let supervisor_handle = SupervisorHandle::new();
@@ -324,7 +474,21 @@ pub fn run() {
             get_model,
             start_model,
             stop_model,
-            check_model_health
+            check_model_health,
+            get_hardware,
+            refresh_hardware,
+            get_recommendations,
+            get_profile_recommendations,
+            get_model_catalog,
+            list_endpoints,
+            register_endpoint,
+            check_endpoint_health,
+            attach_endpoint,
+            delete_endpoint,
+            start_catalog_download,
+            get_download_status,
+            cancel_download,
+            import_model_url
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();

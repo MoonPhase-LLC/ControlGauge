@@ -515,6 +515,368 @@ byte-identical to `main` via worktree, CI runs cargo test windows-only). Final b
 - **Acceptance:** `SPRINTS.md` Sprint 5 exit criteria demonstrated with evidence; Windows
   invariants intact on CI.
 
+## Sprint 6 — Hardware Detection and Model Recommendations
+
+Spec: `docs/SPRINTS.md` Sprint 6; requirements `docs/MODEL_RUNTIME.md` (§3–§6 rewritten by
+S6-01 as the binding Sprint 6 contracts); decisions D-011, D-017, D-023, D-025; owner gate
+**PD-026** (two-tier universe, catalog tiers Qwen2.5 1.5B/7B/14B + nomic-embed-v1.5, primary
+targets 32 GB VRAM pro + 288 GB aggregate enterprise, universal local model support via curated
+catalog + user-managed registry, S-4 secure downloads, hallucination-minimization integration
+points). One branch `claude/sprint-6-hardware-catalog`, batches committed separately with
+conventional messages, reviewer gate before the §7 merge. Implementation spec: the Sprint 6
+architect deliverable (2026-11-22). **Invariants grow-only:** offline baseline 706p/27sk pytest,
+cargo 106p/8f Linux (8 pre-existing failures byte-identical to main), Vitest 70/70.
+
+### S6-01 — Sprint 6 docs: two-tier universe, manifest/profile format, download contract, pipeline integration points
+- **Status:** implemented 2026-11-22.
+- **Scope:** `MODEL_RUNTIME.md` §3/§4/§5/§6 rewritten into the binding Sprint 6 contracts
+  (two-tier universe, strict manifest schema with footprint fields + reserved `evaluation`
+  field fail-closed to `unevaluated`, recommendation profiles, the exact §5 recommendation math,
+  the §6 download contract + Sprint 6 error-code table); §7 registry distinction note.
+  `AI_PIPELINE.md` §13 (documented-not-built integration points). `SECURITY.md` T-08 Sprint 6
+  mitigation + T-10 download-log note. `DATABASE.md` §11 placeholder (migration 0006 list).
+  `BATCH_JOBS.md` this section. No code, no new tests.
+- **Acceptance:** gates unchanged-green (706/27); every S6-02..S6-07 design element traceable
+  to a doc sentence.
+
+### S6-02 — Hardware detection module + `/hardware` routes + Rust command
+- **Status:** implemented 2026-11-23.
+- **Scope:** `service/src/controlgauge_service/hardware/` (`models.py`, `detect.py`,
+  `detect_windows.py` DXGI+GlobalMemoryStatusEx via ctypes, `detect_linux.py` /proc/meminfo +
+  nvidia-smi); cache `<data_dir>/hardware.json`; `GET /hardware` (structural) +
+  `POST /hardware/refresh`; Rust `get_hardware`/`refresh_hardware` with `HARDWARE_TIMEOUT` 15 s;
+  TS mirrors. Best-effort per field; `gpus: []` = nothing detected (never an error).
+- **Evidence (dev box, 2026-11-23):** `GET /hardware` 200 — `os_name` "linux", kernel
+  7.0.0-42-generic, 128 logical cores, RAM 1,081,232,535,552 B, **three** GPUs detected via the
+  real `nvidia-smi` path (NVIDIA RTX PRO 6000 Blackwell Max-Q, 102,641,958,912 B ≈ 95.6 GiB
+  each — the spec expected a no-GPU box, so real multi-GPU enumeration is validated here, and
+  the no-GPU case stays covered by the `parse_nvidia_smi`/route fixtures), disk free
+  341,069,848,576 B, `detection_complete` true; unauthenticated GET 401; corrupt/wrong-shape
+  cache → deleted + re-detected.
+- **Gates:** ruff + `ruff format --check` clean; mypy strict clean linux AND `--platform win32`
+  (the win32-only ctypes attributes are reached via `getattr` inside the probes); pytest
+  **757p/27sk** (706 baseline + 51 new: vendor table, nvidia-smi CSV parsing, detection_complete
+  semantics, probe-failure degradation, disk-ancestor walk, strict cache round-trip/corruption,
+  route auth/cache/refresh/503/no-path-leak/closed-schema); cargo fmt/clippy clean, cargo test
+  106p/8f (failing set byte-identical to main); `typecheck:test` + lint + Vitest **70/70**.
+- **Limitations recorded:** Windows DXGI + GlobalMemoryStatusEx paths are fixture-verified only
+  (no Windows box run them yet); Linux probes AMD/Intel as "nothing detected" (unknown, never
+  zero); `nvidia-smi` VRAM values are driver-reported totals.
+- **Acceptance:** dev-box evidence recorded above (real RAM/CPU/disk; multi-GPU via nvidia-smi);
+  mypy strict both platforms; no new dependency (`uv.lock` untouched).
+
+### S6-03 — Curated catalog: in-repo manifest + strict loader + `/model-catalog` list + packaging
+- **Status:** implemented 2026-11-23.
+- **Scope:** repo-root `models_catalog/` (`catalog.json` — four PD-026 entries:
+  Qwen2.5 1.5B/7B/14B Instruct Q4_K_M FAST/BALANCED/ACCURATE + nomic-embed-text-v1.5 Q4_K_M
+  with `embedding_dimensions` 768/L2/cosine and `kv_cache_bytes_per_token` 0; `profiles.json` —
+  consumer-cpu / workstation-32gb / enterprise-288gb) with REAL revision pins + per-file
+  SHA-256s fetched from the HF API at curation time (provenance table + drift policy in
+  `docs/MODEL_CATALOG.md`); strict fail-closed loader (`model_catalog/manifest.py`, the
+  `framework_catalog.py` pattern: `extra="forbid"`, frozen, 256 KiB cap, any refusal = fixed
+  `catalog_unavailable`, download URLs must embed the entry's literal revision and end with the
+  declared filename); `GET /model-catalog` structural list — installed state from
+  `model_file.sha256_hash` matches (partial shard set reports its rows but is NOT installed;
+  S6-05 swaps the lookup to `model_source`, schema identical); `catalog_unavailable` added to
+  `MODEL_RUNTIME_ERROR_CODES` (503, mirrors the database_unavailable family);
+  `scripts/package-windows.ps1` `--add-data models_catalog` + byte-identical bundle assertions;
+  service README "Model catalog" section. Manifest lives OUTSIDE the
+  `test_model_agnostic_source_guard` scan trees (guard re-run green).
+- **Evidence (2026-11-23):** env-gated live drift detector
+  `test_catalog_matches_huggingface.py` **4/4 PASSED** with `CONTROLGAUGE_TEST_ALLOW_DOWNLOAD=1`
+  — every declared file's size + SHA-256 matches `api/models/<repo>/revision/<sha>?blobs=true`
+  at the pinned revision (1.5B `91cad511…`, 7B `bb5d59e0…`, 14B `b466e1f8…`, nomic
+  `0188c9bf…`; raw fetches of 2026-11-22 archived in `/tmp/opencode/s6/`). License recorded per
+  card: all four repos declare `apache-2.0` (the 14B GGUF card is Apache, NOT the Qwen research
+  license the spec anticipated — recorded what the card says; nomic repo has no LICENSE file,
+  so its `license_url` is the model card).
+- **Gates:** ruff + `ruff format --check` clean; mypy strict clean linux AND `--platform win32`;
+  pytest **794p/31sk** (757 baseline + 37 new: content guard incl. DEV_MODELS.md §1
+  cross-check on shard-1 + nomic pins, 15+ loader refusal tests against mutated copies of the
+  real manifest, root resolution incl. faked `_MEIPASS`, route auth/shape-under-offline-guard/
+  totals/installed-state matrix/503 fail-closed). Rust/TS untouched (no cargo/vitest run).
+- **Limitations recorded:** all four entries ship `evaluation.status: "unevaluated"`
+  (fail-closed until the Sprint 14 suite); `installed` is a SHA-256 proxy until S6-05's
+  `model_source` registry; pins are immutable `resolve/<sha>/` URLs — upstream deletion
+  fail-closes at download time and the entry must be re-curated (no auto-update, ever).
+- **Acceptance:** all four PD-026 entries with real pins served by the structural route;
+  env-gated HF match test passes live on this box; manifest loads everywhere (pure JSON
+  validation, no network in the default run).
+
+### S6-04 — Secure download + verification (catalog + URL imports) + progress + resume
+- **Status:** implemented 2026-11-22.
+- **Scope:** `model_runtime/download.py` — `DownloadManager` (exactly one active download,
+  daemon worker per start, in-memory records pruned to the 32 most recent terminal ones,
+  states pending→downloading→verifying→completed|failed|cancelled, `active()` as the
+  structural approval-gate proof, `shutdown()` cancel+join beside `stop_all()` in BOTH entry
+  points) and `download_file` (streamed incremental SHA-256 into `<name>.part`; `Range:
+  bytes=<n>-` resume that pre-hashes the existing part, 200-to-a-Range restarts from zero with
+  the hasher reset; an oversized part is deleted and restarted; exact-size gate then digest
+  gate fail-closed BEFORE the `.part`→final rename; cancel checked per chunk and RETAINS the
+  part, verification mismatches delete it; disk pre-flight through a `shutil.disk_usage` seam —
+  known size gates `size-existing`, unknown size gates `MIN_MODEL_FILE_BYTES`; httpx
+  `trust_env=False`, `HTTPTransport(retries=0)`, redirects followed with a cap of 5 and a
+  response hook refusing any non-initial `http://` hop — no downgrade; GET only, no user data
+  in any request). `model_runtime/registry.py` — `persist_model_import` (+retry variant)
+  extracted verbatim from the S5-05 import closure so the import route and download
+  registration share one duplicate-aware writer. Routes: `POST /model-catalog/{model_id}/download`
+  (THE approval POST; 202 `DownloadStartedOut`; 404 `catalog_entry_unknown`; 409
+  `download_active`), `GET /model-catalog/downloads/{id}` (structural poll: state + remote
+  filenames + byte counts, never a path), `POST .../cancel` (registered before the param
+  route); `POST /models/import-url` (`URLImportRequest`: `expected_sha256` XOR
+  `acknowledge_unverified`, else 422 `expected_checksum_required` — PD-026's explicit
+  authorization; filename = URL path's last segment, never percent-decoded, fail-closed vs
+  traversal/control chars/`DISALLOWED_NAME_CHARS`/255 and must end `.gguf`); local import
+  gains enforced `expected_sha256` (422 `expected_checksum_mismatch` with the COMPUTED hash in
+  `fields` — structural, T-10-allowed) and the Sprint 5 review fold-in: validation order is
+  now shape → existence → extension → display name → sniff (two ordering tests);
+  `ImportResult.provenance` widened to `unverified_import|user_checksum` (display channel
+  only — no DB column until S6-05). `errors.py`: `DOWNLOAD_ERROR_CODES` (11 fixed messages)
+  + `CATALOG_ERROR_CODES` spliced into `MODEL_RUNTIME_ERROR_CODES` as `SPRINT6_ERROR_CODES`;
+  `download_cancelled` deliberately a state, not a code. `app.py` gains the `downloads`
+  parameter (the `model_runtime` pattern). Rust: `MODEL_CATALOG_TIMEOUT`/`DOWNLOAD_START_TIMEOUT`
+  (30 s, asserted ≥ the 10 s default) + `DOWNLOAD_POLL_TIMEOUT` (5 s, asserted ≤ default —
+  poll/cancel are in-memory snapshots), closed schemas `DownloadStarted`/`DownloadFileProgress`/
+  `DownloadStatus` (`deny_unknown_fields`), commands `start_catalog_download`/
+  `get_download_status`/`cancel_download`/`import_model_url` with Rust-side URL-rule/role/
+  checksum/PD-026 gating, deadline assertions extended, two argument-validation tests; lib.rs
+  registration. NO new capability grants (app-defined commands only). TS: types/commands
+  mirrors + serviceIpc mock cases pinning the URL rule and the checksum-or-ack contract.
+- **Evidence (2026-11-22):** 58 new offline tests over the S6-03 baseline — 32 loopback
+  download-manager tests (fresh, Range resume byte-identical, 200-to-Range restart, oversized
+  part, checksum mismatch registers NOTHING and leaves no final file, size mismatch, HTTP 500,
+  mid-body connection drop, https-only + loopback-http URL matrix, redirect to http refused,
+  redirect-loop cap, disk-space seam, GGUF-sniff refusal before registration, deterministic
+  gated cancel mid-stream then resume to completion, duplicate refresh, slot conflict,
+  shutdown, multi-file registers the primary only, progress byte counts, record-only URL
+  import, and `test_nothing_downloads_without_approval`), 9 models-api additions (ordering
+  tests, checksum match/mismatch, import-url contract, disk-space seam), 14 error-code
+  tests; pytest **852p/32sk**. Env-gated E2E `test_download_integration.py` **PASSED live**
+  with `CONTROLGAUGE_TEST_ALLOW_DOWNLOAD=1` (two runs, ~17 s wall): approval POST → real
+  84 MB nomic download from HF → registered row sha256 == the S6-03 manifest pin →
+  start/health/stop of the REAL embedding model from the downloaded file → catalog
+  `installed=true` → rerun takes the duplicate path. Connect auditor allowed only loopback +
+  `*.huggingface.co`/`*.hf.co` by resolved IP.
+- **Gates:** ruff + `ruff format --check` clean; mypy strict clean linux AND `--platform
+  win32`; pytest 852p/32sk (source guard green after app/src + Rust changes); cargo fmt/clippy
+  `-D warnings` clean; cargo test **108p/8f** — failing set byte-identical to the pre-existing
+  known set (child_death ×4, lost_authenticated_connection,
+  service_api_round_trip_against_real_python_child, shutdown ×2), +2 new passing Rust tests;
+  `typecheck:test` + eslint clean; vitest **70/70**.
+- **Limitations recorded:** multi-shard entries register the primary (shard 1) `model_file`
+  row only — S6-05's `model_source` carries the full file set; `verification` is in-memory
+  until migration 0006 (S6-05); download records are in-memory, so after an app restart an
+  orphaned `.part` is picked up by the next attempt of the same file (resume semantics
+  documented, records are not); no host allowlist by design (HF CDN redirect targets churn) —
+  the integrity control is the fail-closed checksum, the transport control is https-only with
+  no-downgrade, and no user data rides any request; `iter_bytes` yields at 1 MiB granularity,
+  so cancel lands at chunk boundaries (small loopback fixtures complete inside one chunk —
+  the cancel tests use a deterministic mid-stream gate, not timing); one concurrent download
+  in V0.1 (no queue).
+- **Acceptance:** checksum verification provably fail-closed (mismatch test: no DB row, no
+  final file); resume proven on a real Range exchange; nothing downloads at startup (approval
+  gate test asserts `DownloadManager.active() is None` on a fresh app); the poll route never
+  contacts the runtime and never exposes paths; env-gated nomic E2E (download → verify →
+  register → start → health → stop) passes with `CONTROLGAUGE_TEST_ALLOW_DOWNLOAD=1`.
+
+### S6-05 — User-managed registry + external-endpoint backend abstraction + migration 0006 + N5 fix
+- **Status:** DONE (2026-11-22).
+- **Scope delivered:** migration `0006_model_registry` (model_file `origin`/`verification` via
+  deterministic recreate — SQLite cannot ALTER in a CHECK; 1:1 `model_source` with full-file
+  `files_json`; loopback-only `external_endpoint` with NO credential column, health-state CHECKs);
+  `ExternalEndpointProvider` (real OpenAI-compatible loopback backend: generation + embedding +
+  D-023 capability-specific health, shared request plumbing extracted in `provider.py`);
+  `/model-endpoints` routes (register with bounded 10 s real probe → 502 refusal on probe
+  failure with nothing persisted; structural list; live health; attach via `manager.attach`;
+  delete refused 409 while attached); N5 fix (health checks run OUTSIDE the manager lock;
+  re-acquire-and-record only if the occupant is unchanged, stale results discarded, caller
+  always gets the result); `GET /models` gains `origin`/`verification` (closed-schema extension,
+  Rust `ModelFile` + TS mirrors updated); catalog installed-state lookup switched to
+  `model_source` with sha-coverage aggregation (one multi-shard registration OR legacy per-shard
+  rows both install; partial set lists but is not installed; malformed `files_json` fails
+  closed); download registration now writes `model_source` same-transaction (7B shard provenance
+  gap closed); duplicate-import merge rules (origin/verification latest-wins, files_json keeps
+  the wider coverage, identity fields only overwritten by non-None).
+- **Evidence:** migration 0006 upgrade/downgrade/backfill + `alembic check` clean at head;
+  18 endpoint-route tests against a stub loopback server (non-loopback/malformed URLs 422
+  fail-closed, unreachable 502 with no row, duplicate 409, health outcomes
+  ready/unhealthy/unreachable, attach→generate→detach, switch contract, auth);
+  N5 re-entrant-stop test runs `status()` on a bounded-join thread (a lock regression fails the
+  test instead of hanging the suite); **env-gated integration vs real llama-server b12480:
+  21/21 passed in 64.7 s, including `test_integration_external_endpoint_llama_server_round_trip`
+  (register→probe→attach→structured generation→health→detach on the standalone 7B; the 10 s
+  registration probe held a real generation, whole test 7.26 s warm)**.
+- **Gates:** ruff + `ruff format --check` clean; mypy strict clean linux AND `--platform win32`;
+  pytest **885p/33sk** offline (baseline 852p/32sk + 33 new passing + 1 new env-gated skip);
+  cargo fmt/clippy `-D warnings` clean; cargo test **108p/8f** — failing set byte-identical to
+  the known set; `typecheck:test` + eslint clean; vitest **70/70**.
+- **Limitations recorded:** model delete (USER_FLOWS §12) deliberately deferred — the
+  `model_source → model_file` FK is ON DELETE RESTRICT, a designed two-step operation for a
+  later batch; endpoint credentials are not stored (documented seam, `OPEN_QUESTIONS.md` A-6);
+  only OpenAI-compatible backends implemented (`backend` seam documented); registration probe
+  budget is a fixed 10 s — a slow first generation on a cold CPU model may refuse registration
+  (measured: warm 7B probes in ≪1 s of the budget); `catalog_model_id` is provenance metadata,
+  never the installed-state matching key.
+
+### S6-06 — Hardware-aware recommendation engine (combined footprint + multi-GPU sharding awareness)
+- **Status:** DONE (2026-11-22).
+- **Scope delivered:** `model_catalog/recommend.py` — pure §5 engine (`estimate_footprint`,
+  `evaluate_entry`, `evaluate_pair`, `recommend`, `recommend_for_profile`) with exact integer
+  forms of the fractions (0.7/0.9/1.5), closed verdict/reason vocabularies, disk gate on known
+  data only, unknown-VRAM GPUs excluded (never guessed), per-GPU share AND aggregate checks
+  (PD-026 "not one contiguous pool"), sequential_only fallback, curator_withheld no-ceiling gate,
+  ×1.5 recommended headroom on the deciding path's budget, >25-pair guard restricting to
+  `pairing_default`; `GET /recommendations` + `GET /recommendations/profile/{profile_id}` routes
+  (cached hardware only — never a live re-detect; unknown profile 404 `profile_unknown` added to
+  `CATALOG_ERROR_CODES` + fixed-message table); Rust mirror structs (`deny_unknown_fields`) +
+  `get_recommendations`/`get_profile_recommendations` commands (default `HTTP_REQUEST_TIMEOUT` —
+  pure computation) + TS types/commands/serviceIpc mock.
+- **Evidence:** 50 new tests (`test_recommend_footprint` 6, `test_recommend_entries` 17,
+  `test_recommend_pairs` 14, `test_recommend_routes` 7 + boundary pins) — every normative rule
+  has a named failing-then-passing test on synthetic fixtures; shipped catalog × shipped profiles
+  pinned EXACTLY (consumer-cpu: 1.5B/7B/nomic recommended, 14B infeasible `insufficient_ram`,
+  7B+nomic simultaneous; workstation-32gb: all recommended; enterprise-288gb: full catalog
+  recommended — no-ceiling evidence; exact footprint totals pinned per entry so catalog edits
+  cannot silently break the owner's targets). **Dev-box live evidence** (real detection: 1 TiB
+  RAM, 3× nvidia ≈95.6 GiB VRAM, 317 GiB free — the GPU path decides, NOT the CPU-only shape the
+  spec anticipated): all four entries `recommended`, all three pairs `simultaneous`.
+- **Gates:** ruff + `ruff format --check` clean; mypy strict clean linux AND `--platform win32`;
+  pytest **936p/33sk** offline; cargo fmt/clippy `-D warnings` clean; cargo test **109p/8f** —
+  failing set byte-identical to the known set (+1 new closed-schema test); `typecheck:test` +
+  eslint clean; vitest **70/70**; source guard green (the serviceIpc mock uses synthetic catalog
+  ids — dev-model substrings stay out of `app/src`).
+- **Limitations recorded:** KV/overhead constants are author-assigned estimates (formula +
+  provenance in the manifest notes; not measured on real GPUs here); full-offload-only GPU model
+  (partial `-ngl` budgets out of scope for recommendations — a user may still start with partial
+  offload manually); single-layer granularity unknown without GGUF metadata parsing (the
+  per-GPU-share check is the conservative proxy); a GPU with unknown VRAM is excluded from GPU
+  budgeting (if that leaves no usable GPU the CPU path decides); a pair whose deciding inputs
+  are unknown is OMITTED from reports (the pair vocabulary has no `unknown`; claiming
+  `infeasible` from unknown data would be dishonest — rare: RAM is known on every real detection
+  and profile); sequential loading is a *verdict* in V0.1 — runtime auto-swap per pipeline phase
+  is Sprint 8 work; `installed_model_ids` parameter is reserved for S6-07 UI cross-referencing
+  and deliberately does not affect the math; spec's "U-8-style" open question for endpoint
+  credentials landed as `OPEN_QUESTIONS.md` A-6 (architecture, not UX).
+
+### S6-07 — UI: tiers, catalog, download approval + progress, registry, endpoints, hardware
+- **Status:** DONE (2026-11-22).
+- **Scope delivered:** `ModelCatalogScreen` — fixed FAST/BALANCED/ACCURATE tier sections plus an
+  "Embedding" section for tier-null entries, per-entry recommendation badge from the S6-06 report
+  (`Recommended`/`Feasible`/`Not feasible`/`Needs hardware info`; missing verdict → unknown),
+  size/license/short-revision metadata, `Installed` badge, honest `evaluation_suite_pending` note,
+  fixed network-capable disclosure (ARCHITECTURE §11: browsing offline, download is the one
+  network step), fixed copy pointing CUSTOM-tier/own-source models at the Models screen, 503
+  `hardware_unavailable` rendered as a muted note (not an error); `DownloadDialog` — the approval
+  gate rendering repository URL + full revision verbatim as INERT text (T-21, never a link) and
+  per-file name/size/SHA-256, destination note + fixed network sentence, confirm = the one POST,
+  cancel = no request; `DownloadProgress` — 750 ms `setInterval` poll gated to
+  pending/downloading/verifying (cleared on terminal + unmount), per-file `formatBytes` byte
+  counts, completed status, failed → fixed-code ErrorNotice with retry (re-fires the already
+  approved download), transport failure → ErrorNotice with poll restart; `HardwareSummaryCard` —
+  closed `/hardware` snapshot + Re-detect, `gpus: []` renders "No GPU detected — CPU-only
+  recommendations", unknown scalars render "Not detected", `detection_complete: false` honest
+  note; `EndpointSection` — register form (display name, backend select, base URL with the fixed
+  loopback helper text, capability checkboxes), client-side loopback enforcement with fixed
+  messages BEFORE any request, fixed security note (local addresses only; no credentials stored),
+  list with last-health badge (healthy/unreachable/unhealthy/Not checked), Check health,
+  per-capability "Use for generation/embedding" (attach), occupant "Stop" via the role stop
+  route (endpoint registry id = role model_id), Remove (409 `endpoint_attached` while in use);
+  `UrlImportSection` — URL + role + optional 64-hex checksum + required "This source is not
+  verified" acknowledgment to submit without one (disabled button mirrors the service contract),
+  fixed provenance disclosure, reuses `DownloadProgress`; `ModelManagementScreen` — header "My
+  models", origin badge (`Catalog download`/`Local import`/`URL import`) + verification badge
+  (`Unverified`/`Checksum verified`/`Catalog verified`) per entry, PROVENANCE_WARNING updated
+  (no "coming in a later release"; contrasts with catalog-verified downloads) and skipped for
+  `catalog_download` entries, mounts the three new sections, empty state mentions the catalog;
+  `App.tsx` — nav entry `model-catalog` "Model catalog" (distinct id: `catalog` is taken by the
+  framework catalog), View union + section/viewFor/switch; Rust side (this batch):
+  `get_model_catalog` command + `CatalogFile`/`CatalogEntry`/`ModelCatalog` structs, five
+  endpoint commands with deadlines asserted ≥ the 10 s default (`ENDPOINT_REGISTER_TIMEOUT` 30 s,
+  health/attach 20 s, list/delete default; D-026), `Endpoint`/`EndpointList`/`AttachResult`
+  mirrors, uuid-shape guard on path interpolation, closed-schema tests; service: `CatalogEntryOut`
+  gains `files` (closed-schema extension; ENTRY_FIELDS pin updated); TS types/commands mirrors +
+  serviceIpc mock for every new command.
+- **Evidence:** vitest **85/85** (15 new: `modelCatalog.test.tsx` 7 — tiers from fixture,
+  verdict-badge mapping incl. unknown, 503 degrade-to-note, approval dialog shows URL/revision/
+  SHA and does NOT call `start_catalog_download` until confirm (cancel = zero requests), poll
+  starts/stops on terminal state with fake timers, failed → fixed-code ErrorNotice + working
+  retry, not-ready gate; `endpoints.test.tsx` 7 — loopback block client-side (non-loopback AND
+  https refused before any request), malformed/blank address refusals, register with declared
+  capabilities, attach with the right role + occupant Stop via role stop, health badge states +
+  Check health update, 409 `endpoint_attached` Remove refusal; `models.test.tsx` +1 origin/
+  verification badge test incl. no-warning-on-catalog-download); Playwright **4/4** (new
+  `catalog-screen.spec`: tiers visible, approval interaction, cancel sends nothing, confirm fires
+  exactly one `start_catalog_download`; models smoke updated to "My models" + import-card
+  scoping); two latent mock bugs found and fixed by the new tests (download args used
+  `download_id` instead of the camelCase wire key; `start_catalog_download` ignored the entry's
+  real filenames; mock `stop_model` now mirrors the S6-05 endpoint-detach extension).
+- **Gates:** cargo fmt --check + clippy `-D warnings` clean; cargo test **112p/8f** — failing set
+  exactly the known one; `typecheck:test` + eslint clean; vitest **85/85**; `npm run build` exit
+  0; Playwright **4/4**; service pytest **936p/33sk** offline (source guard green — fixtures use
+  synthetic ids `catalog-gen-*`/`catalog-embed-*` only).
+- **Limitations recorded:** manual UI acceptance run (import→download→start→health→stop from the
+  built app) is operator-gated and recorded as the sprint's open item; download progress is
+  per-file byte counts — no speed/ETA in V0.1; Windows detection displays fixture-verified code
+  until the owner's machine run; endpoint attach while another model occupies the role performs
+  the documented stop-then-attach switch (UI shows only the occupant's Stop after the switch);
+  tier sections are fixed frontend labels — a catalog with a new tier value would need a UI
+  release (closed vocabulary, fail-visible); approval dialog shows the repository URL as inert
+  text, not a link (no network egress from a click).
+
+### S6-08 — Sprint 6 exit validation
+- **Status:** DONE (2026-11-23).
+- **Scope delivered:** env-gated `service/tests/test_integration_sprint6_exit_flow.py`
+  (3 tests over ONE fresh app, the whole module under the `offline_guard`; skips cleanly
+  when the dev environment is unset): cold `GET /hardware` (real detection) →
+  `GET /recommendations` (detected hardware) → the three profile routes with the honest
+  no-ceiling assertions (enterprise-288gb recommends the FULL catalog; workstation-32gb all
+  feasible-or-recommended; consumer-cpu never auto-promotes the 14B entry while the 1.5B is
+  recommended) → the catalog embedding entry registered with the manifest pin ENFORCED
+  (`expected_sha256`, so a passing run proves the dev file byte-identical to the catalog
+  download) → start → real embed health (768-dim, finite) → stop → external endpoint
+  register(probe)/attach/generate/health/stop against a loopback stub. The download step is
+  EXCLUDED from the guarded section (the real-network E2E stays in
+  `test_download_integration.py`). Fix-forward: the S6-07 commit left a shadowed duplicate
+  `CatalogFileOut` in `routes/model_catalog.py` (ruff F811 + mypy `no-redef` at HEAD) —
+  removed the undocumented first definition, zero behavior change. Planning docs finalized
+  (this section, CURRENT_STATUS, DEV_MODELS §6/§9, MODEL_RUNTIME §4).
+- **Evidence (dev box, 2026-11-23):** `GET /hardware` — os_name "linux", kernel
+  7.0.0-42-generic, cpu_model "x86_64" (`platform.processor()`), 128 logical cores, RAM
+  1,081,232,535,552 B, **three GPUs via the real `nvidia-smi` path** (NVIDIA RTX PRO 6000
+  Blackwell Max-Q Workstation Edition, 102,641,958,912 B ≈ 95.6 GiB each — the GPUs are
+  occupied by another workload but ARE detectable; occupancy ≠ absence), model-dir free
+  340,225,961,984 B, `detection_complete` true. Detected-hardware recommendations exercise
+  the REAL GPU path (aggregate 3×0.9×95.6 GiB AND per-GPU share both clear every entry):
+  all four entries `recommended`, all three pairs `simultaneous` (14B total 12,209,335,968 B
+  vs per-GPU budget ≈ 92.4 GiB). Profiles: workstation-32gb and enterprise-288gb full catalog
+  `recommended`/`simultaneous` (the no-ceiling property); consumer-cpu 1.5B/7B/nomic
+  `recommended`, 14B `infeasible` (`insufficient_ram`) — honest tiering. Footprint estimates
+  identical across all four hardware sources. Exit-flow module **3/3 PASSED** (1.81 s);
+  env-gated download E2E **1/1 PASSED** (16.92 s): real 84,106,624 B nomic fetch from pinned
+  revision `0188c9bf…`, streamed SHA-256 == manifest pin `d4e38889…95ac`, `model_file` +
+  `model_source` rows `origin=catalog_download`/`verification=catalog_manifest`, start →
+  real embed health (768-dim) → stop, rerun takes the duplicate path.
+- **Gates:** ruff + `ruff format --check` clean; mypy strict clean linux AND
+  `--platform win32` (136 files each); pytest **936 passed / 36 skipped** offline (the
+  S6-07 passed baseline of 936 stands unchanged; the new module's 3 tests are all env-gated
+  skips offline — skipped 33 → 36). Rust/TS untouched by this batch — the
+  S6-07 baselines stand (cargo **112p/8f** with the documented failing set; vitest **85/85**;
+  Playwright **4/4**).
+- **Limitations recorded:** the multi-GPU RECOMMENDATION path on real hardware is exercised
+  only on this box's three EQUAL GPUs — the uneven-bank straggler case (aggregate passes,
+  one GPU's share fails) remains synthetic-fixture-only; Windows detection (DXGI +
+  GlobalMemoryStatusEx) is fixture-verified until the owner's Windows machine run —
+  SPRINTS.md exit criterion 1's Windows half is owner-gated, the Linux half is demonstrated
+  here; `nvidia-smi` VRAM values are driver-reported totals, not free-at-runtime; the
+  operator-gated manual UI acceptance run (import→download→start→health→stop from the built
+  app) remains the sprint's standing open item.
+- **Acceptance:** SPRINTS.md Sprint 6 exit criteria demonstrated with recorded evidence —
+  detection on real hardware (Linux half here, Windows half owner-gated as noted); accurate
+  feasible/recommended tiers including the honest no-ceiling property on the owner's 288 GB
+  target; a real model downloaded + verified end to end (checksum fail-closed, registered,
+  started, health-checked, stopped). Windows invariants re-verified on CI after the §7 merge
+  (post-merge task; CI runs only on main pushes).
+
 ## Later sprints (milestone level only)
 
 Detailed batches are created at the start of each sprint (PD-002). Do not pre-plan beyond this.
@@ -524,7 +886,7 @@ Detailed batches are created at the start of each sprint (PD-002). Do not pre-pl
 | 3 | NIST Rev. 5 catalog loaded, browsable, no hardcoded NIST logic | Batched above (S3-01..S3-06) |
 | 4 | Upload + parsers + verified parser containment (D-022) | Batched above (S4-01..S4-06) |
 | 5 | Local GGUF model import, health check, structured output, offline | Batched above (S5-01..S5-07); dev models approved (PD-023) |
-| 6 | Hardware detection, catalog, verified download | Resolve P-3, S-4 |
+| 6 | Hardware detection, catalog, verified download | Batched above (S6-01..S6-08); gate resolved (PD-026) |
 | 7 | Classification with analyst correction | Resolve AI-2 |
 | 8 | Validated Mapping Candidates with provenance and run lifecycle | Resolve AI-1; eval sample |
 | 9 | Policy mapping assessed against generic pipeline | — |

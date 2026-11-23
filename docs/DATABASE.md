@@ -473,3 +473,70 @@ spec's column list: none.
 - **Dimension pinning:** the first successful embed after a start pins the server-observed
   dimensionality into `embedding_dimensions`; later starts pass it as
   `expected_dimensions`, so dimension drift is refused (`embedding_dimension_mismatch`).
+
+## 11. Sprint 6 implementation notes (migration `0006_model_registry`, S6-05)
+
+Migration `0006_model_registry` (`down_revision = "0005_model_files"`) persists the curated-catalog
+vs user-managed-registry distinction (`docs/MODEL_RUNTIME.md` §3.1) and external-endpoint
+provenance:
+
+- **`model_file` gains:** `origin` (String 32, NOT NULL, server_default `'local_import'`) and
+  `verification` (String 32, NOT NULL, server_default `'none'`), CHECKs
+  `origin IN ('local_import','catalog_download','url_import')` and
+  `verification IN ('none','user_checksum','catalog_manifest')`. Existing rows backfill via the
+  defaults.
+- **New `model_source`** (1:1 with `model_file`): `id` (uuid PK), `model_file_id` (String 64,
+  NOT NULL, UNIQUE, FK → `model_file.id` ON DELETE RESTRICT), `origin` (same CHECK),
+  `catalog_model_id` (String 100, nullable), `source_url` (Text, nullable), `revision`
+  (String 40 hex, nullable), `license_notice` (String 2000, nullable), `files_json` (Text,
+  NOT NULL, default `'[]'` — a JSON array of `{filename, sha256, size_bytes}` covering **all**
+  files of a model, e.g. both shards of a split GGUF), `created_at`, `updated_at`. Backfill: one
+  row per existing `model_file` (`origin='local_import'`, `files_json` from that row's own
+  hash/size, `filename = PurePath(path).name`).
+- **New `external_endpoint`**: `id` (uuid PK), `display_name` (String 255, not-blank/length
+  CHECKs — cleaned on write like model display names), `backend` (CHECK
+  `('llama_cpp','openai_compatible')`), `base_url` (Text NOT NULL — loopback-validated at the
+  write path), `capabilities` (CHECK `('generation','embedding','both')`), `registered_at`
+  (NOT NULL), `last_health_at` (nullable), `last_health_state` (nullable, CHECK
+  `('ready','unhealthy','unreachable')`), `last_health_code` (String 64, nullable). **No
+  credential column** — V0.1 registers unauthenticated loopback endpoints only; whether/where to
+  store endpoint credentials is an owner decision (`OPEN_QUESTIONS.md`, not invented here).
+- Hardware detection results are **deliberately not** in this migration: machine facts are
+  cached as JSON in the data dir (`hardware.json`, `MODEL_RUNTIME.md` §4), never in the
+  assessment database.
+
+Implementation notes (S6-05):
+
+- **Deterministic recreate, not in-place ALTER:** SQLite cannot add a CHECK-constrained column
+  with `ALTER TABLE`, so the migration rebuilds `model_file` via
+  `_recreate_model_file(with_registry_columns=...)`, reused by upgrade and downgrade. The CHECK
+  expressions are built lazily inside the migration (`_model_file_0005_constraints()`) —
+  `op.f()` proxies only exist while a migration is running, so module-import-time construction
+  fails.
+- **ORM agreement is verified:** `alembic check` at head confirms the ORM (`db/models.py`) and the
+  migrated schema agree, including `ModelSource.model_file_id` carrying its uniqueness on the
+  column (no separate unique index) and the `external_endpoint` backend/capabilities query index.
+- **Backfill is 1:1 and self-describing:** every pre-existing `model_file` row gets a
+  `model_source` row with `origin='local_import'`, `verification` per the 0005 defaults, and
+  `files_json` describing exactly its own file (`filename = PurePath(path).name`, own sha256 and
+  size). Legacy per-shard imports therefore each describe one file, while new catalog downloads
+  register one primary row whose `files_json` spans every shard.
+- **Installed-state semantics (`GET /model-catalog`):** content identity remains the SHA-256. An
+  entry is installed when every declared digest is covered across registration rows — one
+  multi-shard registration or several legacy per-shard rows both qualify; a partial shard set
+  lists its row via `installed_model_ids` but is not installed. A malformed `files_json` fails
+  closed to "covers nothing"; `catalog_model_id` is provenance metadata, never the matching key.
+- **`external_endpoint.base_url` is stored normalized** to `scheme://host:port` (host loopback
+  only: `127.0.0.1`, `::1`, `localhost`; scheme `http` only; no userinfo/path/query/fragment
+  survives the write-path validation), so the API can echo a host-only form with nothing
+  sensitive to leak (T-10).
+- **No delete route for models or endpoints in Sprint 6** (documented not-implemented item,
+  `planning/BATCH_JOBS.md`): the `model_source → model_file` FK is ON DELETE RESTRICT, making row
+  deletion a designed two-step operation deferred to a later batch. Endpoint credentials are not
+  stored (`OPEN_QUESTIONS.md` A-6).
+- **Deferred tightening (reviewer hygiene notes, 2026-11-23):** the `catalog_model_id` format
+  (`^[a-z0-9][a-z0-9.-]*$`, ≤100 chars) is enforced at the manifest-loader/API validation layer,
+  not as a DB CHECK, and external-endpoint duplicate prevention is application-level (a 409
+  before the probe), which leaves an app-level TOCTOU window. A UNIQUE index on the endpoint
+  identity column plus CHECK constraints for both are planned with the next migration that
+  touches these tables.

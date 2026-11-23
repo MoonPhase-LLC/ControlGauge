@@ -13,6 +13,7 @@ import logging
 import os
 import struct
 import sys
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ from typing import Any, ClassVar
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from controlgauge_service.app import create_app
 from controlgauge_service.config import Settings
@@ -33,6 +35,7 @@ from controlgauge_service.model_runtime.config import (
     EmbeddingServerConfig,
     GenerationServerConfig,
 )
+from controlgauge_service.model_runtime.download import DownloadManager
 from controlgauge_service.model_runtime.errors import ModelRuntimeError
 from controlgauge_service.model_runtime.manager import ModelRuntimeManager
 from controlgauge_service.model_runtime.protocols import HealthStatus, ModelDescriptor
@@ -42,7 +45,7 @@ from controlgauge_service.routes.models import (
     _clean_display_name,
 )
 
-from .conftest import VALID_TOKEN
+from .conftest import VALID_TOKEN, _gguf_body, _url
 
 AUTH = {"Authorization": f"Bearer {VALID_TOKEN}"}
 
@@ -444,6 +447,8 @@ def test_models_list_closed_schema(model_env: SimpleNamespace, tmp_path: Path) -
             "embedding_dimensions",
             "embedding_normalization",
             "embedding_similarity_metric",
+            "origin",
+            "verification",
         }
 
 
@@ -703,3 +708,265 @@ def test_health_for_model_not_occupying_its_role_reports_stopped(
     assert response.status_code == 200
     assert response.json()["state"] == "stopped"
     assert response.json()["model_id"] is None
+
+
+# --- S6-04: expected checksum enforcement + validation order -------------------
+
+
+def test_import_expected_checksum_matches(model_env: SimpleNamespace, tmp_path: Path) -> None:
+    path = _write_gguf(tmp_path / "verified.gguf", body=b"checksum-me" * 400)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    response = model_env.client.post(
+        "/models/import",
+        json={"path": str(path), "role": "generation", "expected_sha256": digest},
+        headers=AUTH,
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["provenance"] == "user_checksum"
+    assert body["model"]["sha256"] == digest
+
+
+def test_import_expected_checksum_mismatch_fails_closed(
+    model_env: SimpleNamespace, tmp_path: Path
+) -> None:
+    path = _write_gguf(tmp_path / "claimed.gguf", body=b"actual-content" * 400)
+    response = model_env.client.post(
+        "/models/import",
+        json={"path": str(path), "role": "generation", "expected_sha256": "ab" * 32},
+        headers=AUTH,
+    )
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error"]["code"] == "expected_checksum_mismatch"
+    # The COMPUTED hash travels in the fields (a structural value, T-10)...
+    computed = body["error"]["fields"][0]["message"]
+    assert computed == f"Computed SHA-256: {hashlib.sha256(path.read_bytes()).hexdigest()}"
+    # ...and nothing was persisted.
+    listing = model_env.client.get("/models", headers=AUTH)
+    assert listing.json()["models"] == []
+
+
+def test_import_missing_file_with_wrong_extension_reports_missing(
+    model_env: SimpleNamespace, tmp_path: Path
+) -> None:
+    """S6-04 order fold-in: existence is checked BEFORE the extension, so
+    a missing file is a 404 even when the extension is also wrong."""
+    response = model_env.client.post(
+        "/models/import",
+        json={"path": str(tmp_path / "absent.bin"), "role": "generation"},
+        headers=AUTH,
+    )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "model_file_not_found"
+
+
+def test_import_existing_file_with_wrong_extension_reports_type(
+    model_env: SimpleNamespace, tmp_path: Path
+) -> None:
+    path = _write_gguf(tmp_path / "present.bin")
+    response = model_env.client.post(
+        "/models/import",
+        json={"path": str(path), "role": "generation"},
+        headers=AUTH,
+    )
+    assert response.status_code == 415
+    assert response.json()["error"]["code"] == "unsupported_file_type"
+
+
+# --- S6-04: POST /models/import-url ---------------------------------------------
+
+
+@pytest.fixture()
+def download_env(tmp_path: Path) -> Iterator[SimpleNamespace]:
+    """App + client + database + real DownloadManager pointed at a temp
+    model dir (never the user's real data directory)."""
+    database = initialize_database(tmp_path)
+    app = create_app(
+        Settings(session_token=VALID_TOKEN, model_dir=tmp_path / "models"),
+        database=database,
+        model_runtime=ModelRuntimeManager(tmp_path / "llama-server"),
+        downloads=DownloadManager(database),
+    )
+    client = TestClient(app)
+    yield SimpleNamespace(client=client, database=database, tmp_path=tmp_path)
+    client.close()
+    database.dispose()
+
+
+def _wait_download(env: SimpleNamespace, download_id: str, timeout: float = 10.0) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        response = env.client.get(f"/model-catalog/downloads/{download_id}", headers=AUTH)
+        assert response.status_code == 200, response.text
+        body: dict[str, Any] = response.json()
+        if body["state"] in {"completed", "failed", "cancelled"}:
+            return body
+        time.sleep(0.02)
+    pytest.fail("download did not reach a terminal state")
+
+
+def test_import_url_requires_checksum_or_acknowledgment(
+    download_env: SimpleNamespace, stub_server: Any
+) -> None:
+    server = stub_server
+    server.state.files["/model.gguf"] = _gguf_body(b"url-import")
+    response = download_env.client.post(
+        "/models/import-url",
+        json={"url": _url(server, "/model.gguf"), "role": "generation"},
+        headers=AUTH,
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "expected_checksum_required"
+    # Nothing started.
+    assert download_env.client.get("/model-catalog/downloads/nope", headers=AUTH).status_code == 404
+
+
+def test_import_url_rejects_non_loopback_http(download_env: SimpleNamespace) -> None:
+    response = download_env.client.post(
+        "/models/import-url",
+        json={
+            "url": "http://example.com/model.gguf",
+            "role": "generation",
+            "acknowledge_unverified": True,
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "download_url_unsupported"
+
+
+def test_import_url_with_acknowledgment_downloads_and_registers(
+    download_env: SimpleNamespace, stub_server: Any
+) -> None:
+    server = stub_server
+    content = server.state.files.setdefault("/model.gguf", _gguf_body(b"url-ack"))
+    response = download_env.client.post(
+        "/models/import-url",
+        json={
+            "url": _url(server, "/model.gguf"),
+            "role": "generation",
+            "acknowledge_unverified": True,
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 202, response.text
+    download_id = response.json()["download_id"]
+    status = _wait_download(download_env, download_id)
+    assert status["state"] == "completed"
+    assert status["error_code"] is None
+    # The record-only import registered with the COMPUTED hash displayed
+    # as the record's identity (the "recorded in provenance" channel).
+    with download_env.database.session() as session:
+        row = session.scalars(select(ModelFile)).one()
+        assert row.sha256_hash == hashlib.sha256(content).hexdigest()
+        assert row.size_bytes == len(content)
+        assert row.display_name == "model.gguf"
+
+
+def test_import_url_with_expected_checksum_enforced(
+    download_env: SimpleNamespace, stub_server: Any
+) -> None:
+    server = stub_server
+    content = server.state.files.setdefault("/model.gguf", _gguf_body(b"url-checked"))
+    digest = hashlib.sha256(content).hexdigest()
+    response = download_env.client.post(
+        "/models/import-url",
+        json={
+            "url": _url(server, "/model.gguf"),
+            "role": "generation",
+            "expected_sha256": digest,
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 202, response.text
+    status = _wait_download(download_env, response.json()["download_id"])
+    assert status["state"] == "completed"
+    with download_env.database.session() as session:
+        row = session.scalars(select(ModelFile)).one()
+        assert row.sha256_hash == digest
+
+
+def test_import_url_checksum_mismatch_registers_nothing(
+    download_env: SimpleNamespace, stub_server: Any
+) -> None:
+    server = stub_server
+    server.state.files["/model.gguf"] = _gguf_body(b"actual-url-bytes")
+    response = download_env.client.post(
+        "/models/import-url",
+        json={
+            "url": _url(server, "/model.gguf"),
+            "role": "generation",
+            "expected_sha256": "ab" * 32,
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 202, response.text
+    status = _wait_download(download_env, response.json()["download_id"])
+    assert status["state"] == "failed"
+    assert status["error_code"] == "download_checksum_mismatch"
+    # Fail closed: no row, no final file.
+    with download_env.database.session() as session:
+        assert session.scalars(select(ModelFile)).all() == []
+    assert not (download_env.tmp_path / "models" / "model.gguf").exists()
+
+
+def test_import_url_disk_space_insufficient_registers_nothing(
+    download_env: SimpleNamespace, stub_server: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil as shutil_module
+
+    server = stub_server
+    server.state.files["/model.gguf"] = _gguf_body(b"needs-space")
+
+    class _FullUsage:
+        free = 0
+
+    monkeypatch.setattr(shutil_module, "disk_usage", lambda _path: _FullUsage())
+    response = download_env.client.post(
+        "/models/import-url",
+        json={
+            "url": _url(server, "/model.gguf"),
+            "role": "generation",
+            "acknowledge_unverified": True,
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 202, response.text
+    status = _wait_download(download_env, response.json()["download_id"])
+    assert status["state"] == "failed"
+    assert status["error_code"] == "disk_space_insufficient"
+    with download_env.database.session() as session:
+        assert session.scalars(select(ModelFile)).all() == []
+
+
+def test_import_url_second_start_is_conflict(
+    download_env: SimpleNamespace, stub_server: Any
+) -> None:
+    server = stub_server
+    server.state.files.setdefault("/slow.gguf", _gguf_body(b"slot", 32 * 1024))
+    server.state.trickle["/slow.gguf"] = 0.02
+    first = download_env.client.post(
+        "/models/import-url",
+        json={
+            "url": _url(server, "/slow.gguf"),
+            "role": "generation",
+            "acknowledge_unverified": True,
+        },
+        headers=AUTH,
+    )
+    assert first.status_code == 202, first.text
+    second = download_env.client.post(
+        "/models/import-url",
+        json={
+            "url": _url(server, "/slow.gguf"),
+            "role": "embedding",
+            "acknowledge_unverified": True,
+        },
+        headers=AUTH,
+    )
+    assert second.status_code == 409
+    assert second.json()["error"]["code"] == "download_active"
+    download_env.client.post(
+        f"/model-catalog/downloads/{first.json()['download_id']}/cancel", headers=AUTH
+    )

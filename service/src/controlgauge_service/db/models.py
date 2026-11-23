@@ -475,6 +475,19 @@ EMBEDDING_NORMALIZATIONS = ("none", "l2")
 EMBEDDING_SIMILARITY_METRICS = ("cosine", "dot_product")
 MODEL_ROLES = ("generation", "embedding")
 
+# --- Sprint 6: user-managed registry (migration 0006, docs/DATABASE.md §11) ----
+
+#: Where a model's content came from (MODEL_RUNTIME.md §3.1's two-tier
+#: universe: catalog downloads vs everything the user brings).
+MODEL_ORIGINS = ("local_import", "catalog_download", "url_import")
+#: How strongly the content was verified: none (import as-is), the user's
+#: enforced expected checksum, or the shipped catalog manifest pin.
+MODEL_VERIFICATIONS = ("none", "user_checksum", "catalog_manifest")
+CATALOG_MODEL_ID_MAX = 100
+ENDPOINT_BACKENDS = ("llama_cpp", "openai_compatible")
+ENDPOINT_CAPABILITIES = ("generation", "embedding", "both")
+ENDPOINT_HEALTH_STATES = ("ready", "unhealthy", "unreachable")
+
 
 class ModelFile(Base):
     """One user-imported GGUF model file the runtime can run (S5-05).
@@ -503,6 +516,15 @@ class ModelFile(Base):
     embedding_dimensions: Mapped[int | None] = mapped_column(Integer)
     embedding_normalization: Mapped[str | None] = mapped_column(String(20))
     embedding_similarity_metric: Mapped[str | None] = mapped_column(String(20))
+    #: Sprint 6 registry distinction (migration 0006): where the content
+    #: came from and how strongly it was verified. Existing rows backfilled
+    #: as `local_import`/`none` by the migration's server defaults.
+    origin: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="local_import", server_default="local_import"
+    )
+    verification: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="none", server_default="none"
+    )
 
     __table_args__ = (
         # Duplicate detection scope is (content, role): the same file may
@@ -524,5 +546,77 @@ class ModelFile(Base):
         CheckConstraint(
             _in("embedding_similarity_metric", EMBEDDING_SIMILARITY_METRICS),
             name="embedding_similarity_metric_known",
+        ),
+        CheckConstraint(_in("origin", MODEL_ORIGINS), name="origin_known"),
+        CheckConstraint(_in("verification", MODEL_VERIFICATIONS), name="verification_known"),
+    )
+
+
+class ModelSource(Base):
+    """Full provenance for one `model_file` row, 1:1 (S6-05).
+
+    `files_json` is a JSON array of `{filename, sha256, size_bytes}` objects
+    covering ALL files of the model -- both shards of a split GGUF, not just
+    the primary file the runtime is given. It is read with `json.loads` and
+    written only through `model_runtime.registry` (the one transactional
+    writer); a malformed value fails closed to "does not cover" wherever it
+    is consumed (`routes/model_catalog.py`). `catalog_model_id` is
+    pattern-validated at the write path (`^[a-z0-9][a-z0-9.-]*$`, the
+    manifest identifier shape); the database stores it as bounded text.
+    """
+
+    __tablename__ = "model_source"
+
+    id: Mapped[str] = mapped_column(String(ID_MAX), primary_key=True)
+    model_file_id: Mapped[str] = mapped_column(
+        ForeignKey("model_file.id", ondelete="RESTRICT"), unique=True
+    )
+    origin: Mapped[str] = mapped_column(String(32))
+    catalog_model_id: Mapped[str | None] = mapped_column(String(CATALOG_MODEL_ID_MAX), index=True)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    revision: Mapped[str | None] = mapped_column(String(40))
+    license_notice: Mapped[str | None] = mapped_column(String(2000))
+    files_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (CheckConstraint(_in("origin", MODEL_ORIGINS), name="origin_known"),)
+
+
+class ExternalEndpoint(Base):
+    """A user-registered LOOPBACK OpenAI-compatible local inference server
+    (S6-05). `base_url` is loopback-validated and normalized at the write
+    path to `scheme://host:port` -- no userinfo, no path, no query (T-10:
+    a path could carry sensitive text and is never echoed). **No credential
+    column** -- V0.1 registers unauthenticated loopback endpoints only
+    (`docs/OPEN_QUESTIONS.md` owner decision)."""
+
+    __tablename__ = "external_endpoint"
+
+    id: Mapped[str] = mapped_column(String(ID_MAX), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(255))
+    backend: Mapped[str] = mapped_column(String(32))
+    base_url: Mapped[str] = mapped_column(Text)
+    capabilities: Mapped[str] = mapped_column(String(32))
+    registered_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    last_health_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    last_health_state: Mapped[str | None] = mapped_column(String(20))
+    last_health_code: Mapped[str | None] = mapped_column(String(64))
+
+    __table_args__ = (
+        CheckConstraint("length(trim(display_name)) > 0", name="display_name_not_blank"),
+        CheckConstraint("length(display_name) <= 255", name="display_name_max_length"),
+        CheckConstraint(_in("backend", ENDPOINT_BACKENDS), name="backend_known"),
+        CheckConstraint(_in("capabilities", ENDPOINT_CAPABILITIES), name="capabilities_known"),
+        CheckConstraint(
+            "last_health_state IS NULL OR " + _in("last_health_state", ENDPOINT_HEALTH_STATES),
+            name="last_health_state_known",
+        ),
+        # The duplicate rule's lookup index (same name the migration creates).
+        Index(
+            "ix_external_endpoint_backend_base_url_capabilities",
+            "backend",
+            "base_url",
+            "capabilities",
         ),
     )

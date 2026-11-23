@@ -74,17 +74,122 @@ logger = logging.getLogger("controlgauge_service.model_runtime")
 _READINESS_REQUEST_TIMEOUT_S = 5.0
 
 #: The bounded real generation behind every generation health check
-#: (D-023): fixed prompt, fixed tiny schema, fixed budget.
-_HEALTH_PROMPT = 'Reply with the JSON object {"ok": true}.'
-_HEALTH_SCHEMA: Mapping[str, Any] = {
+#: (D-023): fixed prompt, fixed tiny schema, fixed budget. Public because
+#: the external-endpoint provider (S6-05) runs the SAME D-023 check --
+#: one health contract for every provider kind.
+HEALTH_PROMPT = 'Reply with the JSON object {"ok": true}.'
+HEALTH_SCHEMA: Mapping[str, Any] = {
     "type": "object",
     "required": ["ok"],
     "properties": {"ok": {"type": "boolean"}},
     "additionalProperties": False,
 }
-_EMBED_HEALTH_TEXT = "controlgauge health check"
+EMBED_HEALTH_TEXT = "controlgauge health check"
 
 _START_REASONS_THAT_RETRY = frozenset({"start_failed", "auth_rejected"})
+
+
+# --- shared request plumbing -----------------------------------------------------
+#
+# Module-level so the external-endpoint provider (S6-05) reuses the EXACT
+# same closed error semantics instead of a drifting copy.
+
+
+def request_json(
+    client: httpx.Client,
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None,
+    timeout_s: float,
+) -> dict[str, Any]:
+    """One bounded JSON request with the fixed error mapping: timeouts,
+    transport failures (including httpx 0.28's post-stop RuntimeError),
+    auth/invalid/server statuses, and non-JSON bodies all raise
+    ``ModelRuntimeError`` with their fixed codes -- never response
+    content, a URL, or a path (T-10)."""
+    try:
+        if payload is None:
+            response = client.request(method, path, timeout=timeout_s)
+        else:
+            response = client.request(method, path, json=payload, timeout=timeout_s)
+    except httpx.TimeoutException as exc:
+        raise ModelRuntimeError("request_timeout") from exc
+    except httpx.TransportError as exc:
+        raise ModelRuntimeError("transport_error") from exc
+    except RuntimeError as exc:
+        # httpx 0.28 raises a bare RuntimeError ("Cannot send a
+        # request, as the client has been closed.") for the post-stop
+        # in-flight call instead of a TransportError; map it to the
+        # same fixed code (Sprint 5 review N2).
+        raise ModelRuntimeError("transport_error") from exc
+    if response.status_code == 401:
+        raise ModelRuntimeError("auth_rejected")
+    if response.status_code == 400:
+        raise ModelRuntimeError("invalid_request")
+    if response.status_code >= 500:
+        raise ModelRuntimeError("server_error")
+    if response.status_code < 200 or response.status_code >= 300:
+        # 404/405/415...: a request this server will not serve.
+        raise ModelRuntimeError("invalid_request")
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise ModelRuntimeError("invalid_output") from exc
+    if not isinstance(body, dict):
+        raise ModelRuntimeError("invalid_output")
+    return body
+
+
+def choice_content(body: dict[str, Any]) -> str:
+    """The first choice's message content, structurally checked."""
+    try:
+        choices = body["choices"]
+        message = choices[0]["message"]
+        content = message["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ModelRuntimeError("invalid_output") from exc
+    if not isinstance(content, str):
+        raise ModelRuntimeError("invalid_output")
+    return content
+
+
+def generation_usage(body: dict[str, Any]) -> GenerationUsage | None:
+    """Structural metadata only (baselines, S5-07); absent fields stay
+    ``None``. Never includes content."""
+    usage = body.get("usage")
+    timings = body.get("timings")
+    if not isinstance(usage, dict) and not isinstance(timings, dict):
+        return None
+    usage = usage if isinstance(usage, dict) else {}
+    timings = timings if isinstance(timings, dict) else {}
+    return GenerationUsage(
+        prompt_tokens=_int_or_none(usage.get("prompt_tokens")),
+        output_tokens=_int_or_none(usage.get("completion_tokens")),
+        prompt_ms=_float_or_none(timings.get("prompt_ms")),
+        predicted_ms=_float_or_none(timings.get("predicted_ms")),
+    )
+
+
+def embedding_vector(body: dict[str, Any]) -> list[float]:
+    """The first embedding's vector, checked for shape, finiteness."""
+    try:
+        data = body["data"]
+        embedding = data[0]["embedding"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ModelRuntimeError("invalid_output") from exc
+    if not isinstance(embedding, list) or not all(
+        isinstance(value, int | float) and not isinstance(value, bool) for value in embedding
+    ):
+        raise ModelRuntimeError("invalid_output")
+    if not all(math.isfinite(float(value)) for value in embedding):
+        raise ModelRuntimeError("non_finite_embedding")
+    return [float(value) for value in embedding]
+
+
+def unhealthy_status(code: str) -> HealthStatus:
+    """The fixed ``unhealthy`` answer carrying a ``MODEL_RUNTIME_ERROR_CODES``
+    detail code."""
+    return HealthStatus(state="unhealthy", detail_code=code, checked_at=datetime.now(UTC))
 
 
 @dataclass(frozen=True)
@@ -262,8 +367,8 @@ class LlamaCppProvider:
             "top_k": config.top_k,
             "stream": False,
         }
-        body = self._request_json(client, "POST", "/v1/chat/completions", payload, timeout_s)
-        content = self._choice_content(body)
+        body = request_json(client, "POST", "/v1/chat/completions", payload, timeout_s)
+        content = choice_content(body)
         try:
             data = json.loads(content)
         except ValueError as exc:
@@ -271,7 +376,7 @@ class LlamaCppProvider:
         if not isinstance(data, dict):
             raise ModelRuntimeError("invalid_output")
         validate_structured_output(data, schema)
-        return StructuredGeneration(data=data, usage=self._usage(body))
+        return StructuredGeneration(data=data, usage=generation_usage(body))
 
     # --- embedding ------------------------------------------------------------
 
@@ -286,10 +391,10 @@ class LlamaCppProvider:
             raise RuntimeError("embedding_provider_misassembled")
         if len(text) > config.max_input_chars:
             raise ModelRuntimeError("input_too_long")
-        body = self._request_json(
+        body = request_json(
             client, "POST", "/v1/embeddings", {"input": text}, DEFAULT_EMBED_TIMEOUT_S
         )
-        vector = self._embedding_vector(body)
+        vector = embedding_vector(body)
         self._learn_dimension(len(vector))
         return vector
 
@@ -316,8 +421,8 @@ class LlamaCppProvider:
         try:
             if self._role == "generation":
                 generation = self.generate(
-                    _HEALTH_PROMPT,
-                    _HEALTH_SCHEMA,
+                    HEALTH_PROMPT,
+                    HEALTH_SCHEMA,
                     timeout_s=self._config.health_timeout_s,
                 )
                 if generation.data.get("ok") is not True:
@@ -326,7 +431,7 @@ class LlamaCppProvider:
                 # D-023: a minimal embed() on a fixed short string --
                 # finiteness and dimensionality are enforced inside
                 # embed() itself and surface as unhealthy here.
-                self.embed(_EMBED_HEALTH_TEXT)
+                self.embed(EMBED_HEALTH_TEXT)
         except ModelRuntimeError as exc:
             return self._unhealthy(exc.code)
         return HealthStatus(state="ready", detail_code=None, checked_at=datetime.now(UTC))
@@ -340,7 +445,7 @@ class LlamaCppProvider:
         client = self._client
         if client is not None and not self._stopped:
             try:
-                body = self._request_json(client, "GET", "/props", None, DEFAULT_EMBED_TIMEOUT_S)
+                body = request_json(client, "GET", "/props", None, DEFAULT_EMBED_TIMEOUT_S)
             except ModelRuntimeError:
                 runtime_version = None
             else:
@@ -366,92 +471,8 @@ class LlamaCppProvider:
         if handle is not None and handle.poll() is not None:
             raise ModelRuntimeError("child_exited")
 
-    def _request_json(
-        self,
-        client: httpx.Client,
-        method: str,
-        path: str,
-        payload: dict[str, Any] | None,
-        timeout_s: float,
-    ) -> dict[str, Any]:
-        try:
-            if payload is None:
-                response = client.request(method, path, timeout=timeout_s)
-            else:
-                response = client.request(method, path, json=payload, timeout=timeout_s)
-        except httpx.TimeoutException as exc:
-            raise ModelRuntimeError("request_timeout") from exc
-        except httpx.TransportError as exc:
-            raise ModelRuntimeError("transport_error") from exc
-        except RuntimeError as exc:
-            # httpx 0.28 raises a bare RuntimeError ("Cannot send a
-            # request, as the client has been closed.") for the post-stop
-            # in-flight call instead of a TransportError; map it to the
-            # same fixed code (Sprint 5 review N2).
-            raise ModelRuntimeError("transport_error") from exc
-        if response.status_code == 401:
-            raise ModelRuntimeError("auth_rejected")
-        if response.status_code == 400:
-            raise ModelRuntimeError("invalid_request")
-        if response.status_code >= 500:
-            raise ModelRuntimeError("server_error")
-        if response.status_code < 200 or response.status_code >= 300:
-            # 404/405/415...: a request this server will not serve.
-            raise ModelRuntimeError("invalid_request")
-        try:
-            body = response.json()
-        except ValueError as exc:
-            raise ModelRuntimeError("invalid_output") from exc
-        if not isinstance(body, dict):
-            raise ModelRuntimeError("invalid_output")
-        return body
-
-    @staticmethod
-    def _choice_content(body: dict[str, Any]) -> str:
-        try:
-            choices = body["choices"]
-            message = choices[0]["message"]
-            content = message["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise ModelRuntimeError("invalid_output") from exc
-        if not isinstance(content, str):
-            raise ModelRuntimeError("invalid_output")
-        return content
-
-    @staticmethod
-    def _usage(body: dict[str, Any]) -> GenerationUsage | None:
-        """Structural metadata only (baselines, S5-07); absent fields stay
-        ``None``. Never includes content."""
-        usage = body.get("usage")
-        timings = body.get("timings")
-        if not isinstance(usage, dict) and not isinstance(timings, dict):
-            return None
-        usage = usage if isinstance(usage, dict) else {}
-        timings = timings if isinstance(timings, dict) else {}
-        return GenerationUsage(
-            prompt_tokens=_int_or_none(usage.get("prompt_tokens")),
-            output_tokens=_int_or_none(usage.get("completion_tokens")),
-            prompt_ms=_float_or_none(timings.get("prompt_ms")),
-            predicted_ms=_float_or_none(timings.get("predicted_ms")),
-        )
-
-    @staticmethod
-    def _embedding_vector(body: dict[str, Any]) -> list[float]:
-        try:
-            data = body["data"]
-            embedding = data[0]["embedding"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise ModelRuntimeError("invalid_output") from exc
-        if not isinstance(embedding, list) or not all(
-            isinstance(value, int | float) and not isinstance(value, bool) for value in embedding
-        ):
-            raise ModelRuntimeError("invalid_output")
-        if not all(math.isfinite(float(value)) for value in embedding):
-            raise ModelRuntimeError("non_finite_embedding")
-        return [float(value) for value in embedding]
-
     def _unhealthy(self, code: str) -> HealthStatus:
-        return HealthStatus(state="unhealthy", detail_code=code, checked_at=datetime.now(UTC))
+        return unhealthy_status(code)
 
 
 def _int_or_none(value: object) -> int | None:

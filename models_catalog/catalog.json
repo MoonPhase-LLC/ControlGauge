@@ -1,0 +1,184 @@
+{
+  "manifest_version": 1,
+  "catalog_version": "1.0.0",
+  "entries": [
+    {
+      "model_id": "qwen2.5-1.5b-instruct-q4-k-m",
+      "display_name": "Qwen2.5 1.5B Instruct Q4_K_M",
+      "format": "gguf",
+      "backend": "llama_cpp",
+      "roles": ["generation"],
+      "tier": "FAST",
+      "recommended": true,
+      "recommendation_withheld_reason": null,
+      "context_window": 32768,
+      "curated_context_tokens": 8192,
+      "max_input_tokens": 8192,
+      "max_output_tokens": 512,
+      "tokenizer": "qwen2-bpe",
+      "footprint": {
+        "runtime_overhead_bytes": 644245094,
+        "kv_cache_bytes_per_token": 28672,
+        "notes": "Author-assigned estimates. kv_cache_bytes_per_token = 2 x kv_dim x 2 bytes x 28 layers at fp16 KV (Qwen2.5-1.5B: 2 KV heads x 128 head dim), i.e. 28 KiB/token; ~224 MiB at the 8192-token curated context. runtime_overhead_bytes ~0.6 GiB covers the llama-server process beyond weights and KV. Consumed by the MODEL_RUNTIME.md section 5 formulas; verified against real decode baselines in docs/DEV_MODELS.md section 8."
+      },
+      "embedding_dimensions": null,
+      "embedding_normalization": null,
+      "embedding_similarity_metric": null,
+      "files": [
+        {
+          "filename": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+          "size_bytes": 1117320736,
+          "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+          "download_url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+        }
+      ],
+      "source": {
+        "repository_url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+        "revision": "91cad51170dc346986eccefdc2dd33a9da36ead9",
+        "revision_ref": "main",
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/blob/main/LICENSE"
+      },
+      "pairing_default": false,
+      "evaluation": { "status": "unevaluated", "suite_version": null, "results": null }
+    },
+    {
+      "model_id": "qwen2.5-7b-instruct-q4-k-m",
+      "display_name": "Qwen2.5 7B Instruct Q4_K_M",
+      "format": "gguf",
+      "backend": "llama_cpp",
+      "roles": ["generation"],
+      "tier": "BALANCED",
+      "recommended": true,
+      "recommendation_withheld_reason": null,
+      "context_window": 32768,
+      "curated_context_tokens": 8192,
+      "max_input_tokens": 8192,
+      "max_output_tokens": 512,
+      "tokenizer": "qwen2-bpe",
+      "footprint": {
+        "runtime_overhead_bytes": 1073741824,
+        "kv_cache_bytes_per_token": 57344,
+        "notes": "Author-assigned estimates. kv_cache_bytes_per_token = 2 x kv_dim x 2 bytes x 28 layers at fp16 KV (Qwen2.5-7B: 4 KV heads x 128 head dim), i.e. 56 KiB/token; ~448 MiB at the 8192-token curated context. runtime_overhead_bytes ~1.0 GiB covers the llama-server process beyond weights and KV. Consumed by the MODEL_RUNTIME.md section 5 formulas; verified against real decode baselines in docs/DEV_MODELS.md section 8."
+      },
+      "embedding_dimensions": null,
+      "embedding_normalization": null,
+      "embedding_similarity_metric": null,
+      "files": [
+        {
+          "filename": "qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf",
+          "size_bytes": 3993201344,
+          "sha256": "dfce12e3862a5283ccfb88221b48480e58745165de856439950d0f22590580db",
+          "download_url": "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/bb5d59e06d9551d752d08b292a50eb208b07ab1f/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+        },
+        {
+          "filename": "qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf",
+          "size_bytes": 689872288,
+          "sha256": "539cf93f78e887edea1c04e2d7d8cdaca9d01dae9c9025bcb8accbe29df3d72a",
+          "download_url": "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/bb5d59e06d9551d752d08b292a50eb208b07ab1f/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf"
+        }
+      ],
+      "source": {
+        "repository_url": "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF",
+        "revision": "bb5d59e06d9551d752d08b292a50eb208b07ab1f",
+        "revision_ref": "main",
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/blob/main/LICENSE"
+      },
+      "pairing_default": true,
+      "evaluation": { "status": "unevaluated", "suite_version": null, "results": null }
+    },
+    {
+      "model_id": "qwen2.5-14b-instruct-q4-k-m",
+      "display_name": "Qwen2.5 14B Instruct Q4_K_M",
+      "format": "gguf",
+      "backend": "llama_cpp",
+      "roles": ["generation"],
+      "tier": "ACCURATE",
+      "recommended": true,
+      "recommendation_withheld_reason": null,
+      "context_window": 32768,
+      "curated_context_tokens": 8192,
+      "max_input_tokens": 8192,
+      "max_output_tokens": 512,
+      "tokenizer": "qwen2-bpe",
+      "footprint": {
+        "runtime_overhead_bytes": 1610612736,
+        "kv_cache_bytes_per_token": 196608,
+        "notes": "Author-assigned estimates. kv_cache_bytes_per_token = 2 x kv_dim x 2 bytes x 48 layers at fp16 KV (Qwen2.5-14B: 8 KV heads x 128 head dim), i.e. 192 KiB/token; ~1.5 GiB at the 8192-token curated context. runtime_overhead_bytes ~1.5 GiB covers the llama-server process beyond weights and KV. Consumed by the MODEL_RUNTIME.md section 5 formulas."
+      },
+      "embedding_dimensions": null,
+      "embedding_normalization": null,
+      "embedding_similarity_metric": null,
+      "files": [
+        {
+          "filename": "qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf",
+          "size_bytes": 3991999872,
+          "sha256": "a09ea5e7b1eafb1b30b241726c3cc3c905c96f14ad41e246ffa5f44e53904f68",
+          "download_url": "https://huggingface.co/Qwen/Qwen2.5-14B-Instruct-GGUF/resolve/b466e1f8c07172155743e8e1307507d8a4f91fbd/qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf"
+        },
+        {
+          "filename": "qwen2.5-14b-instruct-q4_k_m-00002-of-00003.gguf",
+          "size_bytes": 3989373504,
+          "sha256": "21b9457d079680d284e90ef69607c4b2d8ef64a09d4729cb7b5e1357bdba41ae",
+          "download_url": "https://huggingface.co/Qwen/Qwen2.5-14B-Instruct-GGUF/resolve/b466e1f8c07172155743e8e1307507d8a4f91fbd/qwen2.5-14b-instruct-q4_k_m-00002-of-00003.gguf"
+        },
+        {
+          "filename": "qwen2.5-14b-instruct-q4_k_m-00003-of-00003.gguf",
+          "size_bytes": 1006737120,
+          "sha256": "c8d37006760a387a35216e070e6664d7da927f10be8eb870fef2e3d4833d9976",
+          "download_url": "https://huggingface.co/Qwen/Qwen2.5-14B-Instruct-GGUF/resolve/b466e1f8c07172155743e8e1307507d8a4f91fbd/qwen2.5-14b-instruct-q4_k_m-00003-of-00003.gguf"
+        }
+      ],
+      "source": {
+        "repository_url": "https://huggingface.co/Qwen/Qwen2.5-14B-Instruct-GGUF",
+        "revision": "b466e1f8c07172155743e8e1307507d8a4f91fbd",
+        "revision_ref": "main",
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/Qwen/Qwen2.5-14B-Instruct-GGUF/blob/main/LICENSE"
+      },
+      "pairing_default": false,
+      "evaluation": { "status": "unevaluated", "suite_version": null, "results": null }
+    },
+    {
+      "model_id": "nomic-embed-text-v1.5-q4-k-m",
+      "display_name": "nomic-embed-text-v1.5 Q4_K_M",
+      "format": "gguf",
+      "backend": "llama_cpp",
+      "roles": ["embedding"],
+      "tier": null,
+      "recommended": true,
+      "recommendation_withheld_reason": null,
+      "context_window": 2048,
+      "curated_context_tokens": 2048,
+      "max_input_tokens": 2048,
+      "max_output_tokens": null,
+      "tokenizer": "bert-wordpiece",
+      "footprint": {
+        "runtime_overhead_bytes": 429496730,
+        "kv_cache_bytes_per_token": 0,
+        "notes": "Author-assigned estimate. Embedding models keep no generation KV cache, so kv_cache_bytes_per_token is 0 by the role rule (MODEL_RUNTIME.md section 3.2); runtime_overhead_bytes ~0.4 GiB covers the llama-server embedding process beyond weights. 768-dimensional embeddings, L2-normalized (server-verified on the dev box, docs/DEV_MODELS.md section 4)."
+      },
+      "embedding_dimensions": 768,
+      "embedding_normalization": "l2",
+      "embedding_similarity_metric": "cosine",
+      "files": [
+        {
+          "filename": "nomic-embed-text-v1.5.Q4_K_M.gguf",
+          "size_bytes": 84106624,
+          "sha256": "d4e388894e09cf3816e8b0896d81d265b55e7a9fff9ab03fe8bf4ef5e11295ac",
+          "download_url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/0188c9bf409793f810680a5a431e7b899c46104c/nomic-embed-text-v1.5.Q4_K_M.gguf"
+        }
+      ],
+      "source": {
+        "repository_url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF",
+        "revision": "0188c9bf409793f810680a5a431e7b899c46104c",
+        "revision_ref": "main",
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF"
+      },
+      "pairing_default": true,
+      "evaluation": { "status": "unevaluated", "suite_version": null, "results": null }
+    }
+  ]
+}

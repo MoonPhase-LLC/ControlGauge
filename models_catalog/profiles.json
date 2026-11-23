@@ -1,0 +1,26 @@
+{
+  "manifest_version": 1,
+  "profiles": [
+    {
+      "profile_id": "consumer-cpu",
+      "display_name": "Consumer desktop (CPU only)",
+      "ram_bytes": 17179869184,
+      "vram_bytes": 0,
+      "gpu_count": 0
+    },
+    {
+      "profile_id": "workstation-32gb",
+      "display_name": "Pro workstation (32 GB VRAM)",
+      "ram_bytes": 68719476736,
+      "vram_bytes": 34359738368,
+      "gpu_count": 1
+    },
+    {
+      "profile_id": "enterprise-288gb",
+      "display_name": "Enterprise server (288 GB aggregate VRAM)",
+      "ram_bytes": 274877906944,
+      "vram_bytes": 309237645312,
+      "gpu_count": 8
+    }
+  ]
+}

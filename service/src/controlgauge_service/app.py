@@ -34,6 +34,7 @@ from .config import Settings
 from .credentials import CredentialStore
 from .db import Database
 from .evidence.ingest import IngestionService
+from .model_runtime.download import DownloadManager
 from .model_runtime.manager import ModelRuntimeManager
 from .routes.artifacts import router as artifacts_router
 from .routes.assessments import router as assessments_router
@@ -42,8 +43,12 @@ from .routes.challenge import CHALLENGE_PATH
 from .routes.challenge import router as challenge_router
 from .routes.errors import install_error_handlers
 from .routes.frameworks import router as frameworks_router
+from .routes.hardware import router as hardware_router
 from .routes.health import router as health_router
+from .routes.model_catalog import router as model_catalog_router
+from .routes.model_endpoints import router as model_endpoints_router
 from .routes.models import router as models_router
+from .routes.recommendations import router as recommendations_router
 
 logger = logging.getLogger("controlgauge_service")
 
@@ -57,13 +62,16 @@ def create_app(
     database: Database | None = None,
     ingestion: IngestionService | None = None,
     model_runtime: ModelRuntimeManager | None = None,
+    downloads: DownloadManager | None = None,
 ) -> FastAPI:
     """`database` is the migrated local database (Sprint 2). Both process
     entry points always pass one; it is optional here only so tests of
     routes that never touch storage need no database. Data routes answer
     503 `database_unavailable` without one. `model_runtime` is the
     Sprint 5 per-capability manager (S5-02); both entry points construct
-    one and call `stop_all()` beside `ingestion.stop()` at shutdown."""
+    one and call `stop_all()` beside `ingestion.stop()` at shutdown.
+    `downloads` is the Sprint 6 download manager (S6-04); both entry
+    points construct one and call `shutdown()` beside `stop_all()`."""
     resolved_settings = settings if settings is not None else Settings()
     docs_enabled = resolved_settings.environment == "development"
 
@@ -97,6 +105,8 @@ def create_app(
     app.state.ingestion = ingestion
     #: Sprint 5 model runtime; model routes answer 503 without it.
     app.state.model_runtime = model_runtime
+    #: Sprint 6 download manager; download routes answer 503 without it.
+    app.state.downloads = downloads
 
     # Outermost of our own middleware: every request, including ones to
     # undefined paths, is checked before routing ever occurs. The
@@ -121,6 +131,18 @@ def create_app(
     # Sprint 5 model routes (S5-05): import/runtime control, behind the
     # same D-009 middleware as every other route.
     app.include_router(models_router)
+    # Sprint 6 hardware detection (S6-02): local-only machine facts,
+    # behind the same middleware; no new state objects needed.
+    app.include_router(hardware_router)
+    # Sprint 6 curated catalog (S6-03): structural listing of the shipped
+    # manifest + installed state, behind the same middleware.
+    app.include_router(model_catalog_router)
+    # Sprint 6 user-registered external endpoints (S6-05): loopback-only,
+    # probe-gated registration, behind the same middleware.
+    app.include_router(model_endpoints_router)
+    # Sprint 6 hardware-aware recommendations (S6-06): pure computation
+    # over the manifest + cached hardware or a synthetic profile.
+    app.include_router(recommendations_router)
     if startup_challenge is not None:
         app.include_router(challenge_router)
 

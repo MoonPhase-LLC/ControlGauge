@@ -212,10 +212,14 @@ Further verified response shapes on this build (S5-02):
 
 ## 6. Hardware notes
 
-- Dev box: Linux x86_64, **CPU-only** (the machine's GPUs are occupied by
-  other workloads) — `-ngl` (GPU layers) is a provider config field but is
-  left unset here; **GPU deployments are configurable, not tested** in
-  Sprint 5 (PD-023 owner requirement 2 is satisfied as configurability).
+- Dev box: Linux x86_64. The machine's **three RTX PRO 6000 GPUs are
+  detectable** (Sprint 6 hardware detection enumerates them via the real
+  `nvidia-smi` path, ≈95.6 GiB each — see §9) but are **occupied by another
+  workload**, so the llama-server children here still run CPU-only with
+  `-ngl` (GPU layers) left unset; **GPU *inference* deployments remain
+  configurable, not tested** (PD-023 owner requirement 2 is satisfied as
+  configurability; the Sprint 6 GPU *recommendation* path, by contrast, IS
+  exercised on real hardware — §9).
 - CPU baseline for context (development box, not a requirement): model load
   of the 7B Q4_K_M takes tens of seconds; see §8 for measured baselines.
 
@@ -312,3 +316,85 @@ the generation child's ~7.9 GiB resident set (mapped weights + preallocated
 8192-token KV cache) is the per-instance RAM number to budget; restart
 determinism of these numbers is not guaranteed (fresh box, cold page cache,
 or a binary re-pin all shift them).
+
+## 9. Sprint 6 exit-validation evidence
+
+Recorded 2026-11-23 by `service/tests/test_integration_sprint6_exit_flow.py`
+(S6-08; runs with the dev gates set, offline-guarded — loopback + local
+probes only) and `service/tests/test_download_integration.py` (the
+real-network download E2E). This is the evidence behind the SPRINTS.md
+Sprint 6 exit criteria; limitations are stated, not smoothed over.
+
+### 9.1 Detected hardware (`GET /hardware`, this box)
+
+```json
+{
+  "os_name": "linux", "os_version": "7.0.0-42-generic",
+  "cpu_model": "x86_64", "cpu_cores_logical": 128,
+  "ram_total_bytes": 1081232535552, "ram_available_bytes": 1042004402176,
+  "gpus": [
+    {"vendor": "nvidia", "name": "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition",
+     "vram_bytes": 102641958912},
+    {"vendor": "nvidia", "name": "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition",
+     "vram_bytes": 102641958912},
+    {"vendor": "nvidia", "name": "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition",
+     "vram_bytes": 102641958912}
+  ],
+  "model_dir_free_bytes": 340225961984,
+  "detection_complete": true
+}
+```
+
+(The spec anticipated a no-GPU dev box; the box grew GPUs between Sprint 5
+and Sprint 6, so the REAL multi-GPU `nvidia-smi` enumeration is validated
+here and the no-GPU case stays covered by the parsing/route fixtures. The
+GPUs are occupied by another workload — occupancy ≠ absence. VRAM values
+are driver-reported totals, not free-at-runtime.)
+
+### 9.2 Recommendation verdicts (`GET /recommendations` + the three profiles)
+
+Detected hardware decides on the REAL GPU path (aggregate 3×0.9×95.6 GiB and
+per-GPU share both clear every entry): all four catalog entries
+**`recommended`**, all three pairs **`simultaneous`** (14B total
+12,209,335,968 B vs ≈92.4 GiB per-GPU budget). Footprint estimates are
+identical across every hardware source:
+
+| entry | total_bytes | detected / workstation-32gb / enterprise-288gb | consumer-cpu |
+|---|---|---|---|
+| qwen2.5-1.5b-instruct-q4-k-m | 1,996,446,854 | recommended / simultaneous | recommended / simultaneous |
+| qwen2.5-7b-instruct-q4-k-m | 6,226,577,504 | recommended / simultaneous | recommended / simultaneous |
+| qwen2.5-14b-instruct-q4-k-m | 12,209,335,968 | recommended / simultaneous | **infeasible** `insufficient_ram` |
+| nomic-embed-text-v1.5-q4-k-m | 513,603,354 | recommended / simultaneous | recommended / simultaneous |
+
+The honest no-ceiling property holds: the **enterprise-288gb profile
+recommends the FULL catalog** (nothing is withheld by hardware — only ever
+by the curator gate), workstation-32gb is all recommended, and consumer-cpu
+never auto-promotes the 14B while the FAST tier serves it.
+
+Limitations: this box's three GPUs are EQUAL, so the uneven-bank straggler
+case (aggregate passes, one GPU's share fails) remains synthetic-fixture
+only; the Windows DXGI detection path is fixture-verified until the owner's
+Windows machine run (SPRINTS.md exit criterion 1's Windows half).
+
+### 9.3 Download E2E (real network, `CONTROLGAUGE_TEST_ALLOW_DOWNLOAD=1`)
+
+**1/1 PASSED in 16.92 s** (`test_download_integration.py`): the approval
+POST starts the real 84,106,624 B nomic fetch from the pinned revision
+`0188c9bf…`, the streamed SHA-256 equals the manifest pin
+`d4e38889…95ac` fail-closed before registration, `model_file` + `model_source`
+rows record `origin=catalog_download` / `verification=catalog_manifest`, the
+downloaded file starts and its health check is a real 768-dim embed, stop is
+clean, and a rerun takes the duplicate path. Connect auditor: loopback +
+`*.huggingface.co`/`*.hf.co` only.
+
+### 9.4 Exit-flow composition (offline-guarded)
+
+**3/3 PASSED in 1.81 s** (`test_integration_sprint6_exit_flow.py`, one
+fresh app): detection → detected + three profile reports with the no-ceiling
+assertions → the catalog embedding entry registered with the manifest pin
+ENFORCED (`expected_sha256` — proving the dev file byte-identical to the
+catalog download; catalog `installed: true` via the S6-05 sha-coverage
+lookup) → start → real embed health → stop → external endpoint
+register(probe=real generation)/attach/structured generation/health/stop
+against a loopback stub (the real-engine round trip is S6-05's recorded
+integration test).

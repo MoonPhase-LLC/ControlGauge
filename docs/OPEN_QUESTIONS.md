@@ -18,6 +18,10 @@ resolution inline and mark Resolved) or as new ones surface during implementatio
   from scratch. The question itself stays open.*
 - P-3: What is the actual target list of "recommended" GGUF models for the initial catalog, and
   who curates/maintains it over time? (`MODEL_RUNTIME.md` §3, `SPRINTS.md` Sprint 6)
+  *Resolved 2026-11-22 (owner, PD-026): initial catalog = Qwen2.5-Instruct 1.5B/7B/14B Q4_K_M
+  tiers + nomic-embed-text-v1.5 Q4_K_M from official HF repos — a convenience baseline, not a
+  capability ceiling; curation/maintenance rides the in-repo versioned manifest per release, and a
+  separate user-managed registry accepts arbitrary compatible models.*
 
 ## Compliance
 
@@ -97,6 +101,14 @@ resolution inline and mark Resolved) or as new ones surface during implementatio
   groupings, once a second framework's real data is available to inform the actual shape needed?
   Deliberately not attempted in V0.1 with only one framework implemented — designing a general
   hierarchy against a single example risks guessing wrong.
+- A-6: Should user-registered external endpoints (`model_endpoint` table, Sprint 6) ever support
+  authentication, and if so where are those credentials stored? V0.1 deliberately registers
+  unauthenticated loopback endpoints only — the table has **no credential column** (fail-closed:
+  an endpoint requiring Bearer auth simply fails its health probe with `auth_rejected`), and the
+  service's own model-server credential (`DECISIONS.md` D-017) is per-launch and never persisted.
+  Persisting user-supplied endpoint credentials would introduce the first long-lived secret in
+  the database and needs a deliberate design (keychain integration vs encrypted-at-rest column vs
+  never storing them) before any UI offers it. Owner decision; not invented in Sprint 6.
 
 ## AI
 
@@ -125,6 +137,10 @@ resolution inline and mark Resolved) or as new ones surface during implementatio
   the data it may contain, or explicitly deferred with that risk accepted for V0.1? (T-12)
 - S-4: What is the exact model checksum/manifest verification mechanism, and who maintains and
   hosts the pinned model catalog referenced in `MODEL_RUNTIME.md` §3/§6? (T-08)
+  *Resolved 2026-11-22 (owner, PD-026): official Hugging Face pinned to exact revisions with
+  approved per-file SHA-256s, fail-closed verification, explicit user approval, provenance/license
+  recorded; external imports (local files / direct URLs) with user-supplied expected checksums and
+  a clear curated-vs-user-managed distinction; no self-hosted distribution for V0.1.*
 - S-5: Is dependency/SCA (software composition analysis) scanning required in CI for V0.1? (T-13)
 
 ---

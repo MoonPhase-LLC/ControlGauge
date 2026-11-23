@@ -236,6 +236,41 @@ Layered, per `SECURITY.md` T-06/T-07:
    pipeline has no action-taking capability exposed to model output at all (no tool use / function
    calling to app state in V0.1).
 
+## 13. Sprint 6 Integration Points (documented, not built)
+
+Sprint 6 (PD-026) makes **minimizing pre-assessment hallucinations** the highest-priority
+requirement. The mechanisms below are *documented here as integration points* — where they plug
+into the §1 stages — and are deliberately **not implemented** in Sprint 6 (later sprints; the
+evaluation suite is Sprint 14). Nothing in V0.1 fabricates their outputs.
+
+- **Evidence-first grounding** (around stages F/G): candidate evaluation prompts are anchored to
+  retrieved artifact-section text (§5 retrieval) and control text (§3), never to model memory;
+  the model is asked to justify mappings against supplied text only.
+- **Source attribution** (stage I): every mapping candidate already carries
+  artifact/section/control provenance (§COMPLIANCE_MODEL §5); grounding adds the specific
+  quoted evidence passage a suggested mapping rests on, persisted with the candidate.
+- **Explicit uncertainty / abstention** (stage I): structured outputs gain the reserved outcomes
+  `Insufficient Evidence` (the model found no adequate support in the supplied text) and
+  `Requires Human Review` (support exists but is ambiguous) — surfaced as first-class results,
+  not failures, so abstention is never coerced into a confident mapping.
+- **Independent verification pass** (after stage G, before stage I): a separate, bounded pass
+  re-checks each candidate against the cited evidence with fresh context (no reuse of the
+  generation turn's answer), recording agreement/disagreement as metadata.
+- **Independent reviewer model** (optional configuration): the verification pass may run on a
+  *different* model than the generation pass (the per-capability provider architecture of
+  `MODEL_RUNTIME.md` §8 already supports two models); a disagreement routes the candidate to
+  human review.
+- **Assessment-quality evaluation suite** (Sprint 14, `OPEN_QUESTIONS.md` AI-3): a curated
+  suite measuring mapping quality on ControlGauge's own task — **not** generic benchmarks. It
+  is what gates the catalog's per-model `evaluation` field: until it exists, every catalog
+  manifest entry ships `evaluation: {"status": "unevaluated", ...}` and the manifest loader
+  refuses any other value (fail-closed against fabricated evaluation data — `MODEL_RUNTIME.md`
+  §3.2). Model recommendations therefore never claim quality, only hardware feasibility plus the
+  curator's tier flag.
+- **Human oversight & auditability** (unchanged, restated): no AI output is ever authoritative
+  (§10); every run is persisted with model identity, prompts' structural metadata, and review
+  status so any automated step can be independently audited after the fact.
+
 See also: `MODEL_RUNTIME.md` for the `ModelProvider` interface these stages call into,
 `COMPLIANCE_MODEL.md` for the entities produced, `SECURITY.md` for the threats this design
 addresses.

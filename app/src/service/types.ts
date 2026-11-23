@@ -289,6 +289,13 @@ export type ModelFile = {
   embedding_dimensions: number | null;
   embedding_normalization: string | null;
   embedding_similarity_metric: string | null;
+  /** Registry distinction (S6-05): `local_import` | `catalog_download` |
+   * `url_import` — curated vs user-managed, visible without reading code
+   * (PD-026). */
+  origin: string;
+  /** `none` | `user_checksum` | `catalog_manifest` — how the content was
+   * verified, if at all. */
+  verification: string;
 };
 
 /**
@@ -326,4 +333,187 @@ export type ModelImportResult = {
   duplicate: boolean;
   provenance: string;
   warning: string;
+};
+
+// --- Sprint 6 hardware detection -------------------------------------------------
+// Mirror `app/src-tauri/src/supervisor/service_api.rs` (closed schemas). Machine
+// facts only: no path, URL, or credential ever appears in these shapes (T-10);
+// the disk figure is the free bytes *of* the model directory, never the path.
+
+/** One detected GPU. Unknown fields are null -- never guessed, never 0. */
+export type HardwareGpu = {
+  vendor: string;
+  name: string | null;
+  vram_bytes: number | null;
+};
+
+/**
+ * The closed machine-facts snapshot. An empty `gpus` list means "nothing
+ * detected" -- a valid result (e.g. Linux without nvidia-smi), never an error;
+ * `detection_complete` is false when any expected scalar field is unknown.
+ */
+export type HardwareInfo = {
+  os_name: string;
+  os_version: string | null;
+  cpu_model: string | null;
+  cpu_cores_logical: number | null;
+  ram_total_bytes: number | null;
+  ram_available_bytes: number | null;
+  gpus: HardwareGpu[];
+  model_dir_free_bytes: number | null;
+  detection_complete: boolean;
+  /** ISO 8601, UTC: the snapshot time, not a freshness claim. */
+  detected_at: string;
+};
+
+// --- Sprint 6 secure downloads (S6-04) --------------------------------------------
+// Mirror `app/src-tauri/src/supervisor/service_api.rs` (closed schemas). A
+// download answer is a state machine + byte counts: the filename is the REMOTE
+// artifact name (a manifest or import-URL datum), and no local path, URL, or
+// credential ever appears in these shapes (SECURITY T-10).
+
+/** The 202 body of an approved download start: the poll id only. */
+export type DownloadStarted = {
+  download_id: string;
+};
+
+/** One file's byte counts. `bytes_total` 0 = size not declared up front. */
+export type DownloadFileProgress = {
+  filename: string;
+  bytes_downloaded: number;
+  bytes_total: number;
+};
+
+/**
+ * The structural poll answer: state machine + byte counts, without contacting
+ * the model children or the network. `error_code` is set only on `failed`.
+ */
+export type DownloadStatus = {
+  download_id: string;
+  state: "pending" | "downloading" | "verifying" | "completed" | "failed" | "cancelled";
+  files: DownloadFileProgress[];
+  error_code: string | null;
+};
+
+// --- Sprint 6 recommendations (S6-06) ----------------------------------------------
+// Mirror `app/src-tauri/src/supervisor/service_api.rs` + the service's
+// `routes/recommendations.py` (closed schemas). Pure computation over the
+// shipped catalog + cached hardware (or a synthetic profile): no path, URL, or
+// credential ever appears (T-10).
+
+/** The §5 footprint estimate in bytes. */
+export type FootprintEstimate = {
+  weights_bytes: number;
+  kv_cache_bytes: number;
+  runtime_overhead_bytes: number;
+  total_bytes: number;
+};
+
+/**
+ * One entry's feasibility for one declared role. `verdict` is the closed
+ * `recommended|feasible|infeasible|unknown` vocabulary; `load_mode` the closed
+ * `simultaneous|sequential` one (generation roles only); `reasons` members of
+ * the fixed reason-code vocabulary.
+ */
+export type EntryVerdict = {
+  model_id: string;
+  role: string;
+  verdict: "recommended" | "feasible" | "infeasible" | "unknown";
+  load_mode: "simultaneous" | "sequential" | null;
+  estimated: FootprintEstimate;
+  reasons: string[];
+};
+
+/** One generation×embedding combination (D-023). */
+export type PairVerdict = {
+  generation_model_id: string;
+  embedding_model_id: string;
+  verdict: "simultaneous" | "sequential_only" | "infeasible";
+  combined_total_bytes: number;
+  reasons: string[];
+};
+
+/** The full report for one hardware source (`detected` or `profile:<id>`). */
+export type RecommendationReport = {
+  hardware_source: string;
+  entries: EntryVerdict[];
+  pairs: PairVerdict[];
+};
+
+// --- Sprint 6 catalog listing + external endpoints (S6-07) --------------------------
+// Mirror `app/src-tauri/src/supervisor/service_api.rs` (closed schemas). The
+// catalog entry carries the manifest's `repository_url`/`revision` (shown
+// verbatim in the approval dialog) and computed content digests -- both allowed
+// structural metadata; no credential ever appears (T-10).
+
+/** One downloadable file of a catalog entry: the user approves exactly these. */
+export type CatalogFile = {
+  filename: string;
+  size_bytes: number;
+  sha256: string;
+};
+
+/**
+ * One curated catalog entry with its installed state. `tier` is the closed
+ * fast|balanced|accurate vocabulary (null for embedding models);
+ * `evaluation_status` the closed `evaluated|evaluation_suite_pending` one.
+ */
+export type CatalogEntry = {
+  model_id: string;
+  display_name: string;
+  format: string;
+  backend: string;
+  roles: string[];
+  tier: string | null;
+  recommended: boolean;
+  recommendation_withheld_reason: string | null;
+  context_window: number;
+  curated_context_tokens: number;
+  max_input_tokens: number;
+  max_output_tokens: number | null;
+  total_bytes: number;
+  license: string;
+  revision: string;
+  repository_url: string;
+  embedding_dimensions: number | null;
+  installed: boolean;
+  installed_model_ids: string[];
+  evaluation_status: string;
+  files: CatalogFile[];
+};
+
+/** The closed `GET /model-catalog` answer: manifest + installed state. */
+export type ModelCatalog = {
+  catalog_version: string;
+  entries: CatalogEntry[];
+};
+
+/**
+ * One registered external endpoint. `base_url_host_only` is the normalized
+ * `scheme://host:port` form -- loopback by construction, with no path
+ * remainder to leak (T-10). Health fields are null until first check.
+ */
+export type Endpoint = {
+  id: string;
+  display_name: string;
+  backend: string;
+  base_url_host_only: string;
+  capabilities: string;
+  /** ISO 8601, UTC. */
+  registered_at: string;
+  last_health_at: string | null;
+  last_health_state: string | null;
+  last_health_code: string | null;
+};
+
+/** The closed `GET /model-endpoints` answer. */
+export type EndpointList = {
+  endpoints: Endpoint[];
+};
+
+/** The 200 body of a successful attach: the role is now served by the endpoint. */
+export type AttachResult = {
+  role: string;
+  state: string;
+  model_id: string;
 };

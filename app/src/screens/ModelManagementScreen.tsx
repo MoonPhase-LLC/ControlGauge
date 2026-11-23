@@ -2,6 +2,10 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Cpu, TriangleAlert } from "lucide-react";
 import { ErrorNotice, LoadingNotice, ScreenHeading, ServiceNotReady, formatDateTime } from "@/components/screen";
+import { EndpointSection } from "@/components/models/EndpointSection";
+import { HardwareSummaryCard } from "@/components/models/HardwareSummaryCard";
+import { UrlImportSection } from "@/components/models/UrlImportSection";
+import { formatBytes } from "@/components/models/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -11,24 +15,64 @@ import type { ModelFile, ModelInventory, ModelRole, RuntimeStatus, SupervisorSta
 import { useServiceQuery } from "@/service/useServiceQuery";
 
 /**
- * T-08: every model here was imported from a local file and never vetted by
- * the app, so each entry carries this fixed provenance warning -- visually
- * distinct from the verified catalog downloads a later release adds. Fixed
- * frontend text (not service-returned) so the warning cannot vary with data.
+ * T-08: a locally imported model was never vetted by the app, so its entry
+ * carries this fixed provenance warning -- now contrasting with the verified
+ * catalog downloads (S6-07). Fixed frontend text (not service-returned) so
+ * the warning cannot vary with data. Catalog-download entries skip it: their
+ * verification badge already says the checksum was enforced.
  */
 export const PROVENANCE_WARNING =
-  "This model was imported from a local file. Its provenance is not verified by the app, and it runs with full local privileges. Verified catalog downloads are coming in a later release.";
+  "This model came from outside the app's catalog. Its provenance is not verified by the app, and it runs with full local privileges. Models downloaded from the built-in catalog are checksum-verified before they are registered.";
 
 const ROLE_LABELS: Record<string, string> = {
   generation: "Generation",
   embedding: "Embedding",
 };
 
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${bytes} B`;
+/** Where a registry entry came from (S6-05 `origin`), visible without reading code (PD-026). */
+const ORIGIN_LABELS: Record<string, string> = {
+  local_import: "Local import",
+  url_import: "URL import",
+  catalog_download: "Catalog download",
+};
+
+/** How the content was verified (S6-05 `verification`), if at all. */
+const VERIFICATION_LABELS: Record<string, string> = {
+  none: "Unverified",
+  user_checksum: "Checksum verified",
+  catalog_manifest: "Catalog verified",
+};
+
+function OriginBadge({ model }: { model: ModelFile }) {
+  const label = ORIGIN_LABELS[model.origin] ?? model.origin;
+  const tone =
+    model.origin === "catalog_download"
+      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
+      : "border-transparent bg-muted text-muted-foreground";
+  return (
+    <span
+      title={`Origin: ${model.origin}`}
+      className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium ${tone}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+function VerificationBadge({ model }: { model: ModelFile }) {
+  const label = VERIFICATION_LABELS[model.verification] ?? model.verification;
+  const tone =
+    model.verification === "none"
+      ? "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200"
+      : "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200";
+  return (
+    <span
+      title={`Verification: ${model.verification}`}
+      className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium ${tone}`}
+    >
+      {label}
+    </span>
+  );
 }
 
 type ModelAction = "start" | "stop" | "health";
@@ -162,12 +206,12 @@ export function ModelManagementScreen({
   return (
     <div className="flex flex-col gap-8">
       <header className="flex flex-col gap-2">
-        <ScreenHeading focusOnMount={focusOnMount}>Models</ScreenHeading>
+        <ScreenHeading focusOnMount={focusOnMount}>My models</ScreenHeading>
         <p className="max-w-prose text-muted-foreground">
-          Import a local GGUF model file and run it for generation or embedding. Everything on this
-          screen happens on this computer; no model file or content ever leaves it. The state badge
-          shows a role&apos;s last known state; use a model&apos;s Run health check action to verify
-          it right now.
+          Your model registry: everything you have imported or downloaded, and the external
+          endpoints you registered. The state badge shows a role&apos;s last known state; use a
+          model&apos;s Run health check action to verify it right now. The built-in catalog&apos;s
+          curated downloads live on the Model catalog screen.
         </p>
       </header>
 
@@ -183,6 +227,8 @@ export function ModelManagementScreen({
         <ErrorNotice title="Models could not be loaded" error={inventory.error} onRetry={inventory.reload} />
       ) : (
         <>
+          <HardwareSummaryCard enabled={ready} />
+
           <Card>
             <CardHeader className="justify-items-start gap-3">
               <CardTitle>Import a model</CardTitle>
@@ -218,13 +264,18 @@ export function ModelManagementScreen({
             </CardHeader>
           </Card>
 
+          <UrlImportSection onChanged={inventory.reload} />
+
+          <EndpointSection enabled={ready} runtime={runtime} onRuntimeChanged={inventory.reload} />
+
           {models.length === 0 ? (
             <Card>
               <CardHeader className="justify-items-start gap-3">
                 <Cpu aria-hidden="true" className="size-6 text-muted-foreground" />
-                <CardTitle>No models imported</CardTitle>
+                <CardTitle>No models registered</CardTitle>
                 <CardDescription className="max-w-prose">
-                  Import a GGUF model file above to run generation or embedding fully offline.
+                  Download a curated model from the Model catalog screen, or import a GGUF file
+                  above, to run generation or embedding fully offline.
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -292,15 +343,20 @@ function ModelRow({
         <div className="flex min-w-0 flex-col gap-1">
           <span className="truncate font-medium">{model.display_name}</span>
           <span className="text-sm text-muted-foreground">
-            {ROLE_LABELS[model.role] ?? model.role} · {formatBytes(model.size_bytes)} · Imported{" "}
+            {ROLE_LABELS[model.role] ?? model.role} · {formatBytes(model.size_bytes)} ·{" "}
+            {model.origin === "catalog_download" ? "Downloaded" : "Imported"}{" "}
             {formatDateTime(model.imported_at)}
             {model.embedding_dimensions !== null && ` · ${model.embedding_dimensions} dimensions`}
           </span>
         </div>
-        <RuntimeBadge state={occupantState} />
+        <div className="flex shrink-0 items-center gap-2">
+          <OriginBadge model={model} />
+          <VerificationBadge model={model} />
+          <RuntimeBadge state={occupantState} />
+        </div>
       </div>
 
-      <ProvenanceWarning />
+      {model.origin !== "catalog_download" && <ProvenanceWarning />}
 
       {health && (
         <p className="text-sm text-muted-foreground" role="status">

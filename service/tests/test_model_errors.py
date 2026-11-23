@@ -15,7 +15,14 @@ import httpx
 import pytest
 
 from controlgauge_service.model_runtime.config import EmbeddingServerConfig, GenerationServerConfig
-from controlgauge_service.model_runtime.errors import ModelRuntimeError
+from controlgauge_service.model_runtime.errors import (
+    _MESSAGES,
+    CATALOG_ERROR_CODES,
+    DOWNLOAD_ERROR_CODES,
+    MODEL_RUNTIME_ERROR_CODES,
+    SPRINT6_ERROR_CODES,
+    ModelRuntimeError,
+)
 from controlgauge_service.model_runtime.provider import LlamaCppProvider
 
 _OK_SCHEMA: dict[str, Any] = {
@@ -380,3 +387,50 @@ def test_generate_never_persists() -> None:
         "_dimension_learned",
         "_observed_dimensions",
     }
+
+
+# --- S6-04: the Sprint 6 download/catalog codes ---------------------------------
+
+
+@pytest.mark.parametrize("code", SPRINT6_ERROR_CODES)
+def test_sprint6_code_has_exactly_one_fixed_message(code: str) -> None:
+    """Every Sprint 6 code constructs, carries its one fixed message, and
+    that message never contains a path, URL, or filename (T-10: the fixed
+    text is all a client ever learns)."""
+    error = ModelRuntimeError(code)
+    assert error.code == code
+    assert str(error) == _MESSAGES[code]
+    assert "://" not in str(error)
+    assert "/" not in str(error)
+    assert "\\" not in str(error)
+    assert ".gguf" not in str(error)
+
+
+def test_sprint6_codes_are_in_the_runtime_taxonomy() -> None:
+    """The S6 tuples are the taxonomy's members, not a side list: every
+    Sprint 6 code is a valid `ModelRuntimeError` code and every download
+    code is reachable from the routes' status maps."""
+    assert set(SPRINT6_ERROR_CODES) <= set(MODEL_RUNTIME_ERROR_CODES)
+    assert "download_cancelled" not in MODEL_RUNTIME_ERROR_CODES  # a state, not an error
+    assert set(DOWNLOAD_ERROR_CODES) < set(MODEL_RUNTIME_ERROR_CODES)
+    assert set(CATALOG_ERROR_CODES) < set(MODEL_RUNTIME_ERROR_CODES)
+
+
+def test_registry_codes_are_pinned_and_routable() -> None:
+    """The S6-05 registry codes exist, are members of the Sprint 6 union
+    and the runtime taxonomy, and every one is reachable from the
+    endpoints router's fixed status map (`model_endpoints.py`)."""
+    from controlgauge_service.model_runtime.errors import REGISTRY_ERROR_CODES
+    from controlgauge_service.routes.model_endpoints import _REGISTRY_ERROR_STATUS
+
+    assert set(REGISTRY_ERROR_CODES) <= set(MODEL_RUNTIME_ERROR_CODES)
+    assert set(REGISTRY_ERROR_CODES) <= set(SPRINT6_ERROR_CODES)
+    assert set(_REGISTRY_ERROR_STATUS) == set(REGISTRY_ERROR_CODES)
+    # The fixed statuses: request problems 422, conflicts 409, unknown
+    # id 404, an unverifiable endpoint 502.
+    assert _REGISTRY_ERROR_STATUS["registry_endpoint_invalid"] == 422
+    assert _REGISTRY_ERROR_STATUS["registry_endpoint_not_loopback"] == 422
+    assert _REGISTRY_ERROR_STATUS["registry_endpoint_unreachable"] == 502
+    assert _REGISTRY_ERROR_STATUS["registry_duplicate"] == 409
+    assert _REGISTRY_ERROR_STATUS["endpoint_not_found"] == 404
+    assert _REGISTRY_ERROR_STATUS["endpoint_attached"] == 409
