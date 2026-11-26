@@ -32,8 +32,9 @@ information lives.
 | 2 | Assessment and database layer | 1 | Done (PR #17) | `DATABASE.md` §7, `BATCH_JOBS.md` S2-* |
 | 3 | NIST 800-53 framework engine | 2 | Done (PR #18, merged 2026-11-05) | `DATABASE.md` §8, `BATCH_JOBS.md` S3-*, PD-012/013/015 |
 | 4 | Evidence ingestion + parser containment | 2 | Done (PR #19, merged 2026-11-05) | `DATABASE.md` §9, `BATCH_JOBS.md` S4-*, PD-016, D-027 |
-| 5 | Local model runtime | 1 | Future | `MODEL_RUNTIME.md`, D-011, D-017, D-023 |
-| 6 | Hardware detection + model recommendations | 5 | Future | `MODEL_RUNTIME.md`, OQ P-3, S-4 |
+| 5 | Local model runtime | 1 | Done (merged 2026-11-17, §7, PD-025) | `MODEL_RUNTIME.md`, D-011, D-017, D-023 |
+| 6 | Hardware detection + model recommendations | 5 | Done (merged 2026-11-23, §7, PD-026) | `MODEL_RUNTIME.md`, OQ P-3, S-4 |
+| 6.1 | Cross-platform validation + dev-infra hardening | 6 | In progress (owner-authorized 2026-11-25) | Owner-issued scope; `BATCH_JOBS.md` S6.1-*, `docs/CI.md`, AI-2 package |
 | 7 | Artifact classification | 4, 5 | Future | `AI_PIPELINE.md` §4, OQ AI-2 |
 | 8 | Evidence-to-control mapping | 3, 4, 5, 7 | Future | `AI_PIPELINE.md`, D-012..D-014, D-019..D-025 |
 | 9 | Policy-to-control mapping | 8 | Future | D-004, OQ C-1 |

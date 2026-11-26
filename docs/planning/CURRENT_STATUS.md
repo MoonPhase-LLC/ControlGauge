@@ -5,16 +5,16 @@ documents describe plans or decisions; none of them track progress. Navigation:
 [MASTER_PLAN](MASTER_PLAN.md) · [BATCH_JOBS](BATCH_JOBS.md) · [EXECUTION_RULES](EXECUTION_RULES.md) ·
 [DECISION_LOG](DECISION_LOG.md)
 
-Last updated: 2026-11-23 (Sprint 6 batches S6-01..S6-08 complete; reviewer gate next).
+Last updated: 2026-11-25 (Sprint 6 shipped @ `cd5d569`; owner authorized Sprint 6.1 — cross-platform validation & dev-infra hardening).
 
 ## Position
 
 | Item | Value |
 |---|---|
-| Current sprint | Sprint 6 (hardware detection + model catalog/recommendations) — batches complete on `claude/sprint-6-hardware-catalog` |
-| Active batch | None — all of S6-01..S6-08 DONE (see `BATCH_JOBS.md`); reviewer gate is next |
-| Next action | Reviewer gate over the Sprint 6 branch → §7 merge (owner-authorized); Windows-CI invariants re-verified on the main push; operator-gated manual UI acceptance run remains the sprint's standing open item |
-| Baseline | `origin/main` @ `ded58d9` (Sprint 5 merge `5925928` + Windows-CI fix-forwards `e55a1be`, `fd9d356`, `ded58d9`; §7) |
+| Current sprint | Sprint 6.1 (cross-platform validation and development infrastructure hardening) — owner-issued scope 2026-11-25, authorized through implementation + §7 merge; NOT Sprint 7 |
+| Active batch | S6.1-01 kickoff docs implemented; S6.1-02..S6.1-08 ready (see `BATCH_JOBS.md` Sprint 6.1) |
+| Next action | S6.1-02 CI workflow hardening (branch-push triggers + CI Gate) → S6.1-03 dispatch seams + parameterized cross-platform tests → audit (04) → validate command (05) → governance (06) → demonstration (07) → reviewer + security gate (08); branch-protection application + agent PR creation stay BLOCKED pending owner PAT category grants (AI-2 package) |
+| Baseline | `origin/main` @ `cd5d569` (Sprint 6 merge `0bd56db` + Windows fix-forward 4 `58e426c`/`cd5d569`; §7) |
 | Sprint 5 commits | Kickoff docs `b4451e8`; S5-01 `58a2fa1`, S5-02 `ceea877`, S5-03 `d62fff1`, S5-04 `d7c0ba8`, S5-05 `f163967`, S5-06 `5959a4c`, S5-07 `d97cd58`; review fix round `5934465`; merge `5925928`; CI fix-forwards `e1ff803`/`e55a1be` and `6945871`/`fd9d356` |
 | Open PRs | None |
 
@@ -60,8 +60,9 @@ Last updated: 2026-11-23 (Sprint 6 batches S6-01..S6-08 complete; reviewer gate 
 | 4 Evidence ingestion + parser containment | Complete (PR #19, merged 2026-11-05, PD-018) |
 | 4.5 Linux parser containment parity | Complete (merged to `main` 2026-11-17, PD-022) |
 | 5 Local model runtime | Complete (merged to `main` 2026-11-17, PD-025; manual UI acceptance run still operator-gated) |
-| 6 Hardware detection + model catalog/recommendations | Batches S6-01..S6-08 complete (2026-11-23, `claude/sprint-6-hardware-catalog`); reviewer gate next; manual UI acceptance run still operator-gated |
-| 7–16 | Not started |
+| 6 Hardware detection + model catalog/recommendations | Complete (merged to `main` 2026-11-23 @ `cd5d569`, §7, reviewer APPROVE; CI green 7/7 post-fix-forward-4; manual UI acceptance run still operator-gated) |
+| 6.1 Cross-platform validation + dev-infra hardening | In progress (owner-authorized 2026-11-25; `claude/sprint-6-1-validation-hardening`; S6.1-01 done, 02–08 ready) |
+| 7–16 | Not started (Sprint 7 = artifact classification, gated on owner decision AI-2) |
 
 ## Blockers and pending decisions
 
@@ -146,7 +147,8 @@ Last updated: 2026-11-23 (Sprint 6 batches S6-01..S6-08 complete; reviewer gate 
 
 ## Update log (newest first; keep to one line each)
 
-- 2026-11-23 — Sprint 6 S6-01..S6-08 complete on `claude/sprint-6-hardware-catalog` (local commits, not pushed): exit-validation flow + planning-doc finalization (S6-08, incl. a shadowed-duplicate `CatalogFileOut` fix-forward); offline gates 936p/36sk, env-gated exit-flow 3/3 + download E2E 1/1 passed; reviewer gate next.
+- 2026-11-25 — Sprint 6.1 authorized by owner (cross-platform validation + dev-infra hardening, ff3/ff4 root causes); investigation complete (root cause: origin PAT lacks fine-grained PR-write + Administration categories → §7 merges bypass the PR path → only push:[main] CI ever fired; ci.yml has had PR triggers since S1-07); kickoff docs + architect spec done; Sprint 7 NOT started.
+- 2026-11-23 — Sprint 6 SHIPPED under §7: reviewer APPROVE, fix round `a746ba5` (N1–N4), merge `0bd56db`; CI's first Windows run of Sprint 6 found ONE Unix-biased test (no production bug) → fix-forward 4 `58e426c` → merge `cd5d569`, CI green 7/7. Post-merge CURRENT_STATUS update deferred to the Sprint 6.1 kickoff (this entry).
 - 2026-11-17 — Sprint 4.5 merged to `main` under standing owner instruction §7 (PD-022): PR creation 403 (PD-020 token state) → local `--no-ff` merge + push; local gates re-verified pre-merge on Linux (pytest 578 passed/7 skipped, ruff/format/mypy clean); CI on the main push watched post-merge.
 - 2026-11-16 — Sprint 4.5 (D-028, PD-021): bubblewrap parser sandbox on Linux; containment harness runs contained on Linux (pytest 578 passed/7 skipped, ruff/format/mypy clean); docs + AppArmor prerequisite documented; Windows invariant 575/6 preserved. Branch `claude/linux-parser-sandbox`, not pushed.
 - 2026-11-16 — Pending docs landed on `main` by owner instruction: PR #20 merged (`b442033`), PD-019 commits pushed direct (PD-020); merged branches deleted. Linux audit: service pytest 561 passed/20 skipped on Linux; `cargo check` clean on Linux.

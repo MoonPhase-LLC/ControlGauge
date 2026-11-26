@@ -877,6 +877,143 @@ cargo 106p/8f Linux (8 pre-existing failures byte-identical to main), Vitest 70/
   started, health-checked, stopped). Windows invariants re-verified on CI after the §7 merge
   (post-merge task; CI runs only on main pushes).
 
+## Sprint 6.1 — Cross-Platform Validation and Development Infrastructure Hardening
+
+Owner-issued scope (2026-11-25): permanently address the workflow deficiencies that let
+platform-specific test failures reach main (fix-forward 3 and 4) — pre-merge CI validation,
+merge protection, platform-independent regression tests, a unified local validate command, a
+CI fallback ladder, and governance updates. NOT Sprint 7; classification (AI-2) stays open.
+One branch `claude/sprint-6-1-validation-hardening`, batches committed separately, reviewer +
+security-reviewer gate before the §7 merge. Implementation spec: the Sprint 6.1 architect
+deliverable (2026-11-25, persisted `/tmp/opencode/sprint61-spec.md`).
+**Investigation root cause (§1):** `ci.yml` has carried `pull_request: [main]` triggers since
+S1-07 — the workflow was never the problem. PR creation 403s under the origin PAT's
+fine-grained permission categories (PD-020; Administration + Pull-requests:write missing,
+verified live 2026-11-25), so §7 merges bypass the PR path and only `push: [main]` CI fires;
+platform bugs surfaced post-merge as fix-forwards. Permission limitation the governance
+adapted around, not an intentional skip-validation decision. Repo is PUBLIC → hosted runners
+unmetered (no Actions-quota concern).
+
+### S6.1-01 — Sprint 6.1 kickoff docs
+- **Status:** implemented 2026-11-25.
+- **Scope:** this section; `CURRENT_STATUS.md` position + update log; `MASTER_PLAN.md` Sprint
+  6.1 row (plus correcting the stale Sprint 5/6 rows to their merged states). Docs-only diff.
+- **Result:** kickoff docs committed; branch `claude/sprint-6-1-validation-hardening` pushed.
+- **Validation:** docs-only (R-00 precedent); commit SHA recorded in the batch entry.
+
+### S6.1-02 — CI workflow hardening: branch-push triggers, workflow_dispatch, CI Gate
+- **Status:** Ready.
+- **Scope:** `.github/workflows/ci.yml` only — `push` triggers += `'claude/**'`; add
+  `workflow_dispatch`; concurrency group becomes per-branch
+  (`ci-<head-ref||branch>`, cancel-in-progress for non-main); append a `ci-gate` aggregator
+  job (`needs:` all five jobs, `if: always()`, fails unless every mandatory job == success —
+  skipped ≠ passed) as the ONE stable required-check name for branch protection. Header
+  comment updated. claude.yml / claude-code-review.yml untouched; all job contents, caching,
+  permissions, timeouts unchanged (7 check-runs → 8, purely additive).
+- **Validation:** YAML parses locally (advisory); authoritative validation = push the sprint
+  branch → first branch-triggered CI run, 5 jobs + CI Gate green on ubuntu + windows legs;
+  record run ID. If red from a workflow bug, fix on the branch (main still runs the old
+  workflow until the §7 merge — main is never the canary). RISK R-6: pushing workflow-file
+  changes may 403 (fine-grained PAT "Workflows" category) — if so, surface to owner (Q-4).
+- **Depends:** S6.1-01. Sequencing-critical: observed green on the branch before later
+  batches are trusted.
+
+### S6.1-03 — Dispatch seams + cross-platform parameterized tests (ff4 + ff3 classes)
+- **Status:** Ready.
+- **Scope:** minimal production seams, default behavior preserved exactly:
+  `hardware/detect.py` `_platform_probes(platform_key=None)` + `detect_hardware(..., *,
+  platform_key=None)` (never shadows `import platform`); `model_runtime/args.py`
+  `build_child_env(credential, *, environ=None)` (pure dict logic). One-line companion fix:
+  `test_hardware_models.py` `_platform_probes` lambda gains `platform_key=None`. New
+  `service/tests/test_hardware_dispatch.py` (7 tests, parametrized BOTH backends from any
+  host: wrong-backend invocation proof via counters, partial failure, total failure, unknown
+  values, unsupported keys, default==host, os_version stays host-derived; NO global
+  `sys.platform` monkeypatching). `test_model_args.py` += 4 tests (synthetic Windows environ
+  keys arrive, full-allowlist-copy equality, absent-when-unset, default still reads
+  process env).
+- **Validation:** targeted pytest green on both CI OSes; full offline suite **936 + N
+  passed** (record exact N); ruff + `ruff format --check` clean; mypy strict clean linux AND
+  `--platform win32`.
+- **Depends:** S6.1-01 (parallel with S6.1-02 allowed; both on the branch before S6.1-07).
+
+### S6.1-04 — Test-suite OS-assumption audit + fixes (§4)
+- **Status:** Ready.
+- **Scope:** grep-driven sweep (platform dispatch, paths/separators, env, case sensitivity,
+  exec discovery, subprocess/signals, shell, temp/newlines/truncate, hardware probes,
+  appdata, symlinks/locking/net; Rust patterns incl. `MAIN_SEPARATOR`, `taskkill`) + manual
+  shortlist review; classification table (file → category 1 contract / 2 simulated /
+  3 native → finding → action) recorded in this entry; fixes pin invariants (never
+  skip-to-green; `collect_ignore_glob` stays the only gating mechanism). Rust: verify the
+  documented cargo 8f set still matches; never "fix" it. A found PRODUCTION platform bug
+  stops and surfaces — not fixed silently under this sprint.
+- **Validation:** full offline pytest with before/after per-platform collection counts;
+  ruff/format/mypy×2 clean; Windows CI leg's collected count verified (D-028 invariant: no
+  linux-only test collects on Windows).
+- **Depends:** S6.1-03.
+
+### S6.1-05 — Unified local validate command + cargo baseline + docs/CI.md
+- **Status:** Ready.
+- **Scope:** new `scripts/validate` (bash, fast + `--full`, exit 0/1/2, preflight, honest
+  labeling: `[linux native]` vs `[win32 SIMULATED]` banners and the standing line that
+  simulated win32 is NOT native Windows execution — native Windows = CI run IDs only);
+  new `scripts/cargo-test-baseline.txt` (the 8 documented failing cargo test names,
+  machine-readable with provenance comments; baseline-compare in the script: new failure →
+  exit 1, baseline-stale → loud warning + exit 0, exact match → green); new `docs/CI.md`
+  (job/check-run table, CI Gate as the required check, triggers + concurrency +
+  duplicate-run rationale, validate usage, cargo baseline mechanism, Windows-validation
+  honesty rules, the §7 fallback ladder: hosted → authorized self-hosted (ephemeral, no
+  secrets, fork-PR caveat) → owner-authorized VM → local-simulation-preliminary-only;
+  gate stays BLOCKED if native Windows validation is unavailable — report, never fake);
+  README dev-section one-liner.
+- **Validation:** `scripts/validate` exit 0 (fast); `scripts/validate --full` exit 0 with
+  the cargo baseline exactly satisfied; outputs recorded.
+- **Depends:** S6.1-04.
+
+### S6.1-06 — Governance doc integration (§8)
+- **Status:** Ready.
+- **Scope:** integrate the 12 owner-required rules into EXISTING docs (no new policy doc):
+  `CLAUDE.md` Git Workflow (validate before PR; local success ≠ cross-platform proof),
+  Forbidden Actions (no weakening tests/CI, no merging on red/pending/cancelled checks, no
+  protection bypass), Testing (contracts are platform-independent; platform claims need
+  platform-scoped tests); `docs/AGENT_INSTRUCTIONS.md` §7 + §9; `EXECUTION_RULES.md`
+  repository rules (main is a validated release line; fix-forward is exceptional; CI changes
+  get independent review) + evidence bullets (cite SHA + execution environment;
+  pending/cancelled ≠ success; post-validation changes need revalidation; post-protection
+  §7 loop = branch → PR → CI Gate green → owner-authorized PR merge).
+- **Validation:** docs-only diff; grep check that each rule is present at its insertion
+  point; cross-references resolve.
+- **Depends:** S6.1-05.
+
+### S6.1-07 — Demonstration (§10): prevention proven on a throwaway branch
+- **Status:** Ready.
+- **Scope:** branch `claude/sprint61-demo-regression` (forked after S6.1-05; deleted after
+  evidence, NEVER merged): (1) plant an ff4-equivalent Linux-biased test; (2) push →
+  branch CI fires → windows leg red → CI Gate red (run IDs recorded — proves pre-main
+  detection); (3) merge-blocking outcome recorded honestly (refusal if protection applied;
+  else BLOCKED pending AI-2 — never simulated); (4) fix to the sanctioned seam form →
+  green run; (5) empty commit → third run ID (new commits re-run checks); (6) delete the
+  demo branch.
+- **Validation:** the three run IDs + verdicts + the merge-attempt outcome, recorded here.
+- **Depends:** S6.1-02 + S6.1-03 + S6.1-05.
+
+### S6.1-08 — Reviewer + security-reviewer gate, AI-2 package, completion report
+- **Status:** Ready.
+- **Scope:** reviewer re-runs all gates independently at HEAD (never trusts batch entries);
+  security reviewer checks: `contents: read` + `persist-credentials: false` posture intact,
+  no `pull_request_target`, no secrets, gate not gameable, branch-protection JSON reviewed
+  line-by-line, demo branch deleted. AI-2 package prepared verbatim:
+  `branch-protection.json` (required_status_checks `["CI Gate"]` + strict, enforce_admins,
+  no force-push/deletions, conversation resolution; NO review-count requirement — Config A
+  recommended since agents PR with the owner's own PAT and self-approval is impossible;
+  Config B offered) + the four curl commands + the PAT category list (Administration RW,
+  Pull requests RW, Actions RW, Workflows RW, Contents held). §12 completion report:
+  PASS/FAIL/BLOCKED per criterion, every claim citing SHA + environment + run ID.
+  Expected BLOCKED items: protection application + agent PR creation (owner token
+  categories) and the §10 "blocks merge" proof if Q-1 is unanswered.
+- **Validation:** all gates re-run at HEAD; report persisted to the planning docs.
+- **Depends:** all above. **Sprint 7 is NOT started** — AI-2 decision (classification
+  method) remains the owner's gate.
+
 ## Later sprints (milestone level only)
 
 Detailed batches are created at the start of each sprint (PD-002). Do not pre-plan beyond this.
